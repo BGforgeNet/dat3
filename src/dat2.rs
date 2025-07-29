@@ -48,6 +48,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt}; // Reading binary da
 use deku::prelude::*; // Declarative binary parsing
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression}; // zlib compression
 use rayon::prelude::*; // Parallel processing
+use std::collections::HashSet; // For deduplication
 use std::fs; // File system operations
 use std::io::{Cursor, Read, Write}; // Input/output operations
 use std::path::Path; // Cross-platform paths
@@ -368,7 +369,7 @@ impl Dat2Archive {
     }
 
     /// Compress data with zlib
-    fn compress_zlib(&self, data: &[u8], level: u8) -> Result<Vec<u8>> {
+    fn compress_zlib_static(data: &[u8], level: u8) -> Result<Vec<u8>> {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(level as u32));
         encoder.write_all(data)?;
         encoder.finish().context("Failed to compress with zlib")
@@ -385,16 +386,13 @@ impl Dat2Archive {
         let base_path = file_path.as_ref();
         let files = utils::collect_files(&file_path, recursive)?;
 
-        for file in files {
-            let data =
-                fs::read(&file).with_context(|| format!("Failed to read {}", file.display()))?;
-
-            // Determine archive path, preserving directory structure for recursive operations
+        // Helper closure to determine archive path
+        let get_archive_path = |file: &std::path::PathBuf| -> Result<String> {
             let archive_path = if let Some(target) = target_dir {
                 if recursive && base_path.is_dir() {
                     // Preserve directory structure including the base directory name
                     let relative_path = if let Some(parent) = base_path.parent() {
-                        file.strip_prefix(parent).unwrap_or(&file).to_string_lossy()
+                        file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
                     } else {
                         file.to_string_lossy()
                     };
@@ -414,7 +412,7 @@ impl Dat2Archive {
                 // Preserve directory structure including the base directory name
                 if let Some(parent) = base_path.parent() {
                     file.strip_prefix(parent)
-                        .unwrap_or(&file)
+                        .unwrap_or(file)
                         .to_string_lossy()
                         .to_string()
                 } else {
@@ -426,33 +424,52 @@ impl Dat2Archive {
                     .to_string_lossy()
                     .to_string()
             };
+            Ok(utils::normalize_path_for_archive(&archive_path))
+        };
 
-            // Convert to backslashes for DAT archive storage
-            let archive_path = utils::normalize_path_for_archive(&archive_path);
-            let display_path = utils::normalize_path_for_display(&archive_path);
-            println!("Adding: {display_path}");
+        // Process files in parallel
+        let results: Result<Vec<FileEntry>> = files
+            .par_iter()
+            .map(|file| {
+                let data =
+                    fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
-            // Remove existing file with same name
-            self.files.retain(|f| f.name != archive_path);
+                let archive_path = get_archive_path(file)?;
+                let display_path = utils::normalize_path_for_display(&archive_path);
+                println!("Adding: {display_path}");
 
-            // Compress if requested and create file entry
-            let file_entry = if compression.level() > 0 {
-                let compressed_data = self.compress_zlib(&data, compression.level())?;
-                // Only use compression if it actually saves space
-                if compressed_data.len() < data.len() {
-                    FileEntry::with_compression_data(archive_path, data, compressed_data)
+                // Compress if requested and create file entry
+                let file_entry = if compression.level() > 0 {
+                    let compressed_data = Self::compress_zlib_static(&data, compression.level())?;
+
+                    // Only use compression if it actually saves space
+                    if compressed_data.len() < data.len() {
+                        FileEntry::with_compression_data(archive_path, data, compressed_data)
+                    } else {
+                        let mut entry = FileEntry::with_data(archive_path, data, false);
+                        entry.size = entry.packed_size; // Set size for uncompressed
+                        entry
+                    }
                 } else {
                     let mut entry = FileEntry::with_data(archive_path, data, false);
                     entry.size = entry.packed_size; // Set size for uncompressed
                     entry
-                }
-            } else {
-                let mut entry = FileEntry::with_data(archive_path, data, false);
-                entry.size = entry.packed_size; // Set size for uncompressed
-                entry
-            };
+                };
 
-            self.files.push(file_entry);
+                Ok(file_entry)
+            })
+            .collect();
+
+        let new_entries = results?;
+
+        // Remove existing files with same names and add new entries
+        let mut seen_names = HashSet::new();
+        for entry in new_entries {
+            if seen_names.insert(entry.name.clone()) {
+                // Remove existing file with same name from archive
+                self.files.retain(|f| f.name != entry.name);
+                self.files.push(entry);
+            }
         }
 
         // Sort files alphabetically (as per DAT2 format)

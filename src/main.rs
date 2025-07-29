@@ -84,7 +84,7 @@ enum Commands {
         #[arg(short, long)]
         recursive: bool,
         /// How much to compress files, 0=none to 9=maximum (-c flag)
-        #[arg(short, long, default_value = "6")]
+        #[arg(short, long, default_value = "1")]
         compression: u8,
         /// Force creating a DAT1 format archive (--dat1 flag)
         #[arg(long)]
