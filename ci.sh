@@ -2,12 +2,12 @@
 
 set -xeuo pipefail
 
-# Ensure cargo bin directory is in PATH
-export PATH="$HOME/.cargo/bin:$PATH"
-
 cargo install cargo-binstall
 
-cargo binstall -y cargo-audit cargo-deny cargo-machete cargo-bloat
+# Caching action has a bug, binstalls are not cached properly.
+if ! cargo help audit >/dev/null 2>&1; then
+    cargo binstall -y --force cargo-audit cargo-deny cargo-machete cargo-bloat
+fi
 
 # Format check
 cargo fmt --all -- --check
