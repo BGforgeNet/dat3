@@ -2,6 +2,9 @@
 
 set -xeuo pipefail
 
+# Ensure cargo bin directory is in PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
 cargo install cargo-binstall
 
 cargo binstall -y cargo-audit cargo-deny cargo-machete cargo-bloat
