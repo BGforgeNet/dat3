@@ -1,0 +1,19 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Project-specific
+*.dat
+*.DAT
+
+!/tests/
+/tests/*
+!/tests/rpu.sh
+!/tests/rpu.md5
+!/tests/f1.sh
+!/tests/dat2.exe
+!/tests/response_files.txt
+
+# IDE
+.vscode/

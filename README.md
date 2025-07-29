@@ -1,0 +1,137 @@
+# DAT3 - Fallout DAT Tool
+
+Fallout .dat management cli.
+
+Crossplatform, static Rust re-implementation of DAT2, with minor differences.
+
+## Usage
+
+### Extract all files
+
+```bash
+dat3 x master.dat
+```
+
+### Extract all files into directory
+
+```bash
+dat3 x master.dat -o ./extracted/
+```
+
+### Extract specific files
+
+```bash
+# Mix forward and backward slashes on any platform
+dat3 x master.dat art/critters/HMMAXX.FRM scripts\generic.int
+```
+
+### Extract without directory structure (flat)
+
+```bash
+dat3 e master.dat -o ./files/
+```
+
+### List files in a DAT archive
+
+```bash
+# List all files
+dat3 l master.dat
+
+# List specific files (supports cross-platform paths)
+dat3 l master.dat art/critters/vault.frm text\english\quotes.txt
+
+# List files from response file
+dat3 l master.dat @files_to_list.txt
+```
+
+### Response file support
+
+```bash
+# Create a file listing files to process
+echo "art/critters/vault.frm" > files.txt
+echo "text\\english\\quotes.txt" >> files.txt
+echo "scripts/generic.int" >> files.txt
+
+# Use with any command (mutually exclusive with explicit file lists)
+dat3 l master.dat @files.txt
+dat3 x master.dat @files.txt -o extracted/
+dat3 e master.dat @files.txt -o flat/
+dat3 a master.dat @files.txt -r
+dat3 d master.dat @files.txt
+```
+
+### Add files to a DAT archive
+
+```bash
+# Add single file
+dat3 a master.dat myfile.txt
+
+# Add directory recursively
+dat3 a master.dat myfolder/ -r
+
+# Add with max compression level
+dat3 a master.dat largefile.txt -c 9
+
+# Add to specific directory in archive
+dat3 a master.dat myfile.txt -t "art/graphics"
+
+# Force DAT1 format for new archive
+dat3 a newarchive.dat myfiles/ --dat1 -r
+
+# Add files from response file
+dat3 a master.dat @files_to_add.txt -r
+```
+
+### Delete files from archive
+
+```bash
+# Delete single file (cross-platform paths supported)
+dat3 d master.dat text/english/quotes.txt
+
+# Delete multiple files
+dat3 d master.dat file1.txt art\critters\vault.frm
+
+# Delete files from response file
+dat3 d master.dat @files_to_delete.txt
+```
+
+Delete only deletes file records. It doesn't reduce archive size.
+
+## Building
+
+### Requirements
+
+- Rust 1.70 or newer
+- Target-specific toolchains (install as needed)
+
+### Static Builds (Recommended)
+
+```bash
+# Linux 64-bit static
+cargo build --release --target x86_64-unknown-linux-musl
+
+# Windows 64-bit static  
+cargo build --release --target x86_64-pc-windows-gnu
+
+# Windows 32-bit static
+cargo build --release --target i686-pc-windows-gnu
+```
+
+Binaries will be at:
+- `target/x86_64-unknown-linux-musl/release/dat3` (~854KB)
+- `target/x86_64-pc-windows-gnu/release/dat3.exe` (~1.2MB)
+- `target/i686-pc-windows-gnu/release/dat3.exe` (~1.1MB)
+
+### Install targets (one-time setup)
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+rustup target add x86_64-pc-windows-gnu  
+rustup target add i686-pc-windows-gnu
+```
+
+## Differences from DAT2
+
+- Shrink (`k` command) not implemented.
+- Flat extraction is a separate command, `e`.
+- DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.
