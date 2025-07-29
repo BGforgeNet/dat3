@@ -413,23 +413,10 @@ pub mod utils {
     /// Works with both internal format (forward slashes) and archive format (backslashes).
     /// This is used for flat extraction where we want just the filename without directories.
     pub fn get_filename_from_dat_path(path: &str) -> &str {
-        // Find the last path separator (try both forward and backward slashes)
-        let last_forward = path.rfind('/');
-        let last_backward = path.rfind('\\');
-
-        let last_separator = match (last_forward, last_backward) {
-            (Some(f), Some(b)) => Some(f.max(b)), // Use the rightmost separator
-            (Some(f), None) => Some(f),
-            (None, Some(b)) => Some(b),
-            (None, None) => None,
-        };
-
-        if let Some(pos) = last_separator {
-            &path[pos + 1..]
-        } else {
-            // No separator found, return the whole string
-            path
-        }
+        // Find the last path separator (either forward or backward slash)
+        path.rfind(['/', '\\'])
+            .map(|pos| &path[pos + 1..])
+            .unwrap_or(path)
     }
 
     /// Convert filename bytes from old DAT files to modern UTF-8 strings
@@ -440,26 +427,20 @@ pub mod utils {
     /// 2. Then try Windows-1252 (for old game files)  
     /// 3. Finally do a lossy conversion as last resort
     pub fn decode_filename(bytes: &[u8]) -> Result<String> {
-        // Remove null bytes (C-style string terminators) from the end
-        let trimmed_bytes = bytes
-            .iter()
-            .take_while(|&&b| b != 0) // Stop at first null byte
-            .cloned()
-            .collect::<Vec<u8>>();
+        // Remove null bytes (C-style string terminators)
+        let trimmed_bytes: Vec<u8> = bytes.iter().take_while(|&&b| b != 0).copied().collect();
 
-        // Try UTF-8 first (most common case for newer files)
+        // Try UTF-8 first (most common case)
         if let Ok(utf8_str) = std::str::from_utf8(&trimmed_bytes) {
             return Ok(utf8_str.to_string());
         }
 
-        // If UTF-8 fails, try Windows-1252 (legacy Windows encoding)
+        // Try Windows-1252 (legacy encoding)
         let (decoded, _, had_errors) = WINDOWS_1252.decode(&trimmed_bytes);
-        if had_errors {
-            // Last resort: convert with replacement characters for invalid bytes
-            let lossy_str = String::from_utf8_lossy(&trimmed_bytes);
-            Ok(lossy_str.to_string())
+        Ok(if had_errors {
+            String::from_utf8_lossy(&trimmed_bytes).to_string()
         } else {
-            Ok(decoded.to_string())
-        }
+            decoded.to_string()
+        })
     }
 }

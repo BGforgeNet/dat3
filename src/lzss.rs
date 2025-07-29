@@ -43,9 +43,7 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
     let mut dictionary = vec![0u8; DICT_SIZE];
     let mut dict_write_pos; // Will be set for each compressed block
 
-    // Optional debug output for troubleshooting compression issues
     let debug = std::env::var("LZSS_DEBUG").is_ok();
-    let mut debug_block_count = 0;
 
     while let Ok(n) = cursor.read_i16::<BigEndian>() {
         if n == 0 {
@@ -75,14 +73,7 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
             dictionary.fill(0x20); // Fill entire dictionary with spaces
 
             if debug {
-                eprintln!("LZSS: Reset dict_write_pos = {dict_write_pos} and reinitialized entire dictionary with spaces");
-                eprintln!("LZSS: Dictionary positions 0-10: {:?}", &dictionary[0..10]);
-                eprintln!(
-                    "LZSS: Dictionary positions {}..{}: {:?}",
-                    DICT_SIZE - 10,
-                    DICT_SIZE,
-                    &dictionary[DICT_SIZE - 10..DICT_SIZE]
-                );
+                eprintln!("LZSS: Reset dict_write_pos = {dict_write_pos} and reinitialized dictionary with spaces");
             }
 
             // Process flags with upper bit tracking
@@ -102,7 +93,9 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                             flags = (c as u16) | 0xff00; // Set upper 8 bits
                             bytes_read += 1;
                             if debug {
-                                eprintln!("LZSS: Read new flag byte: 0x{c:02x}, flags now: 0x{flags:04x}, bytes_read: {bytes_read}");
+                                eprintln!(
+                                    "LZSS: New flag byte: 0x{c:02x}, bytes_read: {bytes_read}"
+                                );
                             }
                             if bytes_read > bytes_to_process {
                                 break;
@@ -124,12 +117,7 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                     bytes_read += 1;
 
                     if debug {
-                        eprintln!(
-                            "LZSS: LITERAL: byte=0x{:02x}, write to dict[{}], output pos={}",
-                            byte,
-                            dict_write_pos,
-                            output.len()
-                        );
+                        eprintln!("LZSS: LITERAL: byte=0x{byte:02x}, dict_pos={dict_write_pos}");
                     }
 
                     output.push(byte);
@@ -163,8 +151,7 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                     let match_length = ((byte2 & 0x0F) + 2) as usize;
 
                     if debug {
-                        eprintln!("LZSS: DICT_REF: byte1=0x{:02x}, byte2=0x{:02x}, read_pos={}, write_pos={}, match_length={}, output_pos={}", 
-                                 byte1, byte2, dict_read_pos, dict_write_pos, match_length, output.len());
+                        eprintln!("LZSS: DICT_REF: read_pos={dict_read_pos}, write_pos={dict_write_pos}, len={match_length}");
                     }
 
                     // Copy from dictionary
@@ -173,10 +160,7 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                         let byte = dictionary[read_offset];
 
                         if debug {
-                            eprintln!("LZSS:   k={}, read_offset={}, write_pos={}, byte=0x{:02x} ('{}'), output_pos={}", 
-                                     k, read_offset, dict_write_pos, byte,
-                                     if byte == 0x20 { "SPACE" } else if byte == 0x00 { "NULL" } else { "other" },
-                                     output.len());
+                            eprintln!("LZSS:   copy k={k}, byte=0x{byte:02x}");
                         }
 
                         output.push(byte);
@@ -188,13 +172,10 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
 
             if debug {
                 eprintln!(
-                    "LZSS: Block {} finished, processed {} bytes, output now {} bytes",
-                    debug_block_count,
-                    bytes_read,
+                    "LZSS: Block finished, processed {bytes_read} bytes, output now {} bytes",
                     output.len()
                 );
             }
-            debug_block_count += 1;
         }
     }
 

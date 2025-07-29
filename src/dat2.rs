@@ -241,27 +241,30 @@ impl Dat2Archive {
     ) -> Result<()> {
         let output_dir = output_dir.as_ref();
 
-        // Normalize user input patterns to internal format (forward slashes)
+        // Use shared filtering logic from common module
         let normalized_patterns: Vec<String> = files
             .iter()
             .map(|p| utils::normalize_user_path(p).into_owned())
             .collect();
 
-        // Decide which files to extract
-        let files_to_extract: Vec<&FileEntry> = self
-            .files
-            .iter()
-            .filter(|file| {
-                // If no specific files requested, extract everything
-                // Otherwise, extract files whose names contain any of the requested patterns
-                normalized_patterns.is_empty()
-                    || normalized_patterns
-                        .iter()
-                        .any(|pattern| file.name.contains(pattern))
-            })
-            .collect();
+        let (files_to_extract, _) = crate::common::filter_and_track_patterns(
+            &self.files,
+            &normalized_patterns,
+            |file, pattern| file.name.contains(pattern),
+        );
 
-        // Share archive data across parallel threads for better performance
+        self.extract_files_parallel(&files_to_extract, output_dir, flat)?;
+
+        Ok(())
+    }
+
+    /// Extract files in parallel (helper method)
+    fn extract_files_parallel(
+        &self,
+        files_to_extract: &[&FileEntry],
+        output_dir: &Path,
+        flat: bool,
+    ) -> Result<()> {
         let archive_data = Arc::new(self.get_data_slice());
         let total_files = files_to_extract.len();
         let completed = Arc::new(AtomicUsize::new(0));
@@ -269,11 +272,10 @@ impl Dat2Archive {
         println!("Extracting {total_files} files...");
         let start = Instant::now();
 
-        // Extract files in parallel for better performance
         files_to_extract
             .par_iter()
             .try_for_each(|file| -> Result<()> {
-                // Show progress every 1000 files or at the end
+                // Show progress
                 let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
                 if count % 1000 == 0 || count == total_files {
                     let elapsed = start.elapsed().as_millis();
@@ -283,23 +285,18 @@ impl Dat2Archive {
                     );
                 }
 
-                // Determine where to save this file
+                // Determine output path
                 let output_path = if flat {
-                    // Flat extraction: extract just the filename without directory path
                     let filename = utils::get_filename_from_dat_path(&file.name);
                     output_dir.join(filename)
                 } else {
-                    // Preserve directory structure from the archive
                     output_dir.join(utils::to_system_path(&file.name))
                 };
 
-                // Create directories if they don't exist
                 utils::ensure_dir_exists(&output_path)?;
 
-                // Read the file data from the archive
+                // Read and decompress file data
                 let file_data = self.read_file_data_from_bytes(&archive_data, file)?;
-
-                // Decompress if needed, otherwise use data as-is
                 let final_data = if file.compressed {
                     Self::decompress_zlib_static_with_size(&file_data, file.size as usize)
                         .with_context(|| format!("Failed to decompress {}", file.name))?
@@ -307,17 +304,14 @@ impl Dat2Archive {
                     file_data
                 };
 
-                // Write the file to disk
                 fs::write(&output_path, final_data)
                     .with_context(|| format!("Failed to write {}", output_path.display()))?;
 
                 Ok(())
             })?;
 
-        // Show completion message
         let total_time = start.elapsed();
         println!("Extraction completed in {:.2}s", total_time.as_secs_f64());
-
         Ok(())
     }
 
@@ -385,10 +379,41 @@ impl Dat2Archive {
         encoder.finish().context("Failed to compress with zlib")
     }
 
+    /// Process a single file for adding to archive (helper method)
+    fn process_single_file_for_adding(
+        &self,
+        file: &std::path::Path,
+        base_path: &std::path::Path,
+        recursive: bool,
+        compression: CompressionLevel,
+        target_dir: Option<&str>,
+    ) -> Result<FileEntry> {
+        let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
+        let archive_path = Self::calculate_archive_path(file, base_path, recursive, target_dir)?;
+        let display_path = utils::normalize_path_for_display(&archive_path);
+        println!("Adding: {display_path}");
+
+        if compression.level() > 0 {
+            let compressed_data = Self::compress_zlib_static(&data, compression.level())?;
+            if compressed_data.len() < data.len() {
+                Ok(FileEntry::with_compression_data(
+                    archive_path,
+                    data,
+                    compressed_data,
+                ))
+            } else {
+                let mut entry = FileEntry::with_data(archive_path, data, false);
+                entry.size = entry.packed_size;
+                Ok(entry)
+            }
+        } else {
+            let mut entry = FileEntry::with_data(archive_path, data, false);
+            entry.size = entry.packed_size;
+            Ok(entry)
+        }
+    }
+
     /// Calculate the archive path for a file being added
-    ///
-    /// This helper function determines where a file should be stored inside the archive.
-    /// It handles different scenarios like recursive directory addition and target directories.
     fn calculate_archive_path(
         file: &std::path::Path,
         base_path: &std::path::Path,
@@ -396,10 +421,8 @@ impl Dat2Archive {
         target_dir: Option<&str>,
     ) -> Result<String> {
         let archive_path = match target_dir {
-            // If a target directory is specified, put files there
             Some(target) => {
                 if recursive && base_path.is_dir() {
-                    // Keep the directory structure under the target directory
                     let relative_path = if let Some(parent) = base_path.parent() {
                         file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
                     } else {
@@ -407,7 +430,6 @@ impl Dat2Archive {
                     };
                     format!("{target}/{relative_path}")
                 } else {
-                    // Just put the file directly in the target directory
                     let filename = file
                         .file_name()
                         .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
@@ -415,10 +437,8 @@ impl Dat2Archive {
                     format!("{target}/{filename}")
                 }
             }
-            // No target directory specified
             None => {
                 if recursive && base_path.is_dir() {
-                    // Keep the directory structure from the base path
                     if let Some(parent) = base_path.parent() {
                         file.strip_prefix(parent)
                             .unwrap_or(file)
@@ -428,7 +448,6 @@ impl Dat2Archive {
                         file.to_string_lossy().to_string()
                     }
                 } else {
-                    // Just use the filename
                     file.file_name()
                         .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
                         .to_string_lossy()
@@ -437,7 +456,6 @@ impl Dat2Archive {
             }
         };
 
-        // Convert to DAT archive format (backslashes)
         Ok(utils::normalize_path_for_archive(&archive_path))
     }
 
@@ -473,45 +491,18 @@ impl Dat2Archive {
         let files = utils::collect_files(&file_path, recursive)?;
 
         // Process all files in parallel for better performance
-        // Each thread will read, compress, and prepare one file independently
         let results: Result<Vec<FileEntry>> = files
-            .par_iter() // This splits the work across multiple CPU cores
+            .par_iter()
             .map(|file| {
-                // Step 1: Read the file from disk
-                let data =
-                    fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
-
-                // Step 2: Figure out what to call this file inside the archive
-                let archive_path =
-                    Self::calculate_archive_path(file, base_path, recursive, target_dir)?;
-                let display_path = utils::normalize_path_for_display(&archive_path);
-                println!("Adding: {display_path}");
-
-                // Step 3: Compress the file if requested
-                let file_entry = if compression.level() > 0 {
-                    // Try to compress the data
-                    let compressed_data = Self::compress_zlib_static(&data, compression.level())?;
-
-                    // Only use compression if it actually makes the file smaller
-                    if compressed_data.len() < data.len() {
-                        // Compression helped - use the compressed version
-                        FileEntry::with_compression_data(archive_path, data, compressed_data)
-                    } else {
-                        // Compression didn't help - store uncompressed
-                        let mut entry = FileEntry::with_data(archive_path, data, false);
-                        entry.size = entry.packed_size; // Mark as uncompressed
-                        entry
-                    }
-                } else {
-                    // No compression requested - store as-is
-                    let mut entry = FileEntry::with_data(archive_path, data, false);
-                    entry.size = entry.packed_size; // Mark as uncompressed
-                    entry
-                };
-
-                Ok(file_entry)
+                self.process_single_file_for_adding(
+                    file,
+                    base_path,
+                    recursive,
+                    compression,
+                    target_dir,
+                )
             })
-            .collect(); // Collect all results back into a single Vec
+            .collect();
 
         // Get the processed file entries (this will error if any file failed)
         let new_entries = results?;
