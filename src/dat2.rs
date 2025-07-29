@@ -368,14 +368,98 @@ impl Dat2Archive {
         Ok(self.data[start..end].to_vec())
     }
 
-    /// Compress data with zlib
+    /// Compress data using zlib compression
+    ///
+    /// This is a helper function that takes raw file data and compresses it.
+    /// The compression level determines how much CPU time to spend on compression:
+    /// - Level 0: No compression (fastest)
+    /// - Level 9: Maximum compression (slowest)
     fn compress_zlib_static(data: &[u8], level: u8) -> Result<Vec<u8>> {
+        // Create a new zlib encoder that writes to a Vec<u8>
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(level as u32));
+
+        // Write all the data to the encoder
         encoder.write_all(data)?;
+
+        // Finish compression and get the compressed data
         encoder.finish().context("Failed to compress with zlib")
     }
 
-    /// Add a file to the archive
+    /// Calculate the archive path for a file being added
+    ///
+    /// This helper function determines where a file should be stored inside the archive.
+    /// It handles different scenarios like recursive directory addition and target directories.
+    fn calculate_archive_path(
+        file: &std::path::Path,
+        base_path: &std::path::Path,
+        recursive: bool,
+        target_dir: Option<&str>,
+    ) -> Result<String> {
+        let archive_path = match target_dir {
+            // If a target directory is specified, put files there
+            Some(target) => {
+                if recursive && base_path.is_dir() {
+                    // Keep the directory structure under the target directory
+                    let relative_path = if let Some(parent) = base_path.parent() {
+                        file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
+                    } else {
+                        file.to_string_lossy()
+                    };
+                    format!("{target}/{relative_path}")
+                } else {
+                    // Just put the file directly in the target directory
+                    let filename = file
+                        .file_name()
+                        .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
+                        .to_string_lossy();
+                    format!("{target}/{filename}")
+                }
+            }
+            // No target directory specified
+            None => {
+                if recursive && base_path.is_dir() {
+                    // Keep the directory structure from the base path
+                    if let Some(parent) = base_path.parent() {
+                        file.strip_prefix(parent)
+                            .unwrap_or(file)
+                            .to_string_lossy()
+                            .to_string()
+                    } else {
+                        file.to_string_lossy().to_string()
+                    }
+                } else {
+                    // Just use the filename
+                    file.file_name()
+                        .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
+                        .to_string_lossy()
+                        .to_string()
+                }
+            }
+        };
+
+        // Convert to DAT archive format (backslashes)
+        Ok(utils::normalize_path_for_archive(&archive_path))
+    }
+
+    /// Add files to the archive
+    ///
+    /// This method can add a single file or an entire directory to the archive.
+    /// Files are processed in parallel for better performance.
+    ///
+    /// # Parameters
+    /// - `file_path`: Path to file or directory to add
+    /// - `recursive`: If true, add directories and all their contents
+    /// - `compression`: How much to compress files (0=none, 9=maximum)
+    /// - `target_dir`: Optional directory name inside the archive to put files
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Add a single file
+    /// archive.add_file("myfile.txt", false, CompressionLevel::new(6)?, None)?;
+    ///
+    /// // Add a directory recursively with compression
+    /// archive.add_file("my_folder", true, CompressionLevel::new(1)?, Some("data"))?;
+    /// ```
     pub fn add_file<P: AsRef<Path>>(
         &mut self,
         file_path: P,
@@ -384,169 +468,195 @@ impl Dat2Archive {
         target_dir: Option<&str>,
     ) -> Result<()> {
         let base_path = file_path.as_ref();
+
+        // Find all files to add (handles both single files and directories)
         let files = utils::collect_files(&file_path, recursive)?;
 
-        // Helper closure to determine archive path
-        let get_archive_path = |file: &std::path::PathBuf| -> Result<String> {
-            let archive_path = if let Some(target) = target_dir {
-                if recursive && base_path.is_dir() {
-                    // Preserve directory structure including the base directory name
-                    let relative_path = if let Some(parent) = base_path.parent() {
-                        file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
-                    } else {
-                        file.to_string_lossy()
-                    };
-                    format!("{target}/{relative_path}")
-                } else {
-                    format!(
-                        "{target}/{}",
-                        file.file_name()
-                            .ok_or_else(|| anyhow::anyhow!(
-                                "Invalid filename for: {}",
-                                file.display()
-                            ))?
-                            .to_string_lossy()
-                    )
-                }
-            } else if recursive && base_path.is_dir() {
-                // Preserve directory structure including the base directory name
-                if let Some(parent) = base_path.parent() {
-                    file.strip_prefix(parent)
-                        .unwrap_or(file)
-                        .to_string_lossy()
-                        .to_string()
-                } else {
-                    file.to_string_lossy().to_string()
-                }
-            } else {
-                file.file_name()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
-                    .to_string_lossy()
-                    .to_string()
-            };
-            Ok(utils::normalize_path_for_archive(&archive_path))
-        };
-
-        // Process files in parallel
+        // Process all files in parallel for better performance
+        // Each thread will read, compress, and prepare one file independently
         let results: Result<Vec<FileEntry>> = files
-            .par_iter()
+            .par_iter() // This splits the work across multiple CPU cores
             .map(|file| {
+                // Step 1: Read the file from disk
                 let data =
                     fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
-                let archive_path = get_archive_path(file)?;
+                // Step 2: Figure out what to call this file inside the archive
+                let archive_path =
+                    Self::calculate_archive_path(file, base_path, recursive, target_dir)?;
                 let display_path = utils::normalize_path_for_display(&archive_path);
                 println!("Adding: {display_path}");
 
-                // Compress if requested and create file entry
+                // Step 3: Compress the file if requested
                 let file_entry = if compression.level() > 0 {
+                    // Try to compress the data
                     let compressed_data = Self::compress_zlib_static(&data, compression.level())?;
 
-                    // Only use compression if it actually saves space
+                    // Only use compression if it actually makes the file smaller
                     if compressed_data.len() < data.len() {
+                        // Compression helped - use the compressed version
                         FileEntry::with_compression_data(archive_path, data, compressed_data)
                     } else {
+                        // Compression didn't help - store uncompressed
                         let mut entry = FileEntry::with_data(archive_path, data, false);
-                        entry.size = entry.packed_size; // Set size for uncompressed
+                        entry.size = entry.packed_size; // Mark as uncompressed
                         entry
                     }
                 } else {
+                    // No compression requested - store as-is
                     let mut entry = FileEntry::with_data(archive_path, data, false);
-                    entry.size = entry.packed_size; // Set size for uncompressed
+                    entry.size = entry.packed_size; // Mark as uncompressed
                     entry
                 };
 
                 Ok(file_entry)
             })
-            .collect();
+            .collect(); // Collect all results back into a single Vec
 
+        // Get the processed file entries (this will error if any file failed)
         let new_entries = results?;
 
-        // Remove existing files with same names and add new entries
+        // Add all the new files to the archive, handling duplicates
+        // We use a HashSet to track which files we've already seen in this batch
         let mut seen_names = HashSet::new();
         for entry in new_entries {
+            // Only add if we haven't seen this filename already in this batch
             if seen_names.insert(entry.name.clone()) {
-                // Remove existing file with same name from archive
-                self.files.retain(|f| f.name != entry.name);
+                // Remove any existing file with the same name from the archive
+                self.files
+                    .retain(|existing_file| existing_file.name != entry.name);
+
+                // Add the new file
                 self.files.push(entry);
             }
+            // If we've seen this name before in this batch, skip it (keeps first occurrence)
         }
 
-        // Sort files alphabetically (as per DAT2 format)
+        // DAT2 format requires files to be sorted alphabetically
         self.files.sort_by(|a, b| a.name.cmp(&b.name));
 
         Ok(())
     }
 
     /// Delete a file from the archive
+    ///
+    /// Removes a file from the archive by name. The file name should match
+    /// what you see when listing the archive contents.
+    ///
+    /// # Parameters
+    /// - `file_name`: Name of the file to delete (can use forward or back slashes)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// archive.delete_file("data/myfile.txt")?;
+    /// archive.delete_file("data\\myfile.txt")?;  // Also works
+    /// ```
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        // Normalize user input to internal format (forward slashes)
+        // Convert the user's input to the internal format used by the archive
+        // (handles both forward and back slashes)
         let normalized_name = utils::normalize_user_path(file_name).into_owned();
 
-        if let Some(pos) = self.files.iter().position(|f| f.name == normalized_name) {
+        // Look for a file with this name in the archive
+        if let Some(position) = self
+            .files
+            .iter()
+            .position(|file| file.name == normalized_name)
+        {
             let display_name = utils::normalize_path_for_display(&normalized_name);
             println!("Deleting: {display_name}");
-            self.files.remove(pos);
+
+            // Remove the file from the list
+            self.files.remove(position);
             Ok(())
         } else {
+            // File not found - this is an error
             bail!("File not found: {}", file_name);
         }
     }
 
-    /// Save the archive to a file
+    /// Save the archive to disk
+    ///
+    /// This writes the entire archive to a DAT2 file. The file will be written
+    /// in the correct DAT2 format that game engines can read.
+    ///
+    /// # DAT2 File Structure
+    /// 1. All file data (compressed or uncompressed)
+    /// 2. Directory tree (file count + list of file entries)  
+    /// 3. Footer (tree size + total file size)
+    ///
+    /// # Parameters
+    /// - `path`: Where to save the DAT2 file
+    ///
+    /// # Examples
+    /// ```ignore
+    /// archive.save("my_archive.dat")?;
+    /// archive.save("C:/games/fallout2/master.dat")?;
+    /// ```
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        // We build the entire file in memory, then write it all at once
         let mut output = Vec::new();
         let mut cursor = Cursor::new(&mut output);
 
-        // Write file data first
+        // === STEP 1: Write all file data ===
+        // This goes at the beginning of the DAT2 file
         let mut current_offset = 0u32;
-        let mut file_offsets = Vec::new();
+        let mut file_offsets = Vec::new(); // Track where each file starts
 
         for file in &self.files {
+            // Remember where this file starts in the archive
             file_offsets.push(current_offset);
 
+            // Get the file's data (either from memory or read from original archive)
             let data = if let Some(ref file_data) = file.data {
+                // File data is already in memory (newly added file)
                 file_data.clone()
             } else {
+                // Need to read from the original archive
                 self.read_file_data(file)?
             };
 
+            // Write this file's data to the archive
             cursor.write_all(&data)?;
             current_offset += data.len() as u32;
         }
 
-        // Mark start of directory tree area (includes file count + entries)
+        // === STEP 2: Write the directory tree ===
+        // This tells the game where each file is located
         let tree_start = cursor.position();
 
-        // Write file count
+        // First, write how many files are in the archive
         cursor.write_u32::<LittleEndian>(self.files.len() as u32)?;
 
-        // Write directory tree using deku
+        // Then write information about each file
         for (i, file) in self.files.iter().enumerate() {
             let entry = Dat2FileEntry {
                 filename_size: file.name.len() as u32,
                 filename_bytes: file.name.as_bytes().to_vec(),
                 compression_type: if file.compressed { 1 } else { 0 },
-                real_size: file.size,
-                packed_size: file.packed_size,
-                offset: file_offsets[i],
+                real_size: file.size,          // Original file size
+                packed_size: file.packed_size, // Compressed size (or same if not compressed)
+                offset: file_offsets[i],       // Where this file starts in the archive
             };
+
+            // Convert the entry to bytes and write it
             let entry_bytes = entry.to_bytes()?;
             cursor.write_all(&entry_bytes)?;
         }
 
+        // === STEP 3: Write the footer ===
+        // This helps the game find the directory tree
         let tree_end = cursor.position();
-        let tree_size = (tree_end - tree_start) as u32;
-        let total_size = tree_end + 8;
+        let tree_size = (tree_end - tree_start) as u32; // Size of directory tree
+        let total_size = tree_end + 8; // Total archive size (including this footer)
 
-        // Write footer using deku
         let footer = Dat2Footer {
-            tree_size,
-            dat_size: total_size as u32,
+            tree_size,                   // How big is the directory tree?
+            dat_size: total_size as u32, // How big is the entire file?
         };
         let footer_bytes = footer.to_bytes()?;
         cursor.write_all(&footer_bytes)?;
 
+        // === STEP 4: Write everything to disk ===
         fs::write(path, output).context("Failed to write DAT2 file")?;
 
         Ok(())
