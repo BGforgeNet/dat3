@@ -4,6 +4,10 @@ Fallout .dat management cli.
 
 Crossplatform, static Rust re-implementation of DAT2, with minor differences.
 
+- [Usage](#usage)
+- [Differences from DAT2](#differences-from-dat2)
+- [Building](#building)
+
 ## Usage
 
 ### Extract all files
@@ -97,6 +101,12 @@ dat3 d master.dat @files_to_delete.txt
 
 Delete only deletes file records. It doesn't reduce archive size.
 
+## Differences from DAT2
+
+- Shrink (`k` command) not implemented.
+- Flat extraction is a separate command, `e`.
+- DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.
+
 ## Building
 
 ### Requirements
@@ -110,7 +120,7 @@ Delete only deletes file records. It doesn't reduce archive size.
 # Linux 64-bit static
 cargo build --release --target x86_64-unknown-linux-musl
 
-# Windows 64-bit static  
+# Windows 64-bit static
 cargo build --release --target x86_64-pc-windows-gnu
 
 # Windows 32-bit static
@@ -118,6 +128,7 @@ cargo build --release --target i686-pc-windows-gnu
 ```
 
 Binaries will be at:
+
 - `target/x86_64-unknown-linux-musl/release/dat3` (~854KB)
 - `target/x86_64-pc-windows-gnu/release/dat3.exe` (~1.2MB)
 - `target/i686-pc-windows-gnu/release/dat3.exe` (~1.1MB)
@@ -126,12 +137,6 @@ Binaries will be at:
 
 ```bash
 rustup target add x86_64-unknown-linux-musl
-rustup target add x86_64-pc-windows-gnu  
+rustup target add x86_64-pc-windows-gnu
 rustup target add i686-pc-windows-gnu
 ```
-
-## Differences from DAT2
-
-- Shrink (`k` command) not implemented.
-- Flat extraction is a separate command, `e`.
-- DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.
