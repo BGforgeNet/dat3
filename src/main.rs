@@ -6,7 +6,7 @@ Supports both DAT1 (Fallout 1) and DAT2 (Fallout 2) formats.
 */
 
 // Import the libraries we need
-use anyhow::Result; // For easy error handling
+use anyhow::{bail, Result}; // For easy error handling
 use clap::{Parser, Subcommand}; // For command-line argument parsing
 use std::path::PathBuf; // For cross-platform file paths
 
@@ -152,7 +152,19 @@ fn main() -> Result<()> {
             // ADD COMMAND: Put new files into the archive
             let mut archive = if dat_file.exists() {
                 // Open existing archive
-                DatArchive::open(&dat_file)?
+                let archive = DatArchive::open(&dat_file)?;
+
+                // Check if user specified a format that doesn't match the existing file
+                if dat1 {
+                    match &archive {
+                        DatArchive::Dat1(_) => {} // Format matches, all good
+                        DatArchive::Dat2(_) => {
+                            bail!("Error: {} is a DAT2 archive, but --dat1 flag was specified. Cannot change archive format.", dat_file.display());
+                        }
+                    }
+                }
+
+                archive
             } else {
                 // Create new archive - choose format
                 if dat1 {
