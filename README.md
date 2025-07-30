@@ -150,11 +150,3 @@ target/x86_64-unknown-linux-musl/release/dat3
 target/x86_64-pc-windows-gnu/release/dat3.exe
 target/i686-pc-windows-gnu/release/dat3.exe
 ```
-
-### Install targets (one-time setup)
-
-```bash
-rustup target add x86_64-unknown-linux-musl
-rustup target add x86_64-pc-windows-gnu
-rustup target add i686-pc-windows-gnu
-```
