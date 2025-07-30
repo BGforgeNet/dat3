@@ -1,4 +1,4 @@
-name: CI and Release
+name: build
 
 on:
   push:
@@ -9,7 +9,7 @@ env:
 
 jobs:
   ci:
-    name: CI, Build, and Release
+    name: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install -y gcc-mingw-w64 musl-tools
 
       - name: Build binaries
-        run: ./build-static.sh
+        run: ./build.sh
 
       - name: Prepare release assets
         run: |

@@ -114,24 +114,21 @@ Delete only deletes file records. It doesn't reduce archive size.
 - Rust 1.70 or newer
 - Target-specific toolchains (install as needed)
 
-### Static Builds (Recommended)
+### Build
 
 ```bash
-# Linux 64-bit static
-cargo build --release --target x86_64-unknown-linux-musl
-
-# Windows 64-bit static
-cargo build --release --target x86_64-pc-windows-gnu
-
-# Windows 32-bit static
-cargo build --release --target i686-pc-windows-gnu
+./build.sh
 ```
+
+Builds are static.
 
 Binaries will be at:
 
-- `target/x86_64-unknown-linux-musl/release/dat3` (~854KB)
-- `target/x86_64-pc-windows-gnu/release/dat3.exe` (~1.2MB)
-- `target/i686-pc-windows-gnu/release/dat3.exe` (~1.1MB)
+```bash
+target/x86_64-unknown-linux-musl/release/dat3
+target/x86_64-pc-windows-gnu/release/dat3.exe
+target/i686-pc-windows-gnu/release/dat3.exe
+```
 
 ### Install targets (one-time setup)
 
