@@ -10,6 +10,27 @@ Crossplatform, static Rust re-implementation of DAT2, with minor differences.
 
 ## Usage
 
+```bash
+dat3
+
+Fallout .dat management cli
+
+Usage: dat3 <COMMAND>
+
+Commands:
+  l     List files in a DAT archive (command: l)
+  x     Extract files from a DAT archive with directory structure (command: x)
+  e     Extract files without creating directories - all files go to one folder (command: e)
+  a     Add files to a DAT archive (command: a)
+  d     Delete files from a DAT archive (command: d)
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+
+```
+
 ### Extract all files
 
 ```bash
