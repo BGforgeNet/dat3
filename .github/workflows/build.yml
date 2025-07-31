@@ -23,6 +23,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache APT packages
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: gcc-mingw-w64 musl-tools
+          version: 1.0
+
       - name: Shellcheck
         uses: ludeeus/action-shellcheck@2.0.0
         with:
@@ -30,11 +36,6 @@ jobs:
 
       - name: Run CI checks
         run: ./ci.sh
-
-      - name: Install cross-compilation dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64 musl-tools
 
       - name: Build binaries
         run: ./build.sh
