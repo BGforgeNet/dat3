@@ -384,12 +384,11 @@ impl Dat2Archive {
         &self,
         file: &std::path::Path,
         base_path: &std::path::Path,
-        recursive: bool,
         compression: CompressionLevel,
         target_dir: Option<&str>,
     ) -> Result<FileEntry> {
         let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
-        let archive_path = Self::calculate_archive_path(file, base_path, recursive, target_dir)?;
+        let archive_path = Self::calculate_archive_path(file, base_path, target_dir)?;
         let display_path = utils::normalize_path_for_display(&archive_path);
         println!("Adding: {display_path}");
 
@@ -413,16 +412,15 @@ impl Dat2Archive {
         }
     }
 
-    /// Calculate the archive path for a file being added
+    /// Calculate the archive path for a file being added (always preserves directory structure)
     fn calculate_archive_path(
         file: &std::path::Path,
         base_path: &std::path::Path,
-        recursive: bool,
         target_dir: Option<&str>,
     ) -> Result<String> {
         let archive_path = match target_dir {
             Some(target) => {
-                if recursive && base_path.is_dir() {
+                if base_path.is_dir() {
                     let relative_path = if let Some(parent) = base_path.parent() {
                         file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
                     } else {
@@ -438,7 +436,7 @@ impl Dat2Archive {
                 }
             }
             None => {
-                if recursive && base_path.is_dir() {
+                if base_path.is_dir() {
                     if let Some(parent) = base_path.parent() {
                         file.strip_prefix(parent)
                             .unwrap_or(file)
@@ -459,48 +457,40 @@ impl Dat2Archive {
         Ok(utils::normalize_path_for_archive(&archive_path))
     }
 
-    /// Add files to the archive
+    /// Add files to the archive (directories processed recursively)
     ///
     /// This method can add a single file or an entire directory to the archive.
     /// Files are processed in parallel for better performance.
     ///
     /// # Parameters
     /// - `file_path`: Path to file or directory to add
-    /// - `recursive`: If true, add directories and all their contents
     /// - `compression`: How much to compress files (0=none, 9=maximum)
     /// - `target_dir`: Optional directory name inside the archive to put files
     ///
     /// # Examples
     /// ```ignore
     /// // Add a single file
-    /// archive.add_file("myfile.txt", false, CompressionLevel::new(6)?, None)?;
+    /// archive.add_file("myfile.txt", CompressionLevel::new(6)?, None)?;
     ///
-    /// // Add a directory recursively with compression
-    /// archive.add_file("my_folder", true, CompressionLevel::new(1)?, Some("data"))?;
+    /// // Add a directory with compression
+    /// archive.add_file("my_folder", CompressionLevel::new(1)?, Some("data"))?;
     /// ```
     pub fn add_file<P: AsRef<Path>>(
         &mut self,
         file_path: P,
-        recursive: bool,
         compression: CompressionLevel,
         target_dir: Option<&str>,
     ) -> Result<()> {
         let base_path = file_path.as_ref();
 
         // Find all files to add (handles both single files and directories)
-        let files = utils::collect_files(&file_path, recursive)?;
+        let files = utils::collect_files(&file_path)?;
 
         // Process all files in parallel for better performance
         let results: Result<Vec<FileEntry>> = files
             .par_iter()
             .map(|file| {
-                self.process_single_file_for_adding(
-                    file,
-                    base_path,
-                    recursive,
-                    compression,
-                    target_dir,
-                )
+                self.process_single_file_for_adding(file, base_path, compression, target_dir)
             })
             .collect();
 

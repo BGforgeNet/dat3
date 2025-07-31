@@ -287,40 +287,38 @@ impl Dat1Archive {
     /// Add files to the archive
     ///
     /// This function adds one or more files to the DAT1 archive. It handles both
-    /// individual files and directories (when recursive is true).
+    /// individual files and directories (always processed recursively).
     ///
     /// **Important**: DAT1 compression is not implemented, so files are stored
     /// uncompressed regardless of the compression parameter.
     ///
     /// # Arguments
     /// * `file_path` - Path to the file or directory to add
-    /// * `recursive` - If true, add directories recursively
     /// * `_compression` - Compression level (ignored for DAT1)
     /// * `target_dir` - Optional directory path within the archive
     ///
     /// # Example
     /// ```ignore
     /// let compression = CompressionLevel::new(6)?;
-    /// archive.add_file("image.png", false, compression, Some("GRAPHICS"))?;
+    /// archive.add_file("image.png", compression, Some("GRAPHICS"))?;
     /// // Adds image.png to GRAPHICS/image.png in the archive
     /// ```
     pub fn add_file<P: AsRef<Path>>(
         &mut self,
         file_path: P,
-        recursive: bool,
         _compression: CompressionLevel, // Ignored - DAT1 files stored uncompressed
         target_dir: Option<&str>,
     ) -> Result<()> {
         let base_path = file_path.as_ref();
-        let files = utils::collect_files(&file_path, recursive)?;
+        let files = utils::collect_files(&file_path)?;
 
         for file in files {
             let data =
                 fs::read(&file).with_context(|| format!("Failed to read {}", file.display()))?;
 
-            // Determine archive path, preserving directory structure for recursive operations
+            // Determine archive path, always preserving directory structure
             let archive_path = if let Some(target) = target_dir {
-                if recursive && base_path.is_dir() {
+                if base_path.is_dir() {
                     // Preserve directory structure including the base directory name
                     let relative_path = if let Some(parent) = base_path.parent() {
                         file.strip_prefix(parent).unwrap_or(&file).to_string_lossy()
@@ -339,7 +337,7 @@ impl Dat1Archive {
                             .to_string_lossy()
                     )
                 }
-            } else if recursive && base_path.is_dir() {
+            } else if base_path.is_dir() {
                 // Preserve directory structure including the base directory name
                 if let Some(parent) = base_path.parent() {
                     file.strip_prefix(parent)

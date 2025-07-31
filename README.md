@@ -81,7 +81,7 @@ echo "scripts/generic.int" >> files.txt
 dat3 l master.dat @files.txt
 dat3 x master.dat @files.txt -o extracted/
 dat3 e master.dat @files.txt -o flat/
-dat3 a master.dat @files.txt -r
+dat3 a master.dat @files.txt
 dat3 d master.dat @files.txt
 ```
 
@@ -91,8 +91,8 @@ dat3 d master.dat @files.txt
 # Add single file
 dat3 a master.dat myfile.txt
 
-# Add directory recursively
-dat3 a master.dat myfolder/ -r
+# Add directory (automatically recursive)
+dat3 a master.dat myfolder/
 
 # Add with max compression level
 dat3 a master.dat largefile.txt -c 9
@@ -101,10 +101,10 @@ dat3 a master.dat largefile.txt -c 9
 dat3 a master.dat myfile.txt -t "art/graphics"
 
 # Force DAT1 format for new archive
-dat3 a newarchive.dat myfiles/ --dat1 -r
+dat3 a newarchive.dat myfiles/ --dat1
 
 # Add files from response file
-dat3 a master.dat @files_to_add.txt -r
+dat3 a master.dat @files_to_add.txt
 ```
 
 ### Delete files from archive
@@ -124,6 +124,7 @@ Delete only deletes file records. It doesn't reduce archive size.
 
 ## Differences from DAT2
 
+- Directories are always processed recursively.
 - Shrink (`k` command) not implemented.
 - Flat extraction is a separate command, `e`.
 - DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.

@@ -56,10 +56,10 @@ cd ..
 diff -u rpu.md5 rpu2.md5
 
 # Test compression - create new DAT from extracted files  
-# Force DAT2 format and ensure recursive directory structure is preserved
+# DAT2 format with automatic recursive directory structure preservation
 rm -f "$RPU2_DAT"
 cd "$RPU_DIR"
-"../$DAT3" a "../$RPU2_DAT" -r ./*
+"../$DAT3" a "../$RPU2_DAT" ./*
 cd ..
 
 # Test with original dat2.exe via wine

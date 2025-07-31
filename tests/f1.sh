@@ -26,7 +26,7 @@ diff -qr $DAT2_ART_DIR ART
 # Test 2: Compress with dat3 in DAT1 format, extract with dat2.exe, and compare
 # Create new DAT1 archive from extracted files with correct structure
 rm -rf ART-roundtrip critter_test.dat
-$DAT3 a critter_test.dat --dat1 -r ART
+$DAT3 a critter_test.dat --dat1 ART
 
 # Extract with dat2.exe via wine
 $DAT2 x -d ART-roundtrip critter_test.dat 2>/dev/null

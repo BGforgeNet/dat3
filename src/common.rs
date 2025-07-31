@@ -213,21 +213,16 @@ impl DatArchive {
         }
     }
 
-    /// Add a file to the archive
+    /// Add a file to the archive (directories are processed recursively)
     pub fn add_file<P: AsRef<Path>>(
         &mut self,
         file_path: P,
-        recursive: bool,
         compression: CompressionLevel,
         target_dir: Option<&str>,
     ) -> Result<()> {
         match self {
-            DatArchive::Dat1(archive) => {
-                archive.add_file(file_path, recursive, compression, target_dir)
-            }
-            DatArchive::Dat2(archive) => {
-                archive.add_file(file_path, recursive, compression, target_dir)
-            }
+            DatArchive::Dat1(archive) => archive.add_file(file_path, compression, target_dir),
+            DatArchive::Dat2(archive) => archive.add_file(file_path, compression, target_dir),
         }
     }
 
@@ -293,8 +288,8 @@ pub mod utils {
 
     /// Collect all files from a path (file or directory)
     /// If path is a file, returns just that file
-    /// If path is a directory, returns all files in it (and subdirectories if recursive=true)
-    pub fn collect_files<P: AsRef<Path>>(path: P, recursive: bool) -> Result<Vec<PathBuf>> {
+    /// If path is a directory, returns all files in it and all subdirectories recursively
+    pub fn collect_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         let path = path.as_ref();
 
@@ -302,16 +297,16 @@ pub mod utils {
             // If it's a single file, just add it
             files.push(path.to_path_buf());
         } else if path.is_dir() {
-            // If it's a directory, scan through all entries
+            // If it's a directory, scan through all entries recursively
             for entry in fs::read_dir(path)? {
                 let entry = entry?;
                 let entry_path = entry.path();
 
                 if entry_path.is_file() {
                     files.push(entry_path);
-                } else if entry_path.is_dir() && recursive {
-                    // If recursive is enabled, dive into subdirectories
-                    files.extend(collect_files(&entry_path, recursive)?);
+                } else if entry_path.is_dir() {
+                    // Always dive into subdirectories
+                    files.extend(collect_files(&entry_path)?);
                 }
             }
         }

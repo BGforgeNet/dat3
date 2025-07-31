@@ -29,8 +29,8 @@ use common::{utils, CompressionLevel, DatArchive};
 #[derive(Parser)]
 #[command(name = "dat3")]
 #[command(author = "DAT Tool Rewrite")]
-#[command(version = "0.1.0")]
 #[command(about = "Fallout .dat management cli")]
+#[command(version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands, // Which specific command the user wants to run
@@ -80,9 +80,6 @@ enum Commands {
         dat_file: PathBuf,
         /// Files or directories to add to the archive
         files: Vec<PathBuf>,
-        /// Add directories and all their contents (-r flag)
-        #[arg(short, long)]
-        recursive: bool,
         /// How much to compress files, 0=none to 9=maximum (-c flag)
         #[arg(short, long, default_value = "1")]
         compression: u8,
@@ -144,7 +141,6 @@ fn main() -> Result<()> {
         Commands::Add {
             dat_file,
             files,
-            recursive,
             compression,
             dat1,
             target_dir,
@@ -187,12 +183,7 @@ fn main() -> Result<()> {
             // Add each file or directory to the archive
             for file_path_str in expanded_files {
                 let file_path = PathBuf::from(file_path_str);
-                archive.add_file(
-                    &file_path,
-                    recursive,
-                    compression_level,
-                    target_dir.as_deref(),
-                )?;
+                archive.add_file(&file_path, compression_level, target_dir.as_deref())?;
             }
 
             // Save the changes back to the file
