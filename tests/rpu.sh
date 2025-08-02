@@ -28,13 +28,15 @@ verify_file() {
 }
 
 # Download RPU zip if not present
-if [ ! -f "rpu_v2.4.33.zip" ]; then
-    wget -O rpu_v2.4.33.zip https://github.com/BGforgeNet/Fallout2_Restoration_Project/releases/download/v2.4.33/rpu_v2.4.33.zip
+RPU_VERSION="2.4.33"
+RPU_ZIP="rpu_v${RPU_VERSION}.zip"
+if [ ! -f $RPU_ZIP ]; then
+    wget -q -O $RPU_ZIP https://github.com/BGforgeNet/Fallout2_Restoration_Project/releases/download/$RPU_VERSION/$RPU_ZIP
 fi
 
 # Extract rpu.dat if not present
 if [ ! -f "$RPU_DAT" ]; then
-    unzip -j rpu_v2.4.33.zip "mods/$RPU_DAT"
+    unzip -j $RPU_ZIP "mods/$RPU_DAT"
 fi
 
 # Verify MD5 checksum
@@ -50,12 +52,14 @@ rm -rf "$RPU_DIR"
 $DAT3 x "$RPU_DAT" -o "$RPU_DIR"
 
 # Generate and compare checksums
+# Using md5 to speed up checks, dat2 via wine is slow
 cd "$RPU_DIR"
-find . -type f -print0 | xargs -0 md5sum > ../rpu2.md5
+# -print0 due to "rifle bb.frm"
+find . -type f -print0 | sort -z | xargs -0 md5sum >../rpu2.md5
 cd ..
 diff -u rpu.md5 rpu2.md5
 
-# Test compression - create new DAT from extracted files  
+# Test compression - create new DAT from extracted files
 # DAT2 format with automatic recursive directory structure preservation
 rm -f "$RPU2_DAT"
 cd "$RPU_DIR"
@@ -68,15 +72,15 @@ dat2 x -d "$RPU2_DIR" "$RPU2_DAT"
 
 # Compare extracted files from both tools
 cd "$RPU2_DIR"
-find . -type f -print0 | xargs -0 md5sum > ../rpu2_final.md5
+find . -type f -print0 | sort -z | xargs -0 md5sum >../rpu2_final.md5
 cd ..
 diff -u rpu.md5 rpu2_final.md5
 
 # Test adding dummy files to existing archive
-echo "dummy content" > dummy1.txt
+echo "dummy content" >dummy1.txt
 $DAT3 a "$RPU2_DAT" dummy1.txt
 
-echo "subdirectory dummy content" > dummy2.txt
+echo "subdirectory dummy content" >dummy2.txt
 $DAT3 a "$RPU2_DAT" -t subdir dummy2.txt
 
 # Define dummy file paths
