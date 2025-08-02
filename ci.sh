@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -xeuo pipefail
+set -xeu -o pipefail
 
 cargo install cargo-binstall
 

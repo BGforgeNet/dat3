@@ -28,7 +28,7 @@ jobs:
         with:
           scandir: "."
 
-      - name: Run CI checks
+      - name: Pre-test
         run: ./ci.sh
 
       - name: Install cross-compilation dependencies
@@ -40,6 +40,9 @@ jobs:
 
       - name: Build binaries
         run: ./build.sh
+
+      - name: Test
+        run: ./test.sh
 
       - name: Prepare release assets
         run: |
