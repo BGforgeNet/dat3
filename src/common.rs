@@ -8,7 +8,6 @@ which DAT format it's working with.
 
 // Import the libraries we need
 use anyhow::{bail, Context, Result}; // For error handling
-use encoding_rs::WINDOWS_1252; // For old Windows text encoding
 use std::fs; // File system operations
 use std::path::{Path, PathBuf}; // Cross-platform path handling
 
@@ -289,6 +288,7 @@ pub mod utils {
     /// Collect all files from a path (file or directory)
     /// If path is a file, returns just that file
     /// If path is a directory, returns all files in it and all subdirectories recursively
+    /// Validates that all filenames are ASCII-only before returning
     pub fn collect_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         let path = path.as_ref();
@@ -308,6 +308,16 @@ pub mod utils {
                     // Always dive into subdirectories
                     files.extend(collect_files(&entry_path)?);
                 }
+            }
+        }
+
+        // Validate all file paths are ASCII-only before returning
+        for file in &files {
+            if let Some(path_str) = file.to_str() {
+                validate_filename_ascii(path_str)
+                    .with_context(|| format!("Invalid path: {}", file.display()))?;
+            } else {
+                bail!("Invalid path encoding: {}", file.display());
             }
         }
 
@@ -414,28 +424,34 @@ pub mod utils {
             .unwrap_or(path)
     }
 
-    /// Convert filename bytes from old DAT files to modern UTF-8 strings
+    /// Convert filename bytes from DAT files to ASCII strings
     ///
-    /// Old Fallout games used Windows-1252 encoding, which includes special characters
-    /// that aren't valid UTF-8. This function tries multiple approaches:
-    /// 1. First try UTF-8 (for newer files)
-    /// 2. Then try Windows-1252 (for old game files)  
-    /// 3. Finally do a lossy conversion as last resort
+    /// Strictly requires ASCII-only filenames. Fails if any non-ASCII characters are found.
     pub fn decode_filename(bytes: &[u8]) -> Result<String> {
         // Remove null bytes (C-style string terminators)
         let trimmed_bytes: Vec<u8> = bytes.iter().take_while(|&&b| b != 0).copied().collect();
 
-        // Try UTF-8 first (most common case)
-        if let Ok(utf8_str) = std::str::from_utf8(&trimmed_bytes) {
-            return Ok(utf8_str.to_string());
+        // Only accept strict ASCII
+        match std::str::from_utf8(&trimmed_bytes) {
+            Ok(ascii_str) => {
+                validate_filename_ascii(ascii_str)?;
+                Ok(ascii_str.to_string())
+            }
+            Err(_) => {
+                bail!("Invalid filename encoding - not valid UTF-8")
+            }
         }
+    }
 
-        // Try Windows-1252 (legacy encoding)
-        let (decoded, _, had_errors) = WINDOWS_1252.decode(&trimmed_bytes);
-        Ok(if had_errors {
-            String::from_utf8_lossy(&trimmed_bytes).to_string()
+    /// Validate that a filename string contains only ASCII characters
+    ///
+    /// This is used both when decoding filenames from DAT files and when adding
+    /// new files to archives to ensure ASCII-only policy compliance.
+    pub fn validate_filename_ascii(filename: &str) -> Result<()> {
+        if filename.is_ascii() {
+            Ok(())
         } else {
-            decoded.to_string()
-        })
+            bail!("Non-ASCII filename found: {:?}", filename)
+        }
     }
 }

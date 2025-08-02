@@ -94,9 +94,9 @@ allow = [
     # GPL-3.0 compatible licenses actually used by dependencies
     "GPL-3.0",
     "MIT",
-    "BSD-3-Clause",
     "Apache-2.0",
     "Unlicense",
+    "0BSD",
     "Zlib",
     "Unicode-3.0",
 ]

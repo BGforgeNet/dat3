@@ -17,7 +17,6 @@ anyhow = "1.0"
 # Binary data handling
 byteorder = "1.5"          # Read/write integers in different byte orders
 deku = "0.19"              # Declarative binary parsing
-encoding_rs = "0.8"        # Handle legacy Windows-1252 text encoding
 
 # Command-line interface
 clap = { version = "4.4", features = ["derive"] }
