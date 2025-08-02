@@ -28,10 +28,10 @@ verify_file() {
 }
 
 # Download RPU zip if not present
-RPU_VERSION="2.4.33"
-RPU_ZIP="rpu_v${RPU_VERSION}.zip"
+RPU_VERSION="v2.4.33"
+RPU_ZIP="rpu_${RPU_VERSION}.zip"
 if [ ! -f $RPU_ZIP ]; then
-    wget -q -O $RPU_ZIP https://github.com/BGforgeNet/Fallout2_Restoration_Project/releases/download/$RPU_VERSION/$RPU_ZIP
+    wget -nv -O $RPU_ZIP https://github.com/BGforgeNet/Fallout2_Restoration_Project/releases/download/$RPU_VERSION/$RPU_ZIP
 fi
 
 # Extract rpu.dat if not present
