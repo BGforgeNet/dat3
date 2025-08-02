@@ -55,7 +55,7 @@ $DAT3 x "$RPU_DAT" -o "$RPU_DIR"
 # Using md5 to speed up checks, dat2 via wine is slow
 cd "$RPU_DIR"
 # -print0 due to "rifle bb.frm"
-LC_ALL=C find . -type f -print0 | sort -z | xargs -0 md5sum >../rpu2.md5
+LC_ALL=C find . -type f -print0 | LC_ALL=C sort -z | xargs -0 md5sum >../rpu2.md5
 cd ..
 diff -u rpu.md5 rpu2.md5
 
@@ -72,7 +72,7 @@ dat2 x -d "$RPU2_DIR" "$RPU2_DAT"
 
 # Compare extracted files from both tools
 cd "$RPU2_DIR"
-LC_ALL=C find . -type f -print0 | sort -z | xargs -0 md5sum >../rpu2_final.md5
+LC_ALL=C find . -type f -print0 | LC_ALL=C sort -z | xargs -0 md5sum >../rpu2_final.md5
 cd ..
 diff -u rpu.md5 rpu2_final.md5
 
