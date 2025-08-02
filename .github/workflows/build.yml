@@ -31,12 +31,12 @@ jobs:
       - name: Pre-test
         run: ./ci.sh
 
-      - name: Install cross-compilation dependencies
+      - name: Install dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools wine
 
       - name: Build binaries
         run: ./build.sh
