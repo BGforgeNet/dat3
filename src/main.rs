@@ -124,7 +124,11 @@ fn main() -> Result<()> {
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // Use current directory if not specified
             let expanded_files = utils::expand_response_files(&files)?;
-            archive.extract(&output_dir, &expanded_files, ExtractionMode::PreserveStructure)?;
+            archive.extract(
+                &output_dir,
+                &expanded_files,
+                ExtractionMode::PreserveStructure,
+            )?;
         }
 
         Commands::ExtractFlat {

@@ -107,13 +107,17 @@ impl Dat1Archive {
         let mut cursor = Cursor::new(&data);
 
         // Read header
-        let dir_count = cursor.read_u32::<BigEndian>()
+        let dir_count = cursor
+            .read_u32::<BigEndian>()
             .context("Failed to read directory count from DAT1 header")?;
-        let _unknown1 = cursor.read_u32::<BigEndian>()
+        let _unknown1 = cursor
+            .read_u32::<BigEndian>()
             .context("Failed to read unknown1 field from DAT1 header")?;
-        let _unknown2 = cursor.read_u32::<BigEndian>()
+        let _unknown2 = cursor
+            .read_u32::<BigEndian>()
             .context("Failed to read unknown2 field from DAT1 header")?;
-        let _unknown3 = cursor.read_u32::<BigEndian>()
+        let _unknown3 = cursor
+            .read_u32::<BigEndian>()
             .context("Failed to read unknown3 field from DAT1 header")?;
 
         let mut directories = Vec::new();
@@ -121,11 +125,14 @@ impl Dat1Archive {
         // Read directory names
         let mut dir_names = Vec::new();
         for i in 0..dir_count {
-            let name_len = cursor.read_u8()
-                .with_context(|| format!("Failed to read name length for directory {}", i))? as usize;
+            let name_len = cursor
+                .read_u8()
+                .with_context(|| format!("Failed to read name length for directory {i}"))?
+                as usize;
             let mut name_bytes = vec![0u8; name_len];
-            cursor.read_exact(&mut name_bytes)
-                .with_context(|| format!("Failed to read name bytes for directory {}", i))?;
+            cursor
+                .read_exact(&mut name_bytes)
+                .with_context(|| format!("Failed to read name bytes for directory {i}"))?;
             let name =
                 utils::decode_filename(&name_bytes).context("Failed to decode directory name")?;
             dir_names.push(name);
@@ -133,34 +140,46 @@ impl Dat1Archive {
 
         // Read directory contents
         for dir_name in dir_names {
-            let file_count = cursor.read_u32::<BigEndian>()
-                .with_context(|| format!("Failed to read file count for directory '{}'", dir_name))?;
-            let _unknown4 = cursor.read_u32::<BigEndian>()
-                .with_context(|| format!("Failed to read unknown4 field for directory '{}'", dir_name))?;
-            let _unknown5 = cursor.read_u32::<BigEndian>()
-                .with_context(|| format!("Failed to read unknown5 field for directory '{}'", dir_name))?;
-            let _unknown6 = cursor.read_u32::<BigEndian>()
-                .with_context(|| format!("Failed to read unknown6 field for directory '{}'", dir_name))?;
+            let file_count = cursor
+                .read_u32::<BigEndian>()
+                .with_context(|| format!("Failed to read file count for directory '{dir_name}'"))?;
+            let _unknown4 = cursor.read_u32::<BigEndian>().with_context(|| {
+                format!("Failed to read unknown4 field for directory '{dir_name}'")
+            })?;
+            let _unknown5 = cursor.read_u32::<BigEndian>().with_context(|| {
+                format!("Failed to read unknown5 field for directory '{dir_name}'")
+            })?;
+            let _unknown6 = cursor.read_u32::<BigEndian>().with_context(|| {
+                format!("Failed to read unknown6 field for directory '{dir_name}'")
+            })?;
 
             let mut files = Vec::new();
 
             for j in 0..file_count {
-                let name_len = cursor.read_u8()
-                    .with_context(|| format!("Failed to read name length for file {} in directory '{}'", j, dir_name))? as usize;
+                let name_len = cursor.read_u8().with_context(|| {
+                    format!("Failed to read name length for file {j} in directory '{dir_name}'")
+                })? as usize;
                 let mut name_bytes = vec![0u8; name_len];
-                cursor.read_exact(&mut name_bytes)
-                    .with_context(|| format!("Failed to read name bytes for file {} in directory '{}'", j, dir_name))?;
+                cursor.read_exact(&mut name_bytes).with_context(|| {
+                    format!("Failed to read name bytes for file {j} in directory '{dir_name}'")
+                })?;
                 let name =
                     utils::decode_filename(&name_bytes).context("Failed to decode file name")?;
 
-                let attributes = cursor.read_u32::<BigEndian>()
-                    .with_context(|| format!("Failed to read attributes for file '{}' in directory '{}'", name, dir_name))?;
-                let offset = cursor.read_u32::<BigEndian>()
-                    .with_context(|| format!("Failed to read offset for file '{}' in directory '{}'", name, dir_name))? as u64;
-                let size = cursor.read_u32::<BigEndian>()
-                    .with_context(|| format!("Failed to read size for file '{}' in directory '{}'", name, dir_name))?;
-                let packed_size = cursor.read_u32::<BigEndian>()
-                    .with_context(|| format!("Failed to read packed size for file '{}' in directory '{}'", name, dir_name))?;
+                let attributes = cursor.read_u32::<BigEndian>().with_context(|| {
+                    format!("Failed to read attributes for file '{name}' in directory '{dir_name}'")
+                })?;
+                let offset = cursor.read_u32::<BigEndian>().with_context(|| {
+                    format!("Failed to read offset for file '{name}' in directory '{dir_name}'")
+                })? as u64;
+                let size = cursor.read_u32::<BigEndian>().with_context(|| {
+                    format!("Failed to read size for file '{name}' in directory '{dir_name}'")
+                })?;
+                let packed_size = cursor.read_u32::<BigEndian>().with_context(|| {
+                    format!(
+                        "Failed to read packed size for file '{name}' in directory '{dir_name}'"
+                    )
+                })?;
 
                 let compressed = attributes & DAT1_COMPRESSED_FLAG != 0;
                 let actual_packed_size = if packed_size == 0 { size } else { packed_size };
@@ -259,7 +278,8 @@ impl Dat1Archive {
                 utils::ensure_dir_exists(&output_path)?;
 
                 // Read file data from archive
-                let file_data = self.read_file_data(file)
+                let file_data = self
+                    .read_file_data(file)
                     .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
 
                 // Decompress if needed
@@ -320,8 +340,12 @@ impl Dat1Archive {
         target_dir: Option<&str>,
     ) -> Result<()> {
         let base_path = file_path.as_ref();
-        let files = utils::collect_files(&file_path)
-            .with_context(|| format!("Failed to collect files from path '{}'", file_path.as_ref().display()))?;
+        let files = utils::collect_files(&file_path).with_context(|| {
+            format!(
+                "Failed to collect files from path '{}'",
+                file_path.as_ref().display()
+            )
+        })?;
 
         for file in files {
             let data =
@@ -361,7 +385,8 @@ impl Dat1Archive {
 
             // Remove any existing file with the same name from all directories
             for dir in &mut self.directories {
-                dir.files.retain(|existing_file| existing_file.name != archive_path);
+                dir.files
+                    .retain(|existing_file| existing_file.name != archive_path);
             }
 
             // Add file entry
@@ -450,7 +475,11 @@ impl Dat1Archive {
                 cursor.write_u8(file_name.len() as u8)?;
                 cursor.write_all(file_name.as_bytes())?;
 
-                let attributes = if file.compressed { DAT1_COMPRESSED_FLAG } else { DAT1_UNCOMPRESSED_FLAG };
+                let attributes = if file.compressed {
+                    DAT1_COMPRESSED_FLAG
+                } else {
+                    DAT1_UNCOMPRESSED_FLAG
+                };
                 cursor.write_u32::<BigEndian>(attributes)?;
                 cursor.write_u32::<BigEndian>(current_offset)?;
                 cursor.write_u32::<BigEndian>(file.size)?;

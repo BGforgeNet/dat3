@@ -150,7 +150,8 @@ impl Dat2Archive {
 
         // Read file count first (using byteorder for simplicity)
         let mut cursor = Cursor::new(&data[tree_start..]);
-        let file_count = cursor.read_u32::<LittleEndian>()
+        let file_count = cursor
+            .read_u32::<LittleEndian>()
             .context("Failed to read file count from DAT2 directory tree")?;
 
         // Parse directory tree entries using deku
@@ -165,7 +166,7 @@ impl Dat2Archive {
                     .map_err(|e| anyhow::anyhow!("Failed to parse file entry: {}", e))?;
 
             let filename = utils::decode_filename(&entry.filename_bytes)
-                .with_context(|| format!("Failed to decode filename for file entry {}", i))?;
+                .with_context(|| format!("Failed to decode filename for file entry {i}"))?;
 
             files.push(FileEntry {
                 name: filename, // Keep backslashes for internal consistency
@@ -400,7 +401,6 @@ impl Dat2Archive {
         }
     }
 
-
     /// Add files to the archive (directories processed recursively)
     ///
     /// This method can add a single file or an entire directory to the archive.
@@ -428,8 +428,12 @@ impl Dat2Archive {
         let base_path = file_path.as_ref();
 
         // Find all files to add (handles both single files and directories)
-        let files = utils::collect_files(&file_path)
-            .with_context(|| format!("Failed to collect files from path '{}'", file_path.as_ref().display()))?;
+        let files = utils::collect_files(&file_path).with_context(|| {
+            format!(
+                "Failed to collect files from path '{}'",
+                file_path.as_ref().display()
+            )
+        })?;
 
         // Process all files in parallel for better performance
         let results: Result<Vec<FileEntry>> = files
@@ -445,7 +449,8 @@ impl Dat2Archive {
         // Add all the new files to the archive, handling duplicates
         // First, remove any existing files from archive that match the new file names
         let new_file_names: HashSet<String> = new_entries.iter().map(|e| e.name.clone()).collect();
-        self.files.retain(|existing_file| !new_file_names.contains(&existing_file.name));
+        self.files
+            .retain(|existing_file| !new_file_names.contains(&existing_file.name));
 
         // Then add new files, deduplicating within the new batch
         let mut seen_names = HashSet::new();
