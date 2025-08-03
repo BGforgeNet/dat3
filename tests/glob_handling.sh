@@ -27,7 +27,8 @@ echo "Directory structure:"
 find . -type f | sort
 
 # Copy Windows binary to test directory for Wine (like rpu.sh does)
-WIN_BINARY="$SCRIPT_DIR/../target/x86_64-pc-windows-gnu/release/dat3.exe"
+# Use 32-bit binary for Wine compatibility in CI
+WIN_BINARY="$SCRIPT_DIR/../target/i686-pc-windows-gnu/release/dat3.exe"
 cp "$WIN_BINARY" dat3.exe
 
 # Helper function to run Windows command via Wine
