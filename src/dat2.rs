@@ -562,7 +562,7 @@ impl Dat2Archive {
     ///
     /// # DAT2 File Structure
     /// 1. All file data (compressed or uncompressed)
-    /// 2. Directory tree (file count + list of file entries)  
+    /// 2. Directory tree (file count + list of file entries)
     /// 3. Footer (tree size + total file size)
     ///
     /// # Parameters

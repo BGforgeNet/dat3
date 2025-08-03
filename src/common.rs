@@ -121,7 +121,7 @@ impl FileEntry {
 ///
 /// When opening archives, the format is detected by examining the file structure:
 /// - **DAT1**: Detected by reading the header and verifying the format
-/// - **DAT2**: Used as fallback when DAT1 detection fails  
+/// - **DAT2**: Used as fallback when DAT1 detection fails
 ///
 /// ## Usage
 ///
@@ -292,6 +292,11 @@ pub mod utils {
     pub fn collect_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         let path = path.as_ref();
+
+        // Check if the path exists
+        if !path.exists() {
+            bail!("Path does not exist: {}", path.display());
+        }
 
         if path.is_file() {
             // If it's a single file, just add it

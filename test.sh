@@ -17,3 +17,6 @@ fi
 
 # Response file test
 ./response_file.sh
+
+# Add validation test
+./add_validation.sh

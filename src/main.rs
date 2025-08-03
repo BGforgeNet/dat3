@@ -146,6 +146,32 @@ fn main() -> Result<()> {
             target_dir,
         } => {
             // ADD COMMAND: Put new files into the archive
+
+            // Validate compression level first
+            let compression_level = CompressionLevel::new(compression)?;
+
+            // Handle response files (files starting with @)
+            let file_strings: Vec<String> = files
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+            let expanded_files = utils::expand_response_files(&file_strings)?;
+
+            // Count total files that will be added by collecting from all paths
+            // This will fail immediately if any path doesn't exist
+            let mut total_files_to_add = 0;
+            for file_path_str in &expanded_files {
+                let file_path = PathBuf::from(file_path_str);
+                let collected_files = utils::collect_files(&file_path)?;
+                total_files_to_add += collected_files.len();
+            }
+
+            // If no files would be added, exit with error before creating/opening archive
+            if total_files_to_add == 0 {
+                bail!("No files to add to archive");
+            }
+
+            // Now that we know we have files to add, create or open the archive
             let mut archive = if dat_file.exists() {
                 // Open existing archive
                 let archive = DatArchive::open(&dat_file)?;
@@ -169,16 +195,6 @@ fn main() -> Result<()> {
                     DatArchive::new_dat2() // Fallout 2 format (default)
                 }
             };
-
-            // Validate compression level
-            let compression_level = CompressionLevel::new(compression)?;
-
-            // Handle response files (files starting with @)
-            let file_strings: Vec<String> = files
-                .iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect();
-            let expanded_files = utils::expand_response_files(&file_strings)?;
 
             // Add each file or directory to the archive
             for file_path_str in expanded_files {
