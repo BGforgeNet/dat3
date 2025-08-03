@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -xeuo pipefail
+set -xeu -o pipefail
 
 # This test expects critter.dat from Fallout 1 to be present in f1/ directory.
 # Also, wine must be in path.
@@ -8,14 +8,16 @@ set -xeuo pipefail
 # Work inside f1 directory
 cd "$(dirname "$0")/f1"
 
-DAT3="../../target/x86_64-unknown-linux-musl/release/dat3"\
+# Load common variables and functions
+# shellcheck source=common.sh
+source ../common.sh
 
 export WINEDEBUG=-all
 DAT2="wine ../dat2.exe"
 DAT2_ART_DIR="dat2/ART"
 
 if [ ! -d $DAT2_ART_DIR ]; then
-    $DAT2 x -d dat2 critter.dat 2>/dev/null
+	$DAT2 x -d dat2 critter.dat 2>/dev/null
 fi
 
 # Test 1: Extract with dat3 and compare with dat2.exe reference extraction
@@ -31,7 +33,7 @@ $DAT3 a critter_test.dat --dat1 ART
 # Extract with dat2.exe via wine
 $DAT2 x -d ART-roundtrip critter_test.dat 2>/dev/null
 
-# Compare with original reference extraction  
+# Compare with original reference extraction
 diff -qr dat2/ART ART-roundtrip/ART
 
 # Clean up

@@ -14,3 +14,6 @@ cd tests
 if [ -f f1/critter.dat ]; then
     ./f1.sh
 fi
+
+# Response file test
+./response_file.sh

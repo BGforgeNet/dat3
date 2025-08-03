@@ -1,12 +1,12 @@
 #!/bin/bash
 
-set -xeuo pipefail
+set -xeu -o pipefail
 
 # Work inside tests directory
 cd "$(dirname "$0")"
 
-# Use static build
-DAT3="../target/x86_64-unknown-linux-musl/release/dat3"
+# Load common variables and functions
+source ./common.sh
 
 # File constants
 RPU_DAT="rpu.dat"
@@ -16,27 +16,19 @@ RPU2_DIR="rpu2"
 
 # Helper function to run wine dat2.exe quietly
 dat2() {
-    WINEDEBUG=-all wine dat2.exe "$@" 2>/dev/null
-}
-
-# Helper function to verify file exists
-verify_file() {
-    if [ ! -f "$1" ]; then
-        echo "Error: Expected file not found: $1"
-        exit 1
-    fi
+	WINEDEBUG=-all wine dat2.exe "$@" 2>/dev/null
 }
 
 # Download RPU zip if not present
 RPU_VERSION="v2.4.33"
 RPU_ZIP="rpu_${RPU_VERSION}.zip"
 if [ ! -f $RPU_ZIP ]; then
-    wget -nv -O $RPU_ZIP https://github.com/BGforgeNet/Fallout2_Restoration_Project/releases/download/$RPU_VERSION/$RPU_ZIP
+	wget -nv -O $RPU_ZIP https://github.com/BGforgeNet/Fallout2_Restoration_Project/releases/download/$RPU_VERSION/$RPU_ZIP
 fi
 
 # Extract rpu.dat if not present
 if [ ! -f "$RPU_DAT" ]; then
-    unzip -j $RPU_ZIP "mods/$RPU_DAT"
+	unzip -j $RPU_ZIP "mods/$RPU_DAT"
 fi
 
 # Verify MD5 checksum
@@ -63,7 +55,7 @@ diff -u rpu.md5 rpu2.md5
 # DAT2 format with automatic recursive directory structure preservation
 rm -f "$RPU2_DAT"
 cd "$RPU_DIR"
-"../$DAT3" a "../$RPU2_DAT" ./*
+$DAT3 a "../$RPU2_DAT" ./*
 cd ..
 
 # Test with original dat2.exe via wine
@@ -102,52 +94,20 @@ $DAT3 d "$RPU2_DAT" "$DUMMY2_LINUX"
 # Verify files are no longer present with both dat3 and wine+dat2.exe
 echo "Checking both tools no longer show deleted files..."
 if $DAT3 l "$RPU2_DAT" "$DUMMY1_LINUX" "$DUMMY2_LINUX" 2>/dev/null; then
-    echo "Error: Files should have been deleted but are still present"
-    exit 1
+	echo "Error: Files should have been deleted but are still present"
+	exit 1
 fi
 if dat2 l "$RPU2_DAT" | grep -q "$DUMMY1_WINDOWS"; then
-    echo "Error: $DUMMY1_WINDOWS should have been deleted but is still present"
-    exit 1
+	echo "Error: $DUMMY1_WINDOWS should have been deleted but is still present"
+	exit 1
 fi
 if dat2 l "$RPU2_DAT" | grep -q "$DUMMY2_WINDOWS"; then
-    echo "Error: $DUMMY2_WINDOWS should have been deleted but is still present"
-    exit 1
+	echo "Error: $DUMMY2_WINDOWS should have been deleted but is still present"
+	exit 1
 fi
 
 # Clean up dummy files
 rm -f dummy1.txt dummy2.txt
-
-# Test list command with response file
-$DAT3 l "$RPU_DAT" @response_files.txt
-
-# Test extraction with response file
-rm -rf response_test
-mkdir response_test
-$DAT3 x "$RPU_DAT" -o response_test @response_files.txt
-
-# Verify all three files were extracted
-verify_file "response_test/text/english/credits.txt"
-verify_file "response_test/text/english/game/stat.msg"
-verify_file "response_test/art/critters/critters.lst"
-
-# Test flat extraction with response file
-rm -rf response_flat
-mkdir response_flat
-$DAT3 e "$RPU_DAT" -o response_flat @response_files.txt
-
-# Verify all three files were extracted to flat directory
-verify_file "response_flat/credits.txt"
-verify_file "response_flat/stat.msg"
-verify_file "response_flat/critters.lst"
-
-# Test error case - mixing @response-file with explicit files
-if $DAT3 l "$RPU_DAT" @response_files.txt text/english/combat.txt 2>/dev/null; then
-    echo "Error: Command should have failed when mixing @response-file with explicit files"
-    exit 1
-fi
-
-# Clean up response file test
-rm -rf response_test response_flat
 
 # Clean up
 rm -rf "$RPU_DIR" rpu2.md5 "$RPU2_DAT" "$RPU2_DIR" rpu2_final.md5
