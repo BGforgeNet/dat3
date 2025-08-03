@@ -40,7 +40,7 @@ use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
-use crate::common::{utils, CompressionLevel, FileEntry};
+use crate::common::{utils, CompressionLevel, ExtractionMode, FileEntry};
 use crate::lzss;
 
 /// Represents a directory within a DAT1 archive
@@ -188,17 +188,7 @@ impl Dat1Archive {
             |file, pattern| file.name.contains(pattern),
         );
 
-        println!("{:>11} {:>11}  {:>4}  Name", "Size", "Packed", "Comp");
-        println!("{}", "-".repeat(50));
-
-        for file in files_to_list {
-            let comp_str = if file.compressed { "Yes" } else { "No" };
-            let display_name = utils::normalize_path_for_display(&file.name);
-            println!(
-                "{:>11} {:>11}  {:>4}  {}",
-                file.size, file.packed_size, comp_str, display_name
-            );
-        }
+        utils::print_file_listing(&files_to_list);
 
         // Report missing patterns
         if !missing_patterns.is_empty() {
@@ -217,7 +207,7 @@ impl Dat1Archive {
         &self,
         output_dir: P,
         files: &[String],
-        flat: bool,
+        mode: ExtractionMode,
     ) -> Result<()> {
         let output_dir = output_dir.as_ref();
 
@@ -239,12 +229,15 @@ impl Dat1Archive {
                 let display_name = utils::normalize_path_for_display(&file.name);
                 println!("Extracting: {display_name}");
 
-                let output_path = if flat {
-                    // Flat extraction: extract just the filename without directory path
-                    let filename = utils::get_filename_from_dat_path(&file.name);
-                    output_dir.join(filename)
-                } else {
-                    output_dir.join(utils::to_system_path(&file.name))
+                let output_path = match mode {
+                    ExtractionMode::Flat => {
+                        // Flat extraction: extract just the filename without directory path
+                        let filename = utils::get_filename_from_dat_path(&file.name);
+                        output_dir.join(filename)
+                    }
+                    ExtractionMode::PreserveStructure => {
+                        output_dir.join(utils::to_system_path(&file.name))
+                    }
                 };
 
                 utils::ensure_dir_exists(&output_path)?;

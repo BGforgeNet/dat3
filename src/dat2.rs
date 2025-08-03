@@ -58,7 +58,7 @@ use std::sync::{
 }; // Thread-safe shared data
 use std::time::Instant; // Performance timing
 
-use crate::common::{utils, CompressionLevel, FileEntry};
+use crate::common::{utils, CompressionLevel, ExtractionMode, FileEntry};
 
 /// Footer that appears at the end of every DAT2 file (8 bytes total)
 /// This tells us where to find the file directory and validates the file size
@@ -203,17 +203,7 @@ impl Dat2Archive {
             |file, pattern| file.name.contains(pattern),
         );
 
-        println!("{:>11} {:>11}  {:>4}  Name", "Size", "Packed", "Comp");
-        println!("{}", "-".repeat(50));
-
-        for file in files_to_list {
-            let comp_str = if file.compressed { "Yes" } else { "No" };
-            let display_name = utils::normalize_path_for_display(&file.name);
-            println!(
-                "{:>11} {:>11}  {:>4}  {}",
-                file.size, file.packed_size, comp_str, display_name
-            );
-        }
+        utils::print_file_listing(&files_to_list);
 
         // Report missing patterns
         if !missing_patterns.is_empty() {
@@ -232,12 +222,12 @@ impl Dat2Archive {
     /// Arguments:
     /// - output_dir: Where to extract files
     /// - files: Specific files to extract (empty = extract all)
-    /// - flat: If true, ignore directory structure and put all files in output_dir
+    /// - mode: Extraction mode (preserve structure or flat)
     pub fn extract<P: AsRef<Path>>(
         &self,
         output_dir: P,
         files: &[String],
-        flat: bool,
+        mode: ExtractionMode,
     ) -> Result<()> {
         let output_dir = output_dir.as_ref();
 
@@ -253,7 +243,7 @@ impl Dat2Archive {
             |file, pattern| file.name.contains(pattern),
         );
 
-        self.extract_files_parallel(&files_to_extract, output_dir, flat)?;
+        self.extract_files_parallel(&files_to_extract, output_dir, mode)?;
 
         Ok(())
     }
@@ -263,7 +253,7 @@ impl Dat2Archive {
         &self,
         files_to_extract: &[&FileEntry],
         output_dir: &Path,
-        flat: bool,
+        mode: ExtractionMode,
     ) -> Result<()> {
         let archive_data = Arc::new(self.get_data_slice());
         let total_files = files_to_extract.len();
@@ -286,11 +276,14 @@ impl Dat2Archive {
                 }
 
                 // Determine output path
-                let output_path = if flat {
-                    let filename = utils::get_filename_from_dat_path(&file.name);
-                    output_dir.join(filename)
-                } else {
-                    output_dir.join(utils::to_system_path(&file.name))
+                let output_path = match mode {
+                    ExtractionMode::Flat => {
+                        let filename = utils::get_filename_from_dat_path(&file.name);
+                        output_dir.join(filename)
+                    }
+                    ExtractionMode::PreserveStructure => {
+                        output_dir.join(utils::to_system_path(&file.name))
+                    }
                 };
 
                 utils::ensure_dir_exists(&output_path)?;

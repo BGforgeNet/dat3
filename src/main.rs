@@ -22,7 +22,7 @@ mod dat2; // Fallout 2 DAT format implementation
 mod lzss; // LZSS compression for DAT1 files
 
 // Import what we need from our common module
-use common::{utils, CompressionLevel, DatArchive};
+use common::{utils, CompressionLevel, DatArchive, ExtractionMode};
 
 /// This is the main structure that defines our command-line interface
 /// The clap library uses this to automatically parse command-line arguments
@@ -124,7 +124,7 @@ fn main() -> Result<()> {
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // Use current directory if not specified
             let expanded_files = utils::expand_response_files(&files)?;
-            archive.extract(&output_dir, &expanded_files, false)?; // false = keep directories
+            archive.extract(&output_dir, &expanded_files, ExtractionMode::PreserveStructure)?;
         }
 
         Commands::ExtractFlat {
@@ -136,7 +136,7 @@ fn main() -> Result<()> {
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // Use current directory if not specified
             let expanded_files = utils::expand_response_files(&files)?;
-            archive.extract(&output_dir, &expanded_files, true)?; // true = ignore directories
+            archive.extract(&output_dir, &expanded_files, ExtractionMode::Flat)?;
         }
         Commands::Add {
             dat_file,

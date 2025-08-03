@@ -64,6 +64,12 @@ pub struct FileEntry {
     pub data: Option<Vec<u8>>,
 }
 
+impl AsRef<FileEntry> for FileEntry {
+    fn as_ref(&self) -> &FileEntry {
+        self
+    }
+}
+
 impl FileEntry {
     /// Create a new file entry with data (compressed or uncompressed)
     ///
@@ -109,6 +115,19 @@ impl FileEntry {
             data: Some(compressed_data), // Store the compressed data
         }
     }
+}
+
+/// Extraction mode for archive files
+///
+/// This enum controls how files are extracted from archives:
+/// - **PreserveStructure**: Maintains the original directory structure
+/// - **Flat**: Extracts all files to the output directory without subdirectories
+#[derive(Debug, Clone, Copy)]
+pub enum ExtractionMode {
+    /// Preserve the original directory structure when extracting
+    PreserveStructure,
+    /// Extract all files to a flat directory structure (no subdirectories)
+    Flat,
 }
 
 /// Unified interface for both DAT1 and DAT2 archives
@@ -204,11 +223,11 @@ impl DatArchive {
         &self,
         output_dir: P,
         files: &[String],
-        flat: bool,
+        mode: ExtractionMode,
     ) -> Result<()> {
         match self {
-            DatArchive::Dat1(archive) => archive.extract(output_dir, files, flat),
-            DatArchive::Dat2(archive) => archive.extract(output_dir, files, flat),
+            DatArchive::Dat1(archive) => archive.extract(output_dir, files, mode),
+            DatArchive::Dat2(archive) => archive.extract(output_dir, files, mode),
         }
     }
 
@@ -284,6 +303,23 @@ pub fn filter_and_track_patterns<'a, T>(
 pub mod utils {
     use super::*;
     use std::borrow::Cow;
+
+    /// Print formatted file listing to stdout
+    /// Common implementation used by both DAT1 and DAT2 formats
+    pub fn print_file_listing<T: AsRef<FileEntry>>(files: &[T]) {
+        println!("{:>11} {:>11}  {:>4}  Name", "Size", "Packed", "Comp");
+        println!("{}", "-".repeat(50));
+
+        for file in files {
+            let file = file.as_ref();
+            let comp_str = if file.compressed { "Yes" } else { "No" };
+            let display_name = normalize_path_for_display(&file.name);
+            println!(
+                "{:>11} {:>11}  {:>4}  {}",
+                file.size, file.packed_size, comp_str, display_name
+            );
+        }
+    }
 
     /// Collect all files from a path (file or directory)
     /// If path is a file, returns just that file
