@@ -26,204 +26,153 @@ echo "nested_file" >patch000/yyy/nested.txt
 echo "Directory structure:"
 find . -type f | sort
 
-# Get the Windows binary path for all tests
+# Copy Windows binary to test directory for Wine (like rpu.sh does)
 WIN_BINARY="$SCRIPT_DIR/../target/x86_64-pc-windows-gnu/release/dat3.exe"
-WINE_DAT3="$(winepath -w "$WIN_BINARY")"
+cp "$WIN_BINARY" dat3.exe
 
-echo ""
-echo "=== Test 1: Basic glob pattern ==="
+# Helper function to run Windows command via Wine
+run_wine() {
+	WINEDEBUG=-all wine dat3.exe "$@"
+}
 
-# Test Linux build
-echo "Testing Linux: dat3 a test1_linux.dat 'patch000/*.txt'"
-"$DAT3" a test1_linux.dat 'patch000/*.txt'
-echo "Linux archive contents:"
-"$DAT3" l test1_linux.dat
+# Helper function to verify file exists in archive
+verify_file_exists() {
+	local archive="$1"
+	local file="$2"
+	local platform="$3"
 
-# Verify Linux glob expansion
-echo "Verifying Linux glob expansion..."
-if ! "$DAT3" l test1_linux.dat patch000/1.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - patch000/1.txt not found in archive"
-	exit 1
-fi
-if ! "$DAT3" l test1_linux.dat patch000/2.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - patch000/2.txt not found in archive"
-	exit 1
-fi
-# Should NOT contain xxx/3.txt since it's in a subdirectory
-if "$DAT3" l test1_linux.dat patch000/xxx/3.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - patch000/xxx/3.txt should not be in archive (subdirectory)"
-	exit 1
-fi
-echo "Linux basic glob pattern verification passed!"
+	if [ "$platform" = "linux" ]; then
+		if ! "$DAT3" l "$archive" "$file" >/dev/null 2>&1; then
+			echo "ERROR: Linux - $file not found in archive"
+			exit 1
+		fi
+	else
+		if ! run_wine l "$archive" "$file" >/dev/null 2>&1; then
+			printf "ERROR: Windows - %s not found in archive\\n" "$file"
+			exit 1
+		fi
+	fi
+}
 
-# Test Windows build
-echo "Testing Windows: wine cmd /c \"$WINE_DAT3 a test1_windows.dat patch000\\*.txt\""
-wine cmd /c "$WINE_DAT3 a test1_windows.dat patch000\\*.txt"
-echo "Windows archive contents:"
-wine cmd /c "$WINE_DAT3 l test1_windows.dat"
+# Helper function to verify file does NOT exist in archive
+verify_file_missing() {
+	local archive="$1"
+	local file="$2"
+	local platform="$3"
 
-# Verify Windows glob expansion
-echo "Verifying Windows glob expansion..."
-if ! wine cmd /c "$WINE_DAT3 l test1_windows.dat patch000\\1.txt" >/dev/null 2>&1; then
-	echo "ERROR: Windows - glob expansion failed"
-	exit 1
-fi
-if ! wine cmd /c "$WINE_DAT3 l test1_windows.dat patch000\\2.txt" >/dev/null 2>&1; then
-	printf "ERROR: Windows - patch000\\2.txt not found in archive\n"
-	exit 1
-fi
-echo "Windows basic glob pattern verification passed!"
+	if [ "$platform" = "linux" ]; then
+		if "$DAT3" l "$archive" "$file" >/dev/null 2>&1; then
+			echo "ERROR: Linux - $file should not be in archive"
+			exit 1
+		fi
+	else
+		if run_wine l "$archive" "$file" >/dev/null 2>&1; then
+			printf "ERROR: Windows - %s should not be in archive\\n" "$file"
+			exit 1
+		fi
+	fi
+}
 
-echo ""
-echo "=== Test 2: Recursive glob pattern ==="
+# Test function for a glob pattern on both platforms
+test_glob_pattern() {
+	local test_num="$1"
+	local test_name="$2"
+	local linux_pattern="$3"
+	local windows_pattern="$4"
+	local verify_files="$5"   # space-separated list of files that should exist
+	local verify_missing="$6" # space-separated list of files that should NOT exist
 
-# Test Linux build
-echo "Testing Linux recursive glob: patch000/**/*.txt"
-"$DAT3" a test2_linux.dat 'patch000/**/*.txt'
-echo "Linux recursive glob archive contents:"
-"$DAT3" l test2_linux.dat
+	echo ""
+	echo "=== Test $test_num: $test_name ==="
 
-# Verify Linux recursive pattern includes subdirectory files
-if ! "$DAT3" l test2_linux.dat patch000/xxx/3.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Recursive glob should include patch000/xxx/3.txt"
-	exit 1
-fi
-if ! "$DAT3" l test2_linux.dat patch000/yyy/nested.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Recursive glob should include patch000/yyy/nested.txt"
-	exit 1
-fi
-echo "Linux recursive glob pattern verification passed!"
+	# Test Linux build
+	echo "Testing Linux $test_name: $linux_pattern"
+	"$DAT3" a "test${test_num}_linux.dat" "$linux_pattern"
+	echo "Linux $test_name archive contents:"
+	"$DAT3" l "test${test_num}_linux.dat"
 
-# Test Windows build
-echo "Testing Windows recursive glob: patch000\\**\\*.txt"
-wine cmd /c "$WINE_DAT3 a test2_windows.dat patch000\\**\\*.txt"
-echo "Windows recursive glob archive contents:"
-wine cmd /c "$WINE_DAT3 l test2_windows.dat"
+	# Verify Linux files
+	echo "Verifying Linux $test_name..."
+	for file in $verify_files; do
+		verify_file_exists "test${test_num}_linux.dat" "$file" "linux"
+	done
+	for file in $verify_missing; do
+		verify_file_missing "test${test_num}_linux.dat" "$file" "linux"
+	done
+	echo "Linux $test_name verification passed!"
 
-# Verify Windows recursive pattern
-if ! wine cmd /c "$WINE_DAT3 l test2_windows.dat patch000\\xxx\\3.txt" >/dev/null 2>&1; then
-	printf "ERROR: Windows - Recursive glob should include patch000\\xxx\\3.txt\n"
-	exit 1
-fi
-echo "Windows recursive glob pattern verification passed!"
+	# Test Windows build
+	echo "Testing Windows $test_name: $windows_pattern"
+	run_wine a "test${test_num}_windows.dat" "$windows_pattern"
+	echo "Windows $test_name archive contents:"
+	run_wine l "test${test_num}_windows.dat"
 
-echo ""
-echo "=== Test 3: Character range glob pattern ==="
+	# Verify Windows files (convert forward slashes to backslashes)
+	echo "Verifying Windows $test_name..."
+	for file in $verify_files; do
+		win_file=${file//\/\\/}
+		verify_file_exists "test${test_num}_windows.dat" "$win_file" "windows"
+	done
+	for file in $verify_missing; do
+		win_file=${file//\/\\/}
+		verify_file_missing "test${test_num}_windows.dat" "$win_file" "windows"
+	done
+	echo "Windows $test_name verification passed!"
+}
 
-# Test Linux build
-echo "Testing Linux character range glob: patch000/[12].txt"
-"$DAT3" a test3_linux.dat 'patch000/[12].txt'
-echo "Linux character range glob archive contents:"
-"$DAT3" l test3_linux.dat
+# Run all glob pattern tests
+test_glob_pattern "1" "Basic glob pattern" \
+	"patch000/*.txt" \
+	"patch000\\*.txt" \
+	"patch000/1.txt patch000/2.txt" \
+	"patch000/xxx/3.txt"
 
-# Verify Linux character range pattern
-if ! "$DAT3" l test3_linux.dat patch000/1.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Character range glob should include patch000/1.txt"
-	exit 1
-fi
-if ! "$DAT3" l test3_linux.dat patch000/2.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Character range glob should include patch000/2.txt"
-	exit 1
-fi
-echo "Linux character range glob pattern verification passed!"
+test_glob_pattern "2" "Recursive glob pattern" \
+	"patch000/**/*.txt" \
+	"patch000\\**\\*.txt" \
+	"patch000/1.txt patch000/2.txt patch000/xxx/3.txt patch000/yyy/nested.txt" \
+	""
 
-# Test Windows build
-echo "Testing Windows character range glob: patch000\\[12].txt"
-wine cmd /c "$WINE_DAT3 a test3_windows.dat patch000\\[12].txt"
-echo "Windows character range glob archive contents:"
-wine cmd /c "$WINE_DAT3 l test3_windows.dat"
+test_glob_pattern "3" "Character range glob pattern" \
+	"patch000/[12].txt" \
+	"patch000\\[12].txt" \
+	"patch000/1.txt patch000/2.txt" \
+	""
 
-# Verify Windows character range pattern
-if ! wine cmd /c "$WINE_DAT3 l test3_windows.dat patch000\\1.txt" >/dev/null 2>&1; then
-	printf "ERROR: Windows - Character range glob should include patch000\\1.txt\n"
-	exit 1
-fi
-echo "Windows character range glob pattern verification passed!"
+test_glob_pattern "4" "Question mark glob pattern" \
+	"patch000/?.txt" \
+	"patch000\\?.txt" \
+	"patch000/1.txt patch000/2.txt" \
+	""
 
-echo ""
-echo "=== Test 4: Question mark glob pattern ==="
-
-# Test Linux build
-echo "Testing Linux question mark glob: patch000/?.txt"
-"$DAT3" a test4_linux.dat 'patch000/?.txt'
-echo "Linux question mark glob archive contents:"
-"$DAT3" l test4_linux.dat
-
-# Verify Linux question mark pattern matches single characters
-if ! "$DAT3" l test4_linux.dat patch000/1.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Question mark glob should include patch000/1.txt"
-	exit 1
-fi
-if ! "$DAT3" l test4_linux.dat patch000/2.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Question mark glob should include patch000/2.txt"
-	exit 1
-fi
-echo "Linux question mark glob pattern verification passed!"
-
-# Test Windows build
-echo "Testing Windows question mark glob: patch000\\?.txt"
-wine cmd /c "$WINE_DAT3 a test4_windows.dat patch000\\?.txt"
-echo "Windows question mark glob archive contents:"
-wine cmd /c "$WINE_DAT3 l test4_windows.dat"
-
-# Verify Windows question mark pattern
-if ! wine cmd /c "$WINE_DAT3 l test4_windows.dat patch000\\1.txt" >/dev/null 2>&1; then
-	printf "ERROR: Windows - Question mark glob should include patch000\\1.txt\n"
-	exit 1
-fi
-echo "Windows question mark glob pattern verification passed!"
-
+# Test 5: Mixed file type patterns (multiple patterns)
 echo ""
 echo "=== Test 5: Mixed file type glob patterns ==="
 
-# Test Linux build
+# Test Linux build with multiple patterns
 echo "Testing Linux mixed file types: patch000/*.txt patch000/*.dat patch000/*.bin"
 "$DAT3" a test5_linux.dat 'patch000/*.txt' 'patch000/*.dat' 'patch000/*.bin'
 echo "Linux mixed file type glob archive contents:"
 "$DAT3" l test5_linux.dat
 
 # Verify Linux mixed file types
-if ! "$DAT3" l test5_linux.dat patch000/1.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Mixed types should include patch000/1.txt"
-	exit 1
-fi
-if ! "$DAT3" l test5_linux.dat patch000/2.txt >/dev/null 2>&1; then
-	echo "ERROR: Linux - Mixed types should include patch000/2.txt"
-	exit 1
-fi
-if ! "$DAT3" l test5_linux.dat patch000/data.bin >/dev/null 2>&1; then
-	echo "ERROR: Linux - Mixed types should include patch000/data.bin"
-	exit 1
-fi
-if ! "$DAT3" l test5_linux.dat patch000/test.dat >/dev/null 2>&1; then
-	echo "ERROR: Linux - Mixed types should include patch000/test.dat"
-	exit 1
-fi
+echo "Verifying Linux mixed file types..."
+for file in patch000/1.txt patch000/2.txt patch000/data.bin patch000/test.dat; do
+	verify_file_exists "test5_linux.dat" "$file" "linux"
+done
 echo "Linux mixed file type glob pattern verification passed!"
 
-# Test Windows build
+# Test Windows build with multiple patterns
 echo "Testing Windows mixed file types: patch000\\*.txt patch000\\*.dat patch000\\*.bin"
-wine cmd /c "$WINE_DAT3 a test5_windows.dat patch000\\*.txt patch000\\*.dat patch000\\*.bin"
+run_wine a test5_windows.dat 'patch000\*.txt' 'patch000\*.dat' 'patch000\*.bin'
 echo "Windows mixed file type glob archive contents:"
-wine cmd /c "$WINE_DAT3 l test5_windows.dat"
+run_wine l test5_windows.dat
 
 # Verify Windows mixed file types
-if ! wine cmd /c "$WINE_DAT3 l test5_windows.dat patch000\\1.txt" >/dev/null 2>&1; then
-	printf "ERROR: Windows - Mixed types should include patch000\\1.txt\n"
-	exit 1
-fi
-if ! wine cmd /c "$WINE_DAT3 l test5_windows.dat patch000\\2.txt" >/dev/null 2>&1; then
-	printf "ERROR: Windows - Mixed types should include patch000\\2.txt\n"
-	exit 1
-fi
-if ! wine cmd /c "$WINE_DAT3 l test5_windows.dat patch000\\data.bin" >/dev/null 2>&1; then
-	printf "ERROR: Windows - Mixed types should include patch000\\data.bin\n"
-	exit 1
-fi
-if ! wine cmd /c "$WINE_DAT3 l test5_windows.dat patch000\\test.dat" >/dev/null 2>&1; then
-	printf "ERROR: Windows - Mixed types should include patch000\\test.dat\n"
-	exit 1
-fi
+echo "Verifying Windows mixed file types..."
+for file in patch000\\1.txt patch000\\2.txt patch000\\data.bin patch000\\test.dat; do
+	verify_file_exists "test5_windows.dat" "$file" "windows"
+done
 echo "Windows mixed file type glob pattern verification passed!"
 
 echo ""
