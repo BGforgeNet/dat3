@@ -35,6 +35,11 @@ impl CompressionLevel {
 use crate::dat1::Dat1Archive; // Fallout 1 format
 use crate::dat2::Dat2Archive; // Fallout 2 format
 
+// DAT format detection constants
+const DAT1_FORMAT_ID_1: u32 = 0x0A;
+const DAT1_FORMAT_ID_2: u32 = 0x5E;
+const DAT1_MAX_DIRECTORIES: u32 = 1000;
+
 /// Represents a single file stored in a DAT archive
 ///
 /// This structure contains all the metadata and optional data needed to
@@ -201,8 +206,8 @@ impl DatArchive {
                 // DAT1 has reasonable directory counts (typically 1-50)
                 // and specific format identifiers (0x0A or 0x5E)
                 return dir_count > 0
-                    && dir_count < 1000
-                    && (format_id == 0x0A || format_id == 0x5E);
+                    && dir_count < DAT1_MAX_DIRECTORIES
+                    && (format_id == DAT1_FORMAT_ID_1 || format_id == DAT1_FORMAT_ID_2);
             }
         }
 
@@ -407,6 +412,17 @@ pub mod utils {
         }
     }
 
+    /// Normalize a collection of user input patterns to internal format
+    ///
+    /// This is a common pattern used throughout the codebase for normalizing
+    /// user-provided file patterns before filtering operations.
+    pub fn normalize_user_patterns(patterns: &[String]) -> Vec<String> {
+        patterns
+            .iter()
+            .map(|p| normalize_user_path(p).into_owned())
+            .collect()
+    }
+
     /// Expand @response-file syntax into actual file list
     ///
     /// If files contains exactly one item starting with '@', reads that file
@@ -494,5 +510,52 @@ pub mod utils {
         } else {
             bail!("Non-ASCII filename found: {:?}", filename)
         }
+    }
+
+    /// Calculate the archive path for a file being added to a DAT archive
+    ///
+    /// This handles the complex logic of determining where a file should be placed
+    /// in the archive based on the input file path, base path, and target directory.
+    /// Always preserves directory structure within the archive.
+    pub fn calculate_archive_path(
+        file: &std::path::Path,
+        base_path: &std::path::Path,
+        target_dir: Option<&str>,
+    ) -> Result<String> {
+        let archive_path = match target_dir {
+            Some(target) => {
+                if base_path.is_dir() {
+                    let relative_path = if let Some(parent) = base_path.parent() {
+                        file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
+                    } else {
+                        file.to_string_lossy()
+                    };
+                    format!("{target}/{relative_path}")
+                } else {
+                    let filename = file
+                        .file_name()
+                        .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
+                        .to_string_lossy();
+                    format!("{target}/{filename}")
+                }
+            }
+            None => {
+                if base_path.is_dir() {
+                    if let Some(parent) = base_path.parent() {
+                        file.strip_prefix(parent)
+                            .unwrap_or(file)
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        file.to_string_lossy().into_owned()
+                    }
+                } else {
+                    // For single files, preserve the full relative path
+                    file.to_string_lossy().into_owned()
+                }
+            }
+        };
+
+        Ok(normalize_path_for_archive(&archive_path))
     }
 }

@@ -150,21 +150,22 @@ impl Dat2Archive {
 
         // Read file count first (using byteorder for simplicity)
         let mut cursor = Cursor::new(&data[tree_start..]);
-        let file_count = cursor.read_u32::<LittleEndian>()?;
+        let file_count = cursor.read_u32::<LittleEndian>()
+            .context("Failed to read file count from DAT2 directory tree")?;
 
         // Parse directory tree entries using deku
         let mut files = Vec::with_capacity(file_count as usize);
         let tree_data = &data[tree_start + 4..data.len() - 8]; // Skip file count
         let mut current_offset = 0;
 
-        for _ in 0..file_count {
+        for i in 0..file_count {
             let remaining_data = &tree_data[current_offset..];
             let ((remaining_slice, _bit_offset), entry) =
                 Dat2FileEntry::from_bytes((remaining_data, 0))
                     .map_err(|e| anyhow::anyhow!("Failed to parse file entry: {}", e))?;
 
             let filename = utils::decode_filename(&entry.filename_bytes)
-                .context("Failed to decode filename")?;
+                .with_context(|| format!("Failed to decode filename for file entry {}", i))?;
 
             files.push(FileEntry {
                 name: filename, // Keep backslashes for internal consistency
@@ -191,10 +192,7 @@ impl Dat2Archive {
     /// List files in the archive (all or filtered by patterns)
     pub fn list(&self, files: &[String]) -> Result<()> {
         // Normalize user input patterns to internal format (backslashes)
-        let normalized_patterns: Vec<String> = files
-            .iter()
-            .map(|p| utils::normalize_user_path(p).into_owned())
-            .collect();
+        let normalized_patterns = utils::normalize_user_patterns(files);
 
         // Use shared filtering logic
         let (files_to_list, missing_patterns) = crate::common::filter_and_track_patterns(
@@ -232,10 +230,7 @@ impl Dat2Archive {
         let output_dir = output_dir.as_ref();
 
         // Use shared filtering logic from common module
-        let normalized_patterns: Vec<String> = files
-            .iter()
-            .map(|p| utils::normalize_user_path(p).into_owned())
-            .collect();
+        let normalized_patterns = utils::normalize_user_patterns(files);
 
         let (files_to_extract, _) = crate::common::filter_and_track_patterns(
             &self.files,
@@ -381,7 +376,7 @@ impl Dat2Archive {
         target_dir: Option<&str>,
     ) -> Result<FileEntry> {
         let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
-        let archive_path = Self::calculate_archive_path(file, base_path, target_dir)?;
+        let archive_path = utils::calculate_archive_path(file, base_path, target_dir)?;
         let display_path = utils::normalize_path_for_display(&archive_path);
         println!("Adding: {display_path}");
 
@@ -405,48 +400,6 @@ impl Dat2Archive {
         }
     }
 
-    /// Calculate the archive path for a file being added (always preserves directory structure)
-    fn calculate_archive_path(
-        file: &std::path::Path,
-        base_path: &std::path::Path,
-        target_dir: Option<&str>,
-    ) -> Result<String> {
-        let archive_path = match target_dir {
-            Some(target) => {
-                if base_path.is_dir() {
-                    let relative_path = if let Some(parent) = base_path.parent() {
-                        file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
-                    } else {
-                        file.to_string_lossy()
-                    };
-                    format!("{target}/{relative_path}")
-                } else {
-                    let filename = file
-                        .file_name()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
-                        .to_string_lossy();
-                    format!("{target}/{filename}")
-                }
-            }
-            None => {
-                if base_path.is_dir() {
-                    if let Some(parent) = base_path.parent() {
-                        file.strip_prefix(parent)
-                            .unwrap_or(file)
-                            .to_string_lossy()
-                            .to_string()
-                    } else {
-                        file.to_string_lossy().to_string()
-                    }
-                } else {
-                    // For single files, preserve the full relative path
-                    file.to_string_lossy().to_string()
-                }
-            }
-        };
-
-        Ok(utils::normalize_path_for_archive(&archive_path)) // Use backslashes for internal consistency
-    }
 
     /// Add files to the archive (directories processed recursively)
     ///
@@ -475,7 +428,8 @@ impl Dat2Archive {
         let base_path = file_path.as_ref();
 
         // Find all files to add (handles both single files and directories)
-        let files = utils::collect_files(&file_path)?;
+        let files = utils::collect_files(&file_path)
+            .with_context(|| format!("Failed to collect files from path '{}'", file_path.as_ref().display()))?;
 
         // Process all files in parallel for better performance
         let results: Result<Vec<FileEntry>> = files
