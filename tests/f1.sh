@@ -9,7 +9,7 @@ set -xeu -o pipefail
 cd "$(dirname "$0")/f1"
 
 # Load common variables and functions
-# shellcheck source=common.sh
+# shellcheck source=tests/common.sh
 source ../common.sh
 
 export WINEDEBUG=-all

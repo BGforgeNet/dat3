@@ -4,8 +4,12 @@ set -xeu -o pipefail
 
 # Test response file functionality with a dedicated test archive
 
+# Work inside tests directory
+cd "$(dirname "$0")"
+
 # Load common variables and functions
-source "$(dirname "$0")/common.sh"
+# shellcheck source=tests/common.sh
+source ./common.sh
 
 # Create test directory
 TEST_DIR="test_response_file"

@@ -6,6 +6,7 @@ set -xeu -o pipefail
 cd "$(dirname "$0")"
 
 # Load common variables and functions
+# shellcheck source=tests/common.sh
 source ./common.sh
 
 # File constants

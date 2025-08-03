@@ -4,8 +4,12 @@ set -xeu -o pipefail
 
 # Test that dat3 properly fails when encountering non-ASCII filenames
 
+# Work inside tests directory
+cd "$(dirname "$0")"
+
 # Load common variables and functions
-source "$(dirname "$0")/common.sh"
+# shellcheck source=tests/common.sh
+source ./common.sh
 
 # Create a temporary directory for our test
 TEST_DIR="test_non_ascii"
