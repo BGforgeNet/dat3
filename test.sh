@@ -26,3 +26,6 @@ fi
 
 # Path consistency test
 ./path_consistency.sh
+
+# Glob pattern handling test
+./glob_handling.sh

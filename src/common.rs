@@ -8,6 +8,7 @@ which DAT format it's working with.
 
 // Import the libraries we need
 use anyhow::{bail, Context, Result}; // For error handling
+use glob::glob; // Cross-platform glob expansion
 use std::fs; // File system operations
 use std::path::{Path, PathBuf}; // Cross-platform path handling
 
@@ -423,16 +424,17 @@ pub mod utils {
             .collect()
     }
 
-    /// Expand @response-file syntax into actual file list
+    /// Expand @response-file syntax and glob patterns into actual file list
     ///
     /// If files contains exactly one item starting with '@', reads that file
-    /// and returns its lines as the file list. Otherwise returns files as-is.
+    /// and returns its lines as the file list. Otherwise, expands any glob
+    /// patterns and returns the expanded file list.
     ///
     /// # Arguments
-    /// * `files` - Command line file arguments (may contain @response-file)
+    /// * `files` - Command line file arguments (may contain @response-file or globs)
     ///
     /// # Returns
-    /// * Expanded file list or error if response file cannot be read
+    /// * Expanded file list or error if response file cannot be read or pattern fails
     pub fn expand_response_files(files: &[String]) -> Result<Vec<String>> {
         // Check if we have exactly one argument starting with '@'
         if files.len() == 1 && files[0].starts_with('@') {
@@ -453,8 +455,39 @@ pub mod utils {
             // Mixed usage - response file with other arguments
             bail!("Cannot mix @response-file with explicit file arguments");
         } else {
-            // No response file, return as-is
-            Ok(files.to_vec())
+            // Expand glob patterns for each file argument
+            let mut expanded_files = Vec::new();
+
+            for file in files {
+                // Check if the pattern contains glob metacharacters
+                if file.contains('*') || file.contains('?') || file.contains('[') {
+                    // Use glob to expand the pattern
+                    let mut found_matches = false;
+                    for entry in
+                        glob(file).with_context(|| format!("Invalid glob pattern: {file}"))?
+                    {
+                        match entry {
+                            Ok(path) => {
+                                expanded_files.push(path.to_string_lossy().into_owned());
+                                found_matches = true;
+                            }
+                            Err(e) => {
+                                bail!("Error expanding glob pattern '{file}': {e}");
+                            }
+                        }
+                    }
+
+                    // If no matches found, this is an error (pattern doesn't exist)
+                    if !found_matches {
+                        bail!("Path does not exist: {file}");
+                    }
+                } else {
+                    // Not a glob pattern, add as-is
+                    expanded_files.push(file.clone());
+                }
+            }
+
+            Ok(expanded_files)
         }
     }
 

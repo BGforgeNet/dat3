@@ -12,7 +12,7 @@ rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
 cd "$TEST_DIR"
 
-echo "Testing path consistency with wildcard expansion..."
+echo "Testing path consistency with glob expansion..."
 
 # Create test directory structure like the user's case
 mkdir -p patch000/xxx
