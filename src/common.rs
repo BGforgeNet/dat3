@@ -540,19 +540,10 @@ pub mod utils {
                 }
             }
             None => {
-                if base_path.is_dir() {
-                    if let Some(parent) = base_path.parent() {
-                        file.strip_prefix(parent)
-                            .unwrap_or(file)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        file.to_string_lossy().into_owned()
-                    }
-                } else {
-                    // For single files, preserve the full relative path
-                    file.to_string_lossy().into_owned()
-                }
+                // Always preserve the full relative path as specified
+                // This ensures consistent behavior whether files were specified
+                // individually or as part of a directory expansion
+                file.to_string_lossy().into_owned()
             }
         };
 

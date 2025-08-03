@@ -23,3 +23,6 @@ fi
 
 # Duplicate paths test
 ./duplicate_paths.sh
+
+# Path consistency test
+./path_consistency.sh
