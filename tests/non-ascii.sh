@@ -8,7 +8,8 @@ set -xeu -o pipefail
 source "$(dirname "$0")/common.sh"
 
 # Create a temporary directory for our test
-TEST_DIR="test_non_ascii_$$"
+TEST_DIR="test_non_ascii"
+rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
 cd "$TEST_DIR"
 
