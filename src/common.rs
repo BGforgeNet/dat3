@@ -358,14 +358,14 @@ pub mod utils {
         }
     }
 
-    /// Normalize user input path to internal format (forward slashes)
+    /// Normalize user input path to internal format (backslashes)
     ///
     /// Accepts both forward and backward slashes from users on any platform,
-    /// converting them to our internal forward slash format for consistent matching.
+    /// converting them to our internal backslash format for consistent matching.
     /// Uses Cow to avoid unnecessary allocations when no conversion is needed.
     pub fn normalize_user_path(path: &str) -> Cow<str> {
-        if path.contains('\\') {
-            Cow::Owned(path.replace('\\', "/"))
+        if path.contains('/') {
+            Cow::Owned(path.replace('/', "\\"))
         } else {
             Cow::Borrowed(path)
         }

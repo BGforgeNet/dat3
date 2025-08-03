@@ -20,3 +20,6 @@ fi
 
 # Add validation test
 ./add_validation.sh
+
+# Duplicate paths test
+./duplicate_paths.sh

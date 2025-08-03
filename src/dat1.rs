@@ -147,11 +147,11 @@ impl Dat1Archive {
                 let full_name = if dir_name == "." {
                     name
                 } else {
-                    format!("{dir_name}/{name}")
+                    format!("{dir_name}\\{name}")
                 };
 
                 files.push(FileEntry {
-                    name: full_name.replace('\\', "/"), // Convert to internal format (forward slashes)
+                    name: full_name, // Already using backslashes consistently
                     offset,
                     size,
                     packed_size: actual_packed_size,
@@ -171,7 +171,7 @@ impl Dat1Archive {
 
     /// List files in the archive (all or filtered by patterns)
     pub fn list(&self, files: &[String]) -> Result<()> {
-        // Normalize user input patterns to internal format (forward slashes)
+        // Normalize user input patterns to internal format (backslashes)
         let normalized_patterns: Vec<String> = files
             .iter()
             .map(|p| utils::normalize_user_path(p).into_owned())
@@ -221,7 +221,7 @@ impl Dat1Archive {
     ) -> Result<()> {
         let output_dir = output_dir.as_ref();
 
-        // Normalize user input patterns to internal format (forward slashes)
+        // Normalize user input patterns to internal format (backslashes)
         let normalized_patterns: Vec<String> = files
             .iter()
             .map(|p| utils::normalize_user_path(p).into_owned())
@@ -385,6 +385,11 @@ impl Dat1Archive {
                     self.directories.len() - 1
                 };
 
+            // Remove any existing file with the same name from all directories
+            for dir in &mut self.directories {
+                dir.files.retain(|existing_file| existing_file.name != archive_path);
+            }
+
             // Add file entry
             let mut file_entry = FileEntry::with_data(archive_path, final_data, compressed);
             if !compressed {
@@ -402,7 +407,7 @@ impl Dat1Archive {
 
     /// Delete a file from the archive
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        // Normalize user input to internal format (forward slashes)
+        // Normalize user input to internal format (backslashes)
         let normalized_name = utils::normalize_user_path(file_name).into_owned();
 
         for dir in &mut self.directories {

@@ -167,7 +167,7 @@ impl Dat2Archive {
                 .context("Failed to decode filename")?;
 
             files.push(FileEntry {
-                name: filename.replace('\\', "/"), // Convert archive format to internal format
+                name: filename, // Keep backslashes for internal consistency
                 offset: entry.offset as u64,
                 size: entry.real_size,
                 packed_size: entry.packed_size,
@@ -190,7 +190,7 @@ impl Dat2Archive {
 
     /// List files in the archive (all or filtered by patterns)
     pub fn list(&self, files: &[String]) -> Result<()> {
-        // Normalize user input patterns to internal format (forward slashes)
+        // Normalize user input patterns to internal format (backslashes)
         let normalized_patterns: Vec<String> = files
             .iter()
             .map(|p| utils::normalize_user_path(p).into_owned())
@@ -446,15 +446,13 @@ impl Dat2Archive {
                         file.to_string_lossy().to_string()
                     }
                 } else {
-                    file.file_name()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
-                        .to_string_lossy()
-                        .to_string()
+                    // For single files, preserve the full relative path
+                    file.to_string_lossy().to_string()
                 }
             }
         };
 
-        Ok(utils::normalize_path_for_archive(&archive_path))
+        Ok(utils::normalize_path_for_archive(&archive_path)) // Use backslashes for internal consistency
     }
 
     /// Add files to the archive (directories processed recursively)
@@ -498,16 +496,15 @@ impl Dat2Archive {
         let new_entries = results?;
 
         // Add all the new files to the archive, handling duplicates
-        // We use a HashSet to track which files we've already seen in this batch
+        // First, remove any existing files from archive that match the new file names
+        let new_file_names: HashSet<String> = new_entries.iter().map(|e| e.name.clone()).collect();
+        self.files.retain(|existing_file| !new_file_names.contains(&existing_file.name));
+
+        // Then add new files, deduplicating within the new batch
         let mut seen_names = HashSet::new();
         for entry in new_entries {
             // Only add if we haven't seen this filename already in this batch
             if seen_names.insert(entry.name.clone()) {
-                // Remove any existing file with the same name from the archive
-                self.files
-                    .retain(|existing_file| existing_file.name != entry.name);
-
-                // Add the new file
                 self.files.push(entry);
             }
             // If we've seen this name before in this batch, skip it (keeps first occurrence)
@@ -534,7 +531,7 @@ impl Dat2Archive {
     /// ```
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
         // Convert the user's input to the internal format used by the archive
-        // (handles both forward and back slashes)
+        // (handles both forward and back slashes, converts to backslashes internally)
         let normalized_name = utils::normalize_user_path(file_name).into_owned();
 
         // Look for a file with this name in the archive
