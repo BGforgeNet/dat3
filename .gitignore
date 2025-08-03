@@ -9,12 +9,10 @@
 
 !/tests/
 /tests/*
-!/tests/rpu.sh
+!/tests/*.sh
 !/tests/rpu.md5
-!/tests/f1.sh
 !/tests/dat2.exe
 !/tests/response_files.txt
-!/tests/non-ascii.sh
 
 # IDE
 .vscode/
