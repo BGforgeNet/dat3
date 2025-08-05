@@ -146,35 +146,129 @@ test_glob_pattern "4" "Question mark glob pattern" \
 	"patch000/1.txt patch000/2.txt" \
 	""
 
-# Test 5: Mixed file type patterns (multiple patterns)
+# Test 5: Directory stripping with ./ prefix
 echo ""
-echo "=== Test 5: Mixed file type glob patterns ==="
+echo "=== Test 5: Directory stripping with ./ prefix ==="
+
+# Test Linux build
+echo "Testing Linux directory stripping: ./patch000/*"
+"$DAT3" a test5_linux.dat './patch000/*'
+echo "Linux directory stripping archive contents:"
+"$DAT3" l test5_linux.dat
+
+# Verify Linux directory stripping - files should be at root level
+echo "Verifying Linux directory stripping..."
+for file in 1.txt 2.txt data.bin test.dat xxx/3.txt yyy/nested.txt; do
+	verify_file_exists "test5_linux.dat" "$file" "linux"
+done
+echo "Linux directory stripping verification passed!"
+
+# Test Windows build
+echo "Testing Windows directory stripping: .\\patch000\\*"
+run_wine a test5_windows.dat '.\\patch000\\*'
+echo "Windows directory stripping archive contents:"
+run_wine l test5_windows.dat
+
+# Verify Windows directory stripping - files should be at root level
+echo "Verifying Windows directory stripping..."
+for file in 1.txt 2.txt data.bin test.dat xxx\\3.txt yyy\\nested.txt; do
+	verify_file_exists "test5_windows.dat" "$file" "windows"
+done
+echo "Windows directory stripping verification passed!"
+
+# Test 6: Mixed file type patterns (multiple patterns)
+echo ""
+echo "=== Test 6: Mixed file type glob patterns ==="
 
 # Test Linux build with multiple patterns
 echo "Testing Linux mixed file types: patch000/*.txt patch000/*.dat patch000/*.bin"
-"$DAT3" a test5_linux.dat 'patch000/*.txt' 'patch000/*.dat' 'patch000/*.bin'
+"$DAT3" a test6_linux.dat 'patch000/*.txt' 'patch000/*.dat' 'patch000/*.bin'
 echo "Linux mixed file type glob archive contents:"
-"$DAT3" l test5_linux.dat
+"$DAT3" l test6_linux.dat
 
 # Verify Linux mixed file types
 echo "Verifying Linux mixed file types..."
 for file in patch000/1.txt patch000/2.txt patch000/data.bin patch000/test.dat; do
-	verify_file_exists "test5_linux.dat" "$file" "linux"
+	verify_file_exists "test6_linux.dat" "$file" "linux"
 done
 echo "Linux mixed file type glob pattern verification passed!"
 
 # Test Windows build with multiple patterns
 echo "Testing Windows mixed file types: patch000\\*.txt patch000\\*.dat patch000\\*.bin"
-run_wine a test5_windows.dat 'patch000\*.txt' 'patch000\*.dat' 'patch000\*.bin'
+run_wine a test6_windows.dat 'patch000\*.txt' 'patch000\*.dat' 'patch000\*.bin'
 echo "Windows mixed file type glob archive contents:"
-run_wine l test5_windows.dat
+run_wine l test6_windows.dat
 
 # Verify Windows mixed file types
 echo "Verifying Windows mixed file types..."
 for file in patch000\\1.txt patch000\\2.txt patch000\\data.bin patch000\\test.dat; do
-	verify_file_exists "test5_windows.dat" "$file" "windows"
+	verify_file_exists "test6_windows.dat" "$file" "windows"
 done
 echo "Windows mixed file type glob pattern verification passed!"
+
+# Test 7: Mixed directory stripping (some patterns with ./, some without)
+echo ""
+echo "=== Test 7: Mixed directory stripping behavior ==="
+
+# Test Linux build with mixed patterns
+echo "Testing Linux mixed stripping: patch000/1.txt ./patch000/2.txt patch000/xxx/3.txt"
+"$DAT3" a test7_linux.dat patch000/1.txt ./patch000/2.txt patch000/xxx/3.txt
+echo "Linux mixed stripping archive contents:"
+"$DAT3" l test7_linux.dat
+
+# Verify Linux mixed stripping - only files from ./ patterns should be stripped
+echo "Verifying Linux mixed stripping..."
+# Files from normal patterns should keep their paths
+verify_file_exists "test7_linux.dat" "patch000/1.txt" "linux"
+verify_file_exists "test7_linux.dat" "patch000/xxx/3.txt" "linux"
+# Files from ./ patterns should be stripped
+verify_file_exists "test7_linux.dat" "2.txt" "linux"
+echo "Linux mixed stripping verification passed!"
+
+# Test Windows build with mixed patterns
+echo "Testing Windows mixed stripping: patch000\\1.txt .\\patch000\\2.txt patch000\\xxx\\3.txt"
+run_wine a test7_windows.dat 'patch000\1.txt' '.\patch000\2.txt' 'patch000\xxx\3.txt'
+echo "Windows mixed stripping archive contents:"
+run_wine l test7_windows.dat
+
+# Verify Windows mixed stripping - only files from .\ patterns should be stripped
+echo "Verifying Windows mixed stripping..."
+# Files from normal patterns should keep their paths
+verify_file_exists "test7_windows.dat" "patch000\\1.txt" "windows"
+verify_file_exists "test7_windows.dat" "patch000\\xxx\\3.txt" "windows"
+# Files from .\ patterns should be stripped
+verify_file_exists "test7_windows.dat" "2.txt" "windows"
+echo "Windows mixed stripping verification passed!"
+
+# Test 8: Glob patterns with ./ prefix (both individual files and globs should be stripped)
+echo ""
+echo "=== Test 8: Glob patterns with ./ prefix ==="
+
+# Test Linux build - glob pattern with ./ prefix
+echo "Testing Linux glob with ./ prefix: ./patch000/*.txt ./patch000/data.bin"
+"$DAT3" a test8_linux.dat './patch000/*.txt' './patch000/data.bin'
+echo "Linux glob with ./ prefix archive contents:"
+"$DAT3" l test8_linux.dat
+
+# Verify Linux - all files from ./ patterns should be stripped
+echo "Verifying Linux glob with ./ prefix..."
+verify_file_exists "test8_linux.dat" "1.txt" "linux"
+verify_file_exists "test8_linux.dat" "2.txt" "linux"
+verify_file_exists "test8_linux.dat" "data.bin" "linux"
+echo "Linux glob with ./ prefix verification passed!"
+
+# Test Windows build - glob pattern with .\ prefix  
+echo "Testing Windows glob with .\\ prefix: .\\patch000\\*.txt .\\patch000\\data.bin"
+run_wine a test8_windows.dat '.\\patch000\\*.txt' '.\\patch000\\data.bin'
+echo "Windows glob with .\\ prefix archive contents:"
+run_wine l test8_windows.dat
+
+# Verify Windows - all files from .\ patterns should be stripped
+echo "Verifying Windows glob with .\\ prefix..."
+verify_file_exists "test8_windows.dat" "1.txt" "windows"
+verify_file_exists "test8_windows.dat" "2.txt" "windows"
+verify_file_exists "test8_windows.dat" "data.bin" "windows"
+echo "Windows glob with .\\ prefix verification passed!"
 
 echo ""
 echo "All glob tests completed successfully!"

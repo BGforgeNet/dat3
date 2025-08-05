@@ -56,7 +56,7 @@ diff -u rpu.md5 rpu2.md5
 # DAT2 format with automatic recursive directory structure preservation
 rm -f "$RPU2_DAT"
 cd "$RPU_DIR"
-$DAT3 a "../$RPU2_DAT" ./*
+$DAT3 a "../$RPU2_DAT" *
 cd ..
 
 # Test with original dat2.exe via wine

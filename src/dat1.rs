@@ -338,6 +338,7 @@ impl Dat1Archive {
         file_path: P,
         _compression: CompressionLevel, // Ignored - DAT1 files stored uncompressed
         target_dir: Option<&str>,
+        strip_leading_directory: bool,
     ) -> Result<()> {
         let base_path = file_path.as_ref();
         let files = utils::collect_files(&file_path).with_context(|| {
@@ -351,8 +352,13 @@ impl Dat1Archive {
             let data =
                 fs::read(&file).with_context(|| format!("Failed to read {}", file.display()))?;
 
-            // Calculate archive path using common logic
-            let archive_path = utils::calculate_archive_path(&file, base_path, target_dir)?;
+            // Calculate archive path using common logic with stripping support
+            let archive_path = utils::calculate_archive_path(
+                &file,
+                base_path,
+                target_dir,
+                strip_leading_directory,
+            )?;
 
             // DAT1 format: ignore compression parameter, always store uncompressed
             let size = data.len() as u32;

@@ -375,9 +375,11 @@ impl Dat2Archive {
         base_path: &std::path::Path,
         compression: CompressionLevel,
         target_dir: Option<&str>,
+        strip_leading_directory: bool,
     ) -> Result<FileEntry> {
         let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
-        let archive_path = utils::calculate_archive_path(file, base_path, target_dir)?;
+        let archive_path =
+            utils::calculate_archive_path(file, base_path, target_dir, strip_leading_directory)?;
         let display_path = utils::normalize_path_for_display(&archive_path);
         println!("Adding: {display_path}");
 
@@ -424,6 +426,7 @@ impl Dat2Archive {
         file_path: P,
         compression: CompressionLevel,
         target_dir: Option<&str>,
+        strip_leading_directory: bool,
     ) -> Result<()> {
         let base_path = file_path.as_ref();
 
@@ -439,7 +442,13 @@ impl Dat2Archive {
         let results: Result<Vec<FileEntry>> = files
             .par_iter()
             .map(|file| {
-                self.process_single_file_for_adding(file, base_path, compression, target_dir)
+                self.process_single_file_for_adding(
+                    file,
+                    base_path,
+                    compression,
+                    target_dir,
+                    strip_leading_directory,
+                )
             })
             .collect();
 

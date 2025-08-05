@@ -2,11 +2,25 @@ use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
+/// LZSS Dictionary size - standard for DAT1 format
+/// This is a power of 2 (2^12) to allow efficient bitwise operations
 const DICT_SIZE: usize = 4096;
-// Note: MIN_MATCH would be used in compression implementation
+
+/// Minimum match length for dictionary references
+/// Matches shorter than this are stored as literals
+/// Note: MIN_MATCH would be used in compression implementation
 #[allow(dead_code)]
-const MIN_MATCH: usize = 3; // Minimum match length for dictionary references
+const MIN_MATCH: usize = 3;
+
+/// Maximum match length that can be encoded in 4 bits (0x0F + 2 + 1 = 18)
+/// This comes from the encoding format where length is stored as (actual_length - 2)
+/// in 4 bits, giving us a range of 2-17, but the implementation uses 0..=match_length
+/// which makes the effective maximum 18
 const MAX_MATCH: usize = 18;
+
+/// Initial dictionary write position
+/// Set to DICT_SIZE - MAX_MATCH to prevent buffer overrun during initial matches
+const INITIAL_DICT_POS: usize = DICT_SIZE - MAX_MATCH; // 4096 - 18 = 4078
 
 /// LZSS decompression for Fallout 1 DAT files
 ///
@@ -45,14 +59,14 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
 
     let debug = std::env::var("LZSS_DEBUG").is_ok();
 
-    while let Ok(n) = cursor.read_i16::<BigEndian>() {
-        if n == 0 {
+    while let Ok(block_size) = cursor.read_i16::<BigEndian>() {
+        if block_size == 0 {
             break;
         }
 
-        if n < 0 {
-            // Negative N: read |N| bytes directly to output
-            let bytes_to_read = (-n) as usize;
+        if block_size < 0 {
+            // Negative block_size: read |block_size| bytes directly to output
+            let bytes_to_read = (-block_size) as usize;
             let mut direct_bytes = vec![0u8; bytes_to_read];
             cursor.read_exact(&mut direct_bytes).map_err(|e| {
                 anyhow::anyhow!(
@@ -64,13 +78,13 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
             })?;
             output.extend_from_slice(&direct_bytes);
         } else {
-            // Positive N: compressed data follows
-            let bytes_to_process = n as usize;
+            // Positive block_size: compressed data follows
+            let bytes_to_process = block_size as usize;
             let mut bytes_read = 0;
 
             // For each compressed block, reset dictionary position and initialize with spaces
-            dict_write_pos = DICT_SIZE - MAX_MATCH;
-            dictionary.fill(0x20); // Fill entire dictionary with spaces
+            dict_write_pos = INITIAL_DICT_POS;
+            dictionary.fill(0x20); // Fill entire dictionary with spaces (ASCII 32)
 
             if debug {
                 eprintln!("LZSS: Reset dict_write_pos = {dict_write_pos} and reinitialized dictionary with spaces");
@@ -155,12 +169,12 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                     }
 
                     // Copy from dictionary
-                    for k in 0..=match_length {
-                        let read_offset = (dict_read_pos + k) & (DICT_SIZE - 1);
+                    for offset in 0..=match_length {
+                        let read_offset = (dict_read_pos + offset) & (DICT_SIZE - 1);
                         let byte = dictionary[read_offset];
 
                         if debug {
-                            eprintln!("LZSS:   copy k={k}, byte=0x{byte:02x}");
+                            eprintln!("LZSS:   copy offset={offset}, byte=0x{byte:02x}");
                         }
 
                         output.push(byte);

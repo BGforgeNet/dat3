@@ -112,7 +112,11 @@ fn main() -> Result<()> {
             // LIST COMMAND: Show what files are in the archive
             let archive = DatArchive::open(&dat_file)?;
             let expanded_files = utils::expand_response_files(&files)?;
-            archive.list(&expanded_files)?;
+            let file_strings: Vec<String> = expanded_files
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            archive.list(&file_strings)?;
         }
 
         Commands::Extract {
@@ -124,9 +128,13 @@ fn main() -> Result<()> {
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // Use current directory if not specified
             let expanded_files = utils::expand_response_files(&files)?;
+            let file_strings: Vec<String> = expanded_files
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
             archive.extract(
                 &output_dir,
-                &expanded_files,
+                &file_strings,
                 ExtractionMode::PreserveStructure,
             )?;
         }
@@ -140,7 +148,11 @@ fn main() -> Result<()> {
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // Use current directory if not specified
             let expanded_files = utils::expand_response_files(&files)?;
-            archive.extract(&output_dir, &expanded_files, ExtractionMode::Flat)?;
+            let file_strings: Vec<String> = expanded_files
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            archive.extract(&output_dir, &file_strings, ExtractionMode::Flat)?;
         }
         Commands::Add {
             dat_file,
@@ -159,14 +171,13 @@ fn main() -> Result<()> {
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
-            let expanded_files = utils::expand_response_files(&file_strings)?;
+            let expanded = utils::expand_response_files_with_stripping(&file_strings)?;
 
             // Count total files that will be added by collecting from all paths
             // This will fail immediately if any path doesn't exist
             let mut total_files_to_add = 0;
-            for file_path_str in &expanded_files {
-                let file_path = PathBuf::from(file_path_str);
-                let collected_files = utils::collect_files(&file_path)?;
+            for file_path in &expanded.paths {
+                let collected_files = utils::collect_files(file_path)?;
                 total_files_to_add += collected_files.len();
             }
 
@@ -201,9 +212,15 @@ fn main() -> Result<()> {
             };
 
             // Add each file or directory to the archive
-            for file_path_str in expanded_files {
-                let file_path = PathBuf::from(file_path_str);
-                archive.add_file(&file_path, compression_level, target_dir.as_deref())?;
+            // Note: Files from patterns starting with ./ or .\ will have their
+            // leading directory component stripped (7z-compatible behavior)
+            for (file_path, should_strip_directory) in expanded.into_iter() {
+                archive.add_file(
+                    &file_path,
+                    compression_level,
+                    target_dir.as_deref(),
+                    should_strip_directory,
+                )?;
             }
 
             // Save the changes back to the file
@@ -215,8 +232,9 @@ fn main() -> Result<()> {
             let mut archive = DatArchive::open(&dat_file)?;
             let expanded_files = utils::expand_response_files(&files)?;
 
-            for file in expanded_files {
-                archive.delete_file(&file)?;
+            for file_path in expanded_files {
+                let file_str = file_path.to_string_lossy();
+                archive.delete_file(&file_str)?;
             }
 
             // Save the changes back to the file
