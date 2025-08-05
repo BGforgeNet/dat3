@@ -226,7 +226,7 @@ verify_file_exists "test7_linux.dat" "2.txt" "linux"
 echo "Linux mixed stripping verification passed!"
 
 # Test Windows build with mixed patterns
-echo "Testing Windows mixed stripping: patch000\\1.txt .\\patch000\\2.txt patch000\\xxx\\3.txt"
+printf "Testing Windows mixed stripping: patch000\\1.txt .\\patch000\\2.txt patch000\\xxx\\3.txt\n"
 run_wine a test7_windows.dat 'patch000\1.txt' '.\patch000\2.txt' 'patch000\xxx\3.txt'
 echo "Windows mixed stripping archive contents:"
 run_wine l test7_windows.dat
