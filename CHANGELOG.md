@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.0
+
+Added globbing capability.
+
 ## v0.3.0
 
 Now only accept ASCII filenames.
