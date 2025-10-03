@@ -471,8 +471,10 @@ impl Dat2Archive {
             // If we've seen this name before in this batch, skip it (keeps first occurrence)
         }
 
-        // DAT2 format requires files to be sorted alphabetically
-        self.files.sort_by(|a, b| a.name.cmp(&b.name));
+        // DAT2 format requires files to be sorted alphabetically (case-insensitive)
+        self.files.sort_by(|a, b| {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        });
 
         Ok(())
     }
