@@ -263,7 +263,7 @@ impl Dat2Archive {
             .try_for_each(|file| -> Result<()> {
                 // Show progress
                 let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                if count % 1000 == 0 || count == total_files {
+                if count.is_multiple_of(1000) || count == total_files {
                     let elapsed = start.elapsed().as_millis();
                     let files_per_sec = count as f64 / elapsed as f64 * 1000.0;
                     println!(

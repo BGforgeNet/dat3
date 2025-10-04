@@ -439,7 +439,7 @@ pub mod utils {
     /// Accepts both forward and backward slashes from users on any platform,
     /// converting them to our internal backslash format for consistent matching.
     /// Uses Cow to avoid unnecessary allocations when no conversion is needed.
-    pub fn normalize_user_path(path: &str) -> Cow<str> {
+    pub fn normalize_user_path(path: &str) -> Cow<'_, str> {
         if path.contains('/') {
             Cow::Owned(path.replace('/', "\\"))
         } else {
