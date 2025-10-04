@@ -472,9 +472,8 @@ impl Dat2Archive {
         }
 
         // DAT2 format requires files to be sorted alphabetically (case-insensitive)
-        self.files.sort_by(|a, b| {
-            a.name.to_lowercase().cmp(&b.name.to_lowercase())
-        });
+        self.files
+            .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         Ok(())
     }
