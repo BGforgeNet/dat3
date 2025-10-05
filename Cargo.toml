@@ -1,6 +1,6 @@
 [package]
 name = "fallout-dat3"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["BGforge"]
 description = "Fallout 1 and 2 .dat management cli."

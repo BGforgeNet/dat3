@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.0
+
+Set sort order to be case-insensitive for windows compatibility.
+
 ## v0.4.0
 
 Added globbing capability.
