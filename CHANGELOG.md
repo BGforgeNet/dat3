@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.0
+
+- Can use globs in list/delete/extract operations.
+- Paths in error messages are normalized too.
+- No panic on piping output.
+- Debug code cleanup.
+
 ## v0.5.0
 
 Set sort order to be case-insensitive for windows compatibility.
