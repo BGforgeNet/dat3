@@ -46,7 +46,7 @@ dat3 x master.dat -o ./extracted/
 ### Extract specific files
 
 ```bash
-# Mix forward and backward slashes on any platform
+# Can use forward or backward slashes
 dat3 x master.dat art/critters/HMMAXX.FRM scripts\generic.int
 ```
 
@@ -62,7 +62,7 @@ dat3 e master.dat -o ./files/
 # List all files
 dat3 l master.dat
 
-# List specific files (supports cross-platform paths)
+# List specific files. Can use forward or backward slashes. Output always shows OS-native slash.
 dat3 l master.dat art/critters/vault.frm text\english\quotes.txt
 
 # List files from response file
@@ -74,7 +74,7 @@ dat3 l master.dat @files_to_list.txt
 ```bash
 # Create a file listing files to process
 echo "art/critters/vault.frm" > files.txt
-echo "text\\english\\quotes.txt" >> files.txt
+echo "text\english\quotes.txt" >> files.txt
 echo "scripts/generic.int" >> files.txt
 
 # Use with any command (mutually exclusive with explicit file lists)

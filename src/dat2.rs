@@ -206,7 +206,8 @@ impl Dat2Archive {
         if !missing_patterns.is_empty() {
             eprintln!("\nFiles not found:");
             for pattern in &missing_patterns {
-                eprintln!("  {pattern}");
+                let display = utils::normalize_path_for_display(pattern);
+                eprintln!("  {display}");
             }
             bail!("Some requested files were not found");
         }
@@ -508,7 +509,10 @@ impl Dat2Archive {
             Ok(())
         } else {
             // File not found - this is an error
-            bail!("File not found: {}", file_name);
+            bail!(
+                "File not found: {}",
+                utils::normalize_path_for_display(file_name)
+            );
         }
     }
 

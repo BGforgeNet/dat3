@@ -48,7 +48,7 @@ const DAT1_MAX_DIRECTORIES: u32 = 1000;
 /// that are already in an archive (with offset) and new files being added.
 ///
 /// ## Fields Explanation
-/// - **name**: File path using forward slashes (normalized format)
+/// - **name**: File path using backslashes (DAT archive format)
 /// - **offset**: Byte position in the archive (0 for new files)
 /// - **size**: Original file size before compression
 /// - **packed_size**: Size after compression (equals size if not compressed)
@@ -56,7 +56,7 @@ const DAT1_MAX_DIRECTORIES: u32 = 1000;
 /// - **data**: Raw file content (present for new/modified files)
 #[derive(Debug, Clone)]
 pub struct FileEntry {
-    /// File path with forward slashes (e.g., "ART/CRITTERS/FILE.FRM")
+    /// File path with backslashes (e.g., "ART\\CRITTERS\\FILE.FRM")
     pub name: String,
     /// Byte position where file data starts in the archive
     pub offset: u64,
@@ -459,21 +459,19 @@ pub mod utils {
         Ok(())
     }
 
-    /// Convert internal path format (forward slashes) to native OS format for display
+    /// Convert internal path format (backslashes) to native OS format for display
     ///
-    /// Internal representation always uses forward slashes for cross-platform code.
+    /// Internal representation uses backslashes (DAT archive format).
     /// This converts to the user's expected format:
-    /// - Windows: forward slashes → backslashes
-    /// - Unix/Linux: already forward slashes (no change)
+    /// - Windows: already backslashes (no change needed)
+    /// - Unix/Linux: backslashes → forward slashes
     pub fn normalize_path_for_display(path: &str) -> String {
         #[cfg(windows)]
         {
-            // Convert forward slashes to backslashes for Windows users
-            path.replace('/', "\\")
+            path.to_string()
         }
         #[cfg(not(windows))]
         {
-            // Unix/Linux already uses forward slashes internally
             path.replace('\\', "/")
         }
     }
@@ -662,8 +660,8 @@ pub mod utils {
 
     /// Get just the filename (basename) from a path
     ///
-    /// Works with both internal format (forward slashes) and archive format (backslashes).
-    /// This is used for flat extraction where we want just the filename without directories.
+    /// Accepts both forward and backward slashes for flexibility with user input.
+    /// Internal storage uses backslashes (DAT archive format).
     pub fn get_filename_from_dat_path(path: &str) -> &str {
         // Find the last path separator (either forward or backward slash)
         path.rfind(['/', '\\'])
