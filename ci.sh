@@ -2,11 +2,14 @@
 
 set -xeu -o pipefail
 
-cargo install cargo-binstall
+# Install cargo-binstall if not present (pinned for Rust 1.88 compatibility)
+if ! command -v cargo-binstall &>/dev/null; then
+	cargo install cargo-binstall@1.10.0
+fi
 
-# Caching action has a bug, binstalls are not cached properly.
-if ! cargo help audit >/dev/null 2>&1; then
-    cargo binstall -y --force cargo-audit cargo-deny cargo-machete cargo-bloat
+# Install CI tools with pinned versions if not present
+if ! command -v cargo-audit &>/dev/null; then
+	cargo binstall -y cargo-audit@0.22.0 cargo-deny@0.19.0 cargo-machete@0.9.1 cargo-bloat@0.12.1
 fi
 
 # Format check
@@ -25,7 +28,7 @@ cargo test --verbose
 cargo audit
 
 # License/dependency check
-cargo deny check licenses
+cargo deny check -D parse-error licenses
 cargo deny check advisories
 cargo deny check bans
 
