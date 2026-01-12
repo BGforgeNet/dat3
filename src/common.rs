@@ -671,6 +671,15 @@ pub mod utils {
             .unwrap_or(path)
     }
 
+    /// Get the directory part from a DAT archive path.
+    ///
+    /// Returns "." if the path has no directory component.
+    pub fn get_dirname_from_dat_path(path: &str) -> &str {
+        path.rfind(['/', '\\'])
+            .map(|pos| &path[..pos])
+            .unwrap_or(".")
+    }
+
     /// Convert filename bytes from DAT files to ASCII strings
     ///
     /// Strictly requires ASCII-only filenames. Fails if any non-ASCII characters are found.

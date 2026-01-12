@@ -367,15 +367,8 @@ impl Dat1Archive {
             let display_path = utils::normalize_path_for_display(&archive_path);
             println!("Adding: {display_path}");
 
-            // Find or create target directory (now using backslashes)
-            let (dir_name, _file_name) = if let Some(slash_pos) = archive_path.rfind('\\') {
-                (
-                    archive_path[..slash_pos].to_string(),
-                    archive_path[slash_pos + 1..].to_string(),
-                )
-            } else {
-                (".".to_string(), archive_path.clone())
-            };
+            // Find or create target directory
+            let dir_name = utils::get_dirname_from_dat_path(&archive_path);
 
             // Find directory or create new one
             let dir_index =
@@ -383,7 +376,7 @@ impl Dat1Archive {
                     index
                 } else {
                     self.directories.push(Directory {
-                        name: dir_name.clone(),
+                        name: dir_name.to_string(),
                         files: Vec::new(),
                     });
                     self.directories.len() - 1
