@@ -40,7 +40,7 @@ use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
-use crate::common::{utils, CompressionLevel, ExtractionMode, FileEntry};
+use crate::common::{utils, ArchiveFormat, CompressionLevel, ExtractionMode, FileEntry};
 use crate::lzss;
 
 // DAT1 format constants
@@ -514,5 +514,44 @@ impl Dat1Archive {
         fs::write(path, output).context("Failed to write DAT1 file")?;
 
         Ok(())
+    }
+}
+
+/// ArchiveFormat trait implementation for DAT1 (Fallout 1) archives.
+///
+/// Delegates to the inherent methods on Dat1Archive. Note that compression
+/// is ignored for DAT1 - files are always stored uncompressed since LZSS
+/// compression is not implemented.
+impl ArchiveFormat for Dat1Archive {
+    fn list(&self, files: &[String]) -> Result<()> {
+        Dat1Archive::list(self, files)
+    }
+
+    fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
+        Dat1Archive::extract(self, output_dir, files, mode)
+    }
+
+    fn add_file(
+        &mut self,
+        file_path: &Path,
+        compression: CompressionLevel,
+        target_dir: Option<&str>,
+        strip_leading_directory: bool,
+    ) -> Result<()> {
+        Dat1Archive::add_file(
+            self,
+            file_path,
+            compression,
+            target_dir,
+            strip_leading_directory,
+        )
+    }
+
+    fn delete_file(&mut self, file_name: &str) -> Result<()> {
+        Dat1Archive::delete_file(self, file_name)
+    }
+
+    fn save(&self, path: &Path) -> Result<()> {
+        Dat1Archive::save(self, path)
     }
 }

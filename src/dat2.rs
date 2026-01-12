@@ -58,7 +58,7 @@ use std::sync::{
 }; // Thread-safe shared data
 use std::time::Instant; // Performance timing
 
-use crate::common::{utils, CompressionLevel, ExtractionMode, FileEntry};
+use crate::common::{utils, ArchiveFormat, CompressionLevel, ExtractionMode, FileEntry};
 
 /// Footer that appears at the end of every DAT2 file (8 bytes total)
 /// This tells us where to find the file directory and validates the file size
@@ -600,5 +600,43 @@ impl Dat2Archive {
         fs::write(path, output).context("Failed to write DAT2 file")?;
 
         Ok(())
+    }
+}
+
+/// ArchiveFormat trait implementation for DAT2 (Fallout 2) archives.
+///
+/// Delegates to the inherent methods on Dat2Archive. Supports zlib compression
+/// with configurable levels (0-9). Extraction is parallelized using rayon.
+impl ArchiveFormat for Dat2Archive {
+    fn list(&self, files: &[String]) -> Result<()> {
+        Dat2Archive::list(self, files)
+    }
+
+    fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
+        Dat2Archive::extract(self, output_dir, files, mode)
+    }
+
+    fn add_file(
+        &mut self,
+        file_path: &Path,
+        compression: CompressionLevel,
+        target_dir: Option<&str>,
+        strip_leading_directory: bool,
+    ) -> Result<()> {
+        Dat2Archive::add_file(
+            self,
+            file_path,
+            compression,
+            target_dir,
+            strip_leading_directory,
+        )
+    }
+
+    fn delete_file(&mut self, file_name: &str) -> Result<()> {
+        Dat2Archive::delete_file(self, file_name)
+    }
+
+    fn save(&self, path: &Path) -> Result<()> {
+        Dat2Archive::save(self, path)
     }
 }

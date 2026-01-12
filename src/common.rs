@@ -136,11 +136,45 @@ pub enum ExtractionMode {
     Flat,
 }
 
+/// Common interface for DAT archive operations
+///
+/// This trait defines the operations that both DAT1 and DAT2 formats support.
+/// It allows uniform handling of archives regardless of their format.
+pub trait ArchiveFormat {
+    /// List files in the archive (all or filtered by patterns)
+    fn list(&self, files: &[String]) -> Result<()>;
+
+    /// Extract files from the archive
+    fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()>;
+
+    /// Add a file to the archive
+    fn add_file(
+        &mut self,
+        file_path: &Path,
+        compression: CompressionLevel,
+        target_dir: Option<&str>,
+        strip_leading_directory: bool,
+    ) -> Result<()>;
+
+    /// Delete a file from the archive
+    fn delete_file(&mut self, file_name: &str) -> Result<()>;
+
+    /// Save the archive to a file
+    fn save(&self, path: &Path) -> Result<()>;
+}
+
 /// Unified interface for both DAT1 and DAT2 archives
 ///
-/// This enum provides a single API for working with both Fallout archive formats.
+/// This wrapper provides a single API for working with both Fallout archive formats.
 /// The format is automatically detected when opening existing archives, and you
 /// can explicitly choose the format when creating new ones.
+///
+/// ## Memory Usage
+///
+/// **Important**: The entire archive is loaded into memory when opened. This works
+/// well for typical Fallout archives (up to ~200MB), but may not scale to very
+/// large files. For archives significantly larger than available RAM, consider
+/// implementing streaming I/O.
 ///
 /// ## Format Detection
 ///
@@ -158,11 +192,18 @@ pub enum ExtractionMode {
 /// let dat1_archive = DatArchive::new_dat1();
 /// let dat2_archive = DatArchive::new_dat2();
 /// ```
-pub enum DatArchive {
+pub struct DatArchive {
+    inner: Box<dyn ArchiveFormat>,
+    format: ArchiveFormatType,
+}
+
+/// The detected format of a DAT archive
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveFormatType {
     /// Fallout 1 format (hierarchical directories, LZSS compression)
-    Dat1(Dat1Archive),
+    Dat1,
     /// Fallout 2 format (flat file list, zlib compression)
-    Dat2(Dat2Archive),
+    Dat2,
 }
 
 impl DatArchive {
@@ -173,20 +214,37 @@ impl DatArchive {
 
         // Try to detect format by examining file structure
         if Self::is_dat1_format(&data) {
-            Ok(DatArchive::Dat1(Dat1Archive::from_bytes(data)?))
+            Ok(Self {
+                inner: Box::new(Dat1Archive::from_bytes(data)?),
+                format: ArchiveFormatType::Dat1,
+            })
         } else {
-            Ok(DatArchive::Dat2(Dat2Archive::from_bytes(data)?))
+            Ok(Self {
+                inner: Box::new(Dat2Archive::from_bytes(data)?),
+                format: ArchiveFormatType::Dat2,
+            })
         }
     }
 
     /// Create a new DAT1 archive
     pub fn new_dat1() -> Self {
-        DatArchive::Dat1(Dat1Archive::new())
+        Self {
+            inner: Box::new(Dat1Archive::new()),
+            format: ArchiveFormatType::Dat1,
+        }
     }
 
     /// Create a new DAT2 archive
     pub fn new_dat2() -> Self {
-        DatArchive::Dat2(Dat2Archive::new())
+        Self {
+            inner: Box::new(Dat2Archive::new()),
+            format: ArchiveFormatType::Dat2,
+        }
+    }
+
+    /// Check if this is a DAT1 archive
+    pub fn is_dat1(&self) -> bool {
+        self.format == ArchiveFormatType::Dat1
     }
 
     /// Detect if data is DAT1 format by examining the file structure
@@ -218,10 +276,7 @@ impl DatArchive {
 
     /// List files in the archive (all or filtered by patterns)
     pub fn list(&self, files: &[String]) -> Result<()> {
-        match self {
-            DatArchive::Dat1(archive) => archive.list(files),
-            DatArchive::Dat2(archive) => archive.list(files),
-        }
+        self.inner.list(files)
     }
 
     /// Extract files from the archive
@@ -231,10 +286,7 @@ impl DatArchive {
         files: &[String],
         mode: ExtractionMode,
     ) -> Result<()> {
-        match self {
-            DatArchive::Dat1(archive) => archive.extract(output_dir, files, mode),
-            DatArchive::Dat2(archive) => archive.extract(output_dir, files, mode),
-        }
+        self.inner.extract(output_dir.as_ref(), files, mode)
     }
 
     /// Add a file to the archive (directories are processed recursively)
@@ -245,30 +297,22 @@ impl DatArchive {
         target_dir: Option<&str>,
         strip_leading_directory: bool,
     ) -> Result<()> {
-        match self {
-            DatArchive::Dat1(archive) => {
-                archive.add_file(file_path, compression, target_dir, strip_leading_directory)
-            }
-            DatArchive::Dat2(archive) => {
-                archive.add_file(file_path, compression, target_dir, strip_leading_directory)
-            }
-        }
+        self.inner.add_file(
+            file_path.as_ref(),
+            compression,
+            target_dir,
+            strip_leading_directory,
+        )
     }
 
     /// Delete a file from the archive
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        match self {
-            DatArchive::Dat1(archive) => archive.delete_file(file_name),
-            DatArchive::Dat2(archive) => archive.delete_file(file_name),
-        }
+        self.inner.delete_file(file_name)
     }
 
     /// Save the archive to a file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        match self {
-            DatArchive::Dat1(archive) => archive.save(path),
-            DatArchive::Dat2(archive) => archive.save(path),
-        }
+        self.inner.save(path.as_ref())
     }
 }
 

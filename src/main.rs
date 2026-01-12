@@ -192,13 +192,8 @@ fn main() -> Result<()> {
                 let archive = DatArchive::open(&dat_file)?;
 
                 // Check if user specified a format that doesn't match the existing file
-                if dat1 {
-                    match &archive {
-                        DatArchive::Dat1(_) => {} // Format matches, all good
-                        DatArchive::Dat2(_) => {
-                            bail!("Error: {} is a DAT2 archive, but --dat1 flag was specified. Cannot change archive format.", dat_file.display());
-                        }
-                    }
+                if dat1 && !archive.is_dat1() {
+                    bail!("Error: {} is a DAT2 archive, but --dat1 flag was specified. Cannot change archive format.", dat_file.display());
                 }
 
                 archive
