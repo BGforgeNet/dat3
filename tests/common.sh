@@ -4,10 +4,9 @@ set -xeu -o pipefail
 
 # Common variables and functions for test scripts
 
-# Use static build - get absolute path from tests directory
-# When sourced, we should already be in the tests directory
-SCRIPT_DIR="$(realpath .)"
-DAT3="$(realpath "$SCRIPT_DIR/../target/x86_64-unknown-linux-musl/release/dat3")"
+# Use static build - get absolute path relative to this script's location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DAT3="$SCRIPT_DIR/../target/x86_64-unknown-linux-musl/release/dat3"
 export DAT3
 
 # Helper function to verify a file exists and has content
