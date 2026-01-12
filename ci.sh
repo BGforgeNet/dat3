@@ -4,12 +4,12 @@ set -xeu -o pipefail
 
 # Install cargo-binstall if not present
 if ! command -v cargo-binstall &>/dev/null; then
-	cargo install cargo-binstall@1.10.17
+	cargo install --locked cargo-binstall@1.10.0
 fi
 
 # Install CI tools with pinned versions if not present
 if ! command -v cargo-audit &>/dev/null; then
-	cargo binstall -y cargo-audit@0.22.0 cargo-deny@0.19.0 cargo-machete@0.9.1 cargo-bloat@0.12.1
+	cargo binstall -y --force cargo-audit@0.22.0 cargo-deny@0.19.0 cargo-machete@0.9.1 cargo-bloat@0.12.1
 fi
 
 # Format check

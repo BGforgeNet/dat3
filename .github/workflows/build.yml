@@ -22,6 +22,8 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: ~/.cargo/bin
 
       - name: Shellcheck
         uses: ludeeus/action-shellcheck@2.0.0
