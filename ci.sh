@@ -2,9 +2,9 @@
 
 set -xeu -o pipefail
 
-# Install cargo-binstall if not present (pinned for Rust 1.88 compatibility)
+# Install cargo-binstall if not present
 if ! command -v cargo-binstall &>/dev/null; then
-	cargo install cargo-binstall@1.10.0
+	cargo install cargo-binstall@1.10.17
 fi
 
 # Install CI tools with pinned versions if not present
