@@ -337,7 +337,7 @@ impl Dat1Archive {
     pub fn add_file<P: AsRef<Path>>(
         &mut self,
         file_path: P,
-        _compression: CompressionLevel, // Ignored - DAT1 files stored uncompressed
+        _compression: CompressionLevel,
         target_dir: Option<&str>,
         strip_leading_directory: bool,
     ) -> Result<()> {
@@ -361,7 +361,7 @@ impl Dat1Archive {
                 strip_leading_directory,
             )?;
 
-            // DAT1 format: ignore compression parameter, always store uncompressed
+            // DAT1 stores files uncompressed
             let size = data.len() as u32;
             let (final_data, compressed, original_size) = (data, false, size);
 

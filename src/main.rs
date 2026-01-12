@@ -81,8 +81,8 @@ enum Commands {
         /// Files or directories to add to the archive
         files: Vec<PathBuf>,
         /// How much to compress files, 0=none to 9=maximum (-c flag)
-        #[arg(short, long, default_value = "1")]
-        compression: u8,
+        #[arg(short, long)]
+        compression: Option<u8>,
         /// Force creating a DAT1 format archive (--dat1 flag)
         #[arg(long)]
         dat1: bool,
@@ -163,6 +163,10 @@ fn main() -> Result<()> {
         } => {
             // ADD COMMAND: Put new files into the archive
 
+            // Track if user explicitly requested compression (for DAT1 warning)
+            let compression_explicitly_set = compression.is_some();
+            let compression = compression.unwrap_or(1);
+
             // Validate compression level first
             let compression_level = CompressionLevel::new(compression)?;
 
@@ -205,6 +209,11 @@ fn main() -> Result<()> {
                     DatArchive::new_dat2() // Fallout 2 format (default)
                 }
             };
+
+            // Warn if user explicitly requested compression for DAT1 (which doesn't support it)
+            if archive.is_dat1() && compression_explicitly_set && compression > 0 {
+                eprintln!("Warning: DAT1 format does not support compression, files will be stored uncompressed");
+            }
 
             // Add each file or directory to the archive
             // Note: Files from patterns starting with ./ or .\ will have their
