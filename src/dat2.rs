@@ -40,8 +40,6 @@ DAT2 Archive Layout:
 - Standard DAT2 format compatibility
 */
 
-#![allow(clippy::manual_div_ceil)]
-
 // Standard library and external crates
 use anyhow::{bail, Context, Result}; // Error handling
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt}; // Reading binary data in little-endian format
