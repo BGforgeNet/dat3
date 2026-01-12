@@ -517,8 +517,46 @@ pub mod utils {
     ///
     /// This is more robust than checking individual characters and can be
     /// extended to handle escaped characters in the future.
-    fn contains_glob_metacharacters(pattern: &str) -> bool {
+    pub fn contains_glob_metacharacters(pattern: &str) -> bool {
         pattern.contains('*') || pattern.contains('?') || pattern.contains('[')
+    }
+
+    /// Match a file name against a pattern, supporting both glob and substring matching
+    ///
+    /// If the pattern contains glob metacharacters (*, ?, [), uses glob matching.
+    /// Otherwise falls back to substring matching for backward compatibility.
+    /// Patterns without path separators match against just the filename.
+    pub fn matches_pattern(file_name: &str, pattern: &str) -> bool {
+        if contains_glob_metacharacters(pattern) {
+            // Use glob matching
+            // Normalize both to forward slashes for matching
+            let normalized_name = file_name.replace('\\', "/");
+            let normalized_pattern = pattern.replace('\\', "/");
+
+            // If pattern has no path separator, match against filename only
+            let (name_to_match, pattern_to_use) = if !normalized_pattern.contains('/') {
+                // Extract just the filename from the full path
+                let filename = normalized_name
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&normalized_name);
+                (filename.to_string(), normalized_pattern)
+            } else {
+                (normalized_name, normalized_pattern)
+            };
+
+            // Compile and match the pattern
+            match glob::Pattern::new(&pattern_to_use) {
+                Ok(glob_pattern) => glob_pattern.matches(&name_to_match),
+                Err(_) => {
+                    // If pattern is invalid, fall back to substring matching
+                    file_name.contains(pattern)
+                }
+            }
+        } else {
+            // Substring matching for backward compatibility
+            file_name.contains(pattern)
+        }
     }
 
     /// Check if a pattern indicates directory stripping (starts with ./ or .\)
@@ -537,26 +575,32 @@ pub mod utils {
             .replace('\x00', "\\") // Restore escaped backslashes
     }
 
-    /// Expand @response-file syntax and glob patterns into actual file list
+    /// Expand @response-file syntax only, returning patterns as-is for archive matching
     ///
-    /// If files contains exactly one item starting with '@', reads that file
-    /// and returns its lines as the file list. Otherwise, expands any glob
-    /// patterns and returns the expanded file list.
-    ///
-    /// # Arguments
-    /// * `files` - Command line file arguments (may contain @response-file or globs)
-    ///
-    /// # Returns
-    /// * Expanded file list or error if response file cannot be read or pattern fails
-    ///
-    /// # Example
-    /// ```ignore
-    /// let files = vec!["*.txt".to_string()];
-    /// let expanded = expand_response_files(&files)?;
-    /// // expanded contains all .txt files in current directory as PathBuf
-    /// ```
-    pub fn expand_response_files(files: &[String]) -> Result<Vec<PathBuf>> {
-        Ok(expand_response_files_with_stripping(files)?.paths)
+    /// Unlike `expand_response_files`, this does NOT expand glob patterns on the filesystem.
+    /// Used for list/extract/delete commands where patterns should match archive entries.
+    pub fn expand_response_files_for_archive(files: &[String]) -> Result<Vec<String>> {
+        // Handle response file case
+        if files.len() == 1 && files[0].starts_with('@') {
+            let response_file_path = &files[0][1..];
+            let content = fs::read_to_string(response_file_path)
+                .with_context(|| format!("Failed to read response file: {response_file_path}"))?;
+
+            return Ok(content
+                .lines()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(String::from)
+                .collect());
+        }
+
+        // Check for mixed usage
+        if files.iter().any(|f| f.starts_with('@')) {
+            bail!("Cannot mix @response-file with explicit file arguments");
+        }
+
+        // Return patterns as-is (don't expand globs on filesystem)
+        Ok(files.to_vec())
     }
 
     /// Expand @response-file syntax and glob patterns, tracking directory stripping per file

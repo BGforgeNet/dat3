@@ -48,6 +48,9 @@ dat3 x master.dat -o ./extracted/
 ```bash
 # Can use forward or backward slashes
 dat3 x master.dat art/critters/HMMAXX.FRM scripts\generic.int
+
+# Extract with glob pattern (quote to prevent shell expansion)
+dat3 x master.dat 'art/critters/*.frm'
 ```
 
 ### Extract without directory structure (flat)
@@ -64,6 +67,9 @@ dat3 l master.dat
 
 # List specific files. Can use forward or backward slashes. Output always shows OS-native slash.
 dat3 l master.dat art/critters/vault.frm text\english\quotes.txt
+
+# List with glob pattern (quote to prevent shell expansion)
+dat3 l master.dat 'art/critters/*.frm'
 
 # List files from response file
 dat3 l master.dat @files_to_list.txt
@@ -116,6 +122,9 @@ dat3 d master.dat text/english/quotes.txt
 # Delete multiple files
 dat3 d master.dat file1.txt art\critters\vault.frm
 
+# Delete with glob pattern (quote to prevent shell expansion)
+dat3 d master.dat 'art/critters/*.frm'
+
 # Delete files from response file
 dat3 d master.dat @files_to_delete.txt
 ```
@@ -128,6 +137,7 @@ Delete only deletes file records. It doesn't reduce archive size.
 - Shrink (`k` command) not implemented.
 - Flat extraction is a separate command, `e`.
 - DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.
+- Glob patterns (`*`, `?`, `[...]`) supported for list/extract/delete.
 
 ## Building
 

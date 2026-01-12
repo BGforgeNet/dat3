@@ -193,11 +193,11 @@ impl Dat2Archive {
         // Normalize user input patterns to internal format (backslashes)
         let normalized_patterns = utils::normalize_user_patterns(files);
 
-        // Use shared filtering logic
+        // Use shared filtering logic with glob support
         let (files_to_list, missing_patterns) = crate::common::filter_and_track_patterns(
             &self.files,
             &normalized_patterns,
-            |file, pattern| file.name.contains(pattern),
+            |file, pattern| utils::matches_pattern(&file.name, pattern),
         );
 
         utils::print_file_listing(&files_to_list);
@@ -235,7 +235,7 @@ impl Dat2Archive {
         let (files_to_extract, _) = crate::common::filter_and_track_patterns(
             &self.files,
             &normalized_patterns,
-            |file, pattern| file.name.contains(pattern),
+            |file, pattern| utils::matches_pattern(&file.name, pattern),
         );
 
         self.extract_files_parallel(&files_to_extract, output_dir, mode)?;

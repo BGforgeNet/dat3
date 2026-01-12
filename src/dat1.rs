@@ -219,11 +219,11 @@ impl Dat1Archive {
         let all_files: Vec<&FileEntry> =
             self.directories.iter().flat_map(|dir| &dir.files).collect();
 
-        // Use shared filtering logic
+        // Use shared filtering logic with glob support
         let (files_to_list, missing_patterns) = crate::common::filter_and_track_patterns(
             &all_files,
             &normalized_patterns,
-            |file, pattern| file.name.contains(pattern),
+            |file, pattern| utils::matches_pattern(&file.name, pattern),
         );
 
         utils::print_file_listing(&files_to_list);
@@ -255,9 +255,11 @@ impl Dat1Archive {
 
         for dir in &self.directories {
             for file in &dir.files {
-                // Check if we should extract this file
+                // Check if we should extract this file (supports glob patterns)
                 if !normalized_patterns.is_empty()
-                    && !normalized_patterns.iter().any(|f| file.name.contains(f))
+                    && !normalized_patterns
+                        .iter()
+                        .any(|f| utils::matches_pattern(&file.name, f))
                 {
                     continue;
                 }

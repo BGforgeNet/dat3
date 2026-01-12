@@ -270,6 +270,90 @@ verify_file_exists "test8_windows.dat" "2.txt" "windows"
 verify_file_exists "test8_windows.dat" "data.bin" "windows"
 echo "Windows glob with .\\ prefix verification passed!"
 
+# Test 9: Glob pattern filtering when listing archive contents
+echo ""
+echo "=== Test 9: Glob pattern filtering for list command ==="
+
+# Create a test archive with various file types
+"$DAT3" a test9.dat patch000/
+
+# Test Linux - list only .txt files using glob
+echo "Testing Linux glob filter: *.txt"
+OUTPUT=$("$DAT3" l test9.dat '*.txt')
+echo "$OUTPUT"
+
+# Verify .txt files are listed
+echo "$OUTPUT" | grep -q "1.txt" || { echo "ERROR: 1.txt not found"; exit 1; }
+echo "$OUTPUT" | grep -q "2.txt" || { echo "ERROR: 2.txt not found"; exit 1; }
+echo "$OUTPUT" | grep -q "3.txt" || { echo "ERROR: 3.txt not found"; exit 1; }
+echo "$OUTPUT" | grep -q "nested.txt" || { echo "ERROR: nested.txt not found"; exit 1; }
+
+# Verify non-.txt files are NOT listed
+if echo "$OUTPUT" | grep -q "data.bin"; then
+	echo "ERROR: data.bin should not be listed with *.txt filter"
+	exit 1
+fi
+if echo "$OUTPUT" | grep -q "test.dat"; then
+	echo "ERROR: test.dat should not be listed with *.txt filter"
+	exit 1
+fi
+echo "Linux glob filter for list passed!"
+
+# Test 10: Glob pattern with path prefix
+echo ""
+echo "=== Test 10: Glob pattern with path for list command ==="
+
+OUTPUT=$("$DAT3" l test9.dat 'patch000/xxx/*')
+echo "$OUTPUT"
+
+# Should only match files in patch000/xxx/
+echo "$OUTPUT" | grep -q "3.txt" || { echo "ERROR: xxx/3.txt not found"; exit 1; }
+
+# Should NOT match files in other directories
+if echo "$OUTPUT" | grep -q "1.txt"; then
+	echo "ERROR: 1.txt should not match patch000/xxx/*"
+	exit 1
+fi
+echo "Linux glob filter with path passed!"
+
+# Test 11: Glob pattern filtering for extract command
+echo ""
+echo "=== Test 11: Glob pattern filtering for extract command ==="
+
+rm -rf extract_test
+mkdir extract_test
+
+# Extract only .txt files
+"$DAT3" x test9.dat '*.txt' -o extract_test/
+
+# Verify .txt files were extracted
+[ -f "extract_test/patch000/1.txt" ] || { echo "ERROR: 1.txt not extracted"; exit 1; }
+[ -f "extract_test/patch000/2.txt" ] || { echo "ERROR: 2.txt not extracted"; exit 1; }
+
+# Verify non-.txt files were NOT extracted
+if [ -f "extract_test/patch000/data.bin" ]; then
+	echo "ERROR: data.bin should not be extracted with *.txt filter"
+	exit 1
+fi
+echo "Linux glob filter for extract passed!"
+
+# Test 12: Question mark glob pattern for filtering
+echo ""
+echo "=== Test 12: Question mark glob for filtering ==="
+
+OUTPUT=$("$DAT3" l test9.dat 'patch000/?.txt')
+echo "$OUTPUT"
+
+# Should match 1.txt and 2.txt but not nested.txt
+echo "$OUTPUT" | grep -q "1.txt" || { echo "ERROR: 1.txt not found"; exit 1; }
+echo "$OUTPUT" | grep -q "2.txt" || { echo "ERROR: 2.txt not found"; exit 1; }
+
+if echo "$OUTPUT" | grep -q "nested.txt"; then
+	echo "ERROR: nested.txt should not match ?.txt pattern"
+	exit 1
+fi
+echo "Question mark glob filter passed!"
+
 echo ""
 echo "All glob tests completed successfully!"
 echo "Both Linux and Windows builds passed all glob pattern tests!"

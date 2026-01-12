@@ -111,12 +111,9 @@ fn main() -> Result<()> {
         Commands::List { dat_file, files } => {
             // LIST COMMAND: Show what files are in the archive
             let archive = DatArchive::open(&dat_file)?;
-            let expanded_files = utils::expand_response_files(&files)?;
-            let file_strings: Vec<String> = expanded_files
-                .iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect();
-            archive.list(&file_strings)?;
+            // Use archive-specific expansion (handles @response files but not filesystem globs)
+            let patterns = utils::expand_response_files_for_archive(&files)?;
+            archive.list(&patterns)?;
         }
 
         Commands::Extract {
@@ -127,16 +124,9 @@ fn main() -> Result<()> {
             // EXTRACT COMMAND: Get files out of the archive, keeping folder structure
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // Use current directory if not specified
-            let expanded_files = utils::expand_response_files(&files)?;
-            let file_strings: Vec<String> = expanded_files
-                .iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect();
-            archive.extract(
-                &output_dir,
-                &file_strings,
-                ExtractionMode::PreserveStructure,
-            )?;
+                                                                           // Use archive-specific expansion (handles @response files but not filesystem globs)
+            let patterns = utils::expand_response_files_for_archive(&files)?;
+            archive.extract(&output_dir, &patterns, ExtractionMode::PreserveStructure)?;
         }
 
         Commands::ExtractFlat {
@@ -147,12 +137,9 @@ fn main() -> Result<()> {
             // EXTRACT FLAT COMMAND: Get files out but put them all in one folder
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // Use current directory if not specified
-            let expanded_files = utils::expand_response_files(&files)?;
-            let file_strings: Vec<String> = expanded_files
-                .iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect();
-            archive.extract(&output_dir, &file_strings, ExtractionMode::Flat)?;
+                                                                           // Use archive-specific expansion (handles @response files but not filesystem globs)
+            let patterns = utils::expand_response_files_for_archive(&files)?;
+            archive.extract(&output_dir, &patterns, ExtractionMode::Flat)?;
         }
         Commands::Add {
             dat_file,
@@ -234,11 +221,11 @@ fn main() -> Result<()> {
         Commands::Delete { dat_file, files } => {
             // DELETE COMMAND: Remove files from the archive
             let mut archive = DatArchive::open(&dat_file)?;
-            let expanded_files = utils::expand_response_files(&files)?;
+            // Use archive-specific expansion (handles @response files but not filesystem globs)
+            let patterns = utils::expand_response_files_for_archive(&files)?;
 
-            for file_path in expanded_files {
-                let file_str = file_path.to_string_lossy();
-                archive.delete_file(&file_str)?;
+            for pattern in patterns {
+                archive.delete_file(&pattern)?;
             }
 
             // Save the changes back to the file
