@@ -10,7 +10,16 @@ which DAT format it's working with.
 use anyhow::{bail, Context, Result}; // For error handling
 use glob::glob; // Cross-platform glob expansion
 use std::fs; // File system operations
+use std::io::{self, Write}; // For stdout handling
 use std::path::{Path, PathBuf}; // Cross-platform path handling
+
+/// Write to stdout, exiting cleanly on broken pipe (e.g., when piped to `head`)
+fn print_stdout(args: std::fmt::Arguments) {
+    if writeln!(io::stdout(), "{args}").is_err() {
+        // Broken pipe or other write error - exit cleanly
+        std::process::exit(0);
+    }
+}
 
 /// Type-safe compression level (0-9)
 #[derive(Debug, Clone, Copy)]
@@ -390,18 +399,22 @@ pub mod utils {
 
     /// Print formatted file listing to stdout
     /// Common implementation used by both DAT1 and DAT2 formats
+    /// Exits cleanly on broken pipe (e.g., when piped to `head`)
     pub fn print_file_listing<T: AsRef<FileEntry>>(files: &[T]) {
-        println!("{:>11} {:>11}  {:>4}  Name", "Size", "Packed", "Comp");
-        println!("{}", "-".repeat(50));
+        print_stdout(format_args!(
+            "{:>11} {:>11}  {:>4}  Name",
+            "Size", "Packed", "Comp"
+        ));
+        print_stdout(format_args!("{}", "-".repeat(50)));
 
         for file in files {
             let file = file.as_ref();
             let comp_str = if file.compressed { "Yes" } else { "No" };
             let display_name = normalize_path_for_display(&file.name);
-            println!(
+            print_stdout(format_args!(
                 "{:>11} {:>11}  {:>4}  {}",
                 file.size, file.packed_size, comp_str, display_name
-            );
+            ));
         }
     }
 
