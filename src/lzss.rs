@@ -57,8 +57,6 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
     let mut dictionary = vec![0u8; DICT_SIZE];
     let mut dict_write_pos; // Will be set for each compressed block
 
-    let debug = std::env::var("LZSS_DEBUG").is_ok();
-
     while let Ok(block_size) = cursor.read_i16::<BigEndian>() {
         if block_size == 0 {
             break;
@@ -86,10 +84,6 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
             dict_write_pos = INITIAL_DICT_POS;
             dictionary.fill(0x20); // Fill entire dictionary with spaces (ASCII 32)
 
-            if debug {
-                eprintln!("LZSS: Reset dict_write_pos = {dict_write_pos} and reinitialized dictionary with spaces");
-            }
-
             // Process flags with upper bit tracking
             let mut flags: u16 = 0;
 
@@ -106,11 +100,6 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                         Ok(c) => {
                             flags = (c as u16) | 0xff00; // Set upper 8 bits
                             bytes_read += 1;
-                            if debug {
-                                eprintln!(
-                                    "LZSS: New flag byte: 0x{c:02x}, bytes_read: {bytes_read}"
-                                );
-                            }
                             if bytes_read > bytes_to_process {
                                 break;
                             }
@@ -129,10 +118,6 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                         )
                     })?;
                     bytes_read += 1;
-
-                    if debug {
-                        eprintln!("LZSS: LITERAL: byte=0x{byte:02x}, dict_pos={dict_write_pos}");
-                    }
 
                     output.push(byte);
                     dictionary[dict_write_pos] = byte;
@@ -164,40 +149,17 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
                     let dict_read_pos = (byte1 | ((byte2 & 0xF0) << 4)) as usize;
                     let match_length = ((byte2 & 0x0F) + 2) as usize;
 
-                    if debug {
-                        eprintln!("LZSS: DICT_REF: read_pos={dict_read_pos}, write_pos={dict_write_pos}, len={match_length}");
-                    }
-
                     // Copy from dictionary
                     for offset in 0..=match_length {
                         let read_offset = (dict_read_pos + offset) & (DICT_SIZE - 1);
                         let byte = dictionary[read_offset];
-
-                        if debug {
-                            eprintln!("LZSS:   copy offset={offset}, byte=0x{byte:02x}");
-                        }
-
                         output.push(byte);
                         dictionary[dict_write_pos] = byte;
                         dict_write_pos = (dict_write_pos + 1) & (DICT_SIZE - 1);
                     }
                 }
             }
-
-            if debug {
-                eprintln!(
-                    "LZSS: Block finished, processed {bytes_read} bytes, output now {} bytes",
-                    output.len()
-                );
-            }
         }
-    }
-
-    if debug {
-        eprintln!(
-            "LZSS: Decompression complete, total output: {} bytes",
-            output.len()
-        );
     }
 
     Ok(output)
