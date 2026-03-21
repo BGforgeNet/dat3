@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.7.0
+## v0.6.1
 
 - Path traversal protection: archive entries with `..` in their path are now rejected on extraction.
 
