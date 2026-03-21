@@ -1,27 +1,37 @@
 /*!
 # Common Types and Utilities
 
-This module contains shared code that both DAT1 and DAT2 formats use.
-It provides a single interface so the main program doesn't need to know
-which DAT format it's working with.
+Shared code for both DAT1 and DAT2 formats. Provides a unified `DatArchive`
+enum so callers don't need to know which format they're working with.
 */
 
-// Import the libraries we need
-use anyhow::{bail, Context, Result}; // For error handling
-use glob::glob; // Cross-platform glob expansion
-use std::fs; // File system operations
-use std::io::{self, Write}; // For stdout handling
-use std::path::{Path, PathBuf}; // Cross-platform path handling
+use anyhow::{bail, Context, Result};
+use glob::glob;
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+
+use crate::dat1::Dat1Archive;
+use crate::dat2::Dat2Archive;
+
+// DAT1 format detection: big-endian header with known format IDs
+const DAT1_FORMAT_ID_1: u32 = 0x0A;
+const DAT1_FORMAT_ID_2: u32 = 0x5E;
+const DAT1_MAX_DIRECTORIES: u32 = 1000;
 
 /// Write to stdout, exiting cleanly on broken pipe (e.g., when piped to `head`)
 fn print_stdout(args: std::fmt::Arguments) {
     if writeln!(io::stdout(), "{args}").is_err() {
-        // Broken pipe or other write error - exit cleanly
         std::process::exit(0);
     }
 }
 
-/// Type-safe compression level (0-9)
+// ── Core types ─────────────────────────────────────────────────────
+
+/// Type-safe compression level (0-9).
+///
+/// Wraps a `u8` so invalid values are rejected at construction time
+/// rather than causing errors deep in compression code.
 #[derive(Debug, Clone, Copy)]
 pub struct CompressionLevel(u8);
 
@@ -41,28 +51,11 @@ impl CompressionLevel {
     }
 }
 
-// Our DAT format implementations
-use crate::dat1::Dat1Archive; // Fallout 1 format
-use crate::dat2::Dat2Archive; // Fallout 2 format
-
-// DAT format detection constants
-const DAT1_FORMAT_ID_1: u32 = 0x0A;
-const DAT1_FORMAT_ID_2: u32 = 0x5E;
-const DAT1_MAX_DIRECTORIES: u32 = 1000;
-
-/// Represents a single file stored in a DAT archive
+/// Represents a single file stored in a DAT archive.
 ///
-/// This structure contains all the metadata and optional data needed to
-/// work with files in both DAT1 and DAT2 formats. It handles both files
-/// that are already in an archive (with offset) and new files being added.
-///
-/// ## Fields Explanation
-/// - **name**: File path using backslashes (DAT archive format)
-/// - **offset**: Byte position in the archive (0 for new files)
-/// - **size**: Original file size before compression
-/// - **packed_size**: Size after compression (equals size if not compressed)
-/// - **compressed**: Whether compression was applied
-/// - **data**: Raw file content (present for new/modified files)
+/// Used by both DAT1 and DAT2 formats. For files already in an archive,
+/// `data` is None and content is read from the raw archive bytes using `offset`.
+/// For newly added files, `data` holds the content and `offset` is 0.
 #[derive(Debug, Clone)]
 pub struct FileEntry {
     /// File path with backslashes (e.g., "ART\\CRITTERS\\FILE.FRM")
@@ -71,14 +64,16 @@ pub struct FileEntry {
     pub offset: u64,
     /// Original (uncompressed) file size in bytes
     pub size: u32,
-    /// Compressed file size in bytes (equals size if not compressed)
+    /// Compressed file size (equals `size` if not compressed)
     pub packed_size: u32,
-    /// True if the file data is compressed
+    /// Whether the file data is compressed
     pub compressed: bool,
     /// Raw file data for new/modified files (None for existing archive files)
     pub data: Option<Vec<u8>>,
 }
 
+/// Allows `&[FileEntry]` to work with `print_file_listing`,
+/// which accepts `&[T: AsRef<FileEntry>]` so it also works with `&[&FileEntry]`.
 impl AsRef<FileEntry> for FileEntry {
     fn as_ref(&self) -> &FileEntry {
         self
@@ -86,36 +81,22 @@ impl AsRef<FileEntry> for FileEntry {
 }
 
 impl FileEntry {
-    /// Create a new file entry with data (compressed or uncompressed)
-    ///
-    /// This is used when adding files to an archive. The offset will be
-    /// set later when the archive is saved.
-    ///
-    /// # Arguments
-    /// * `name` - File path within the archive
-    /// * `data` - File content (raw or already compressed)
-    /// * `compressed` - Whether the data is compressed
+    /// Create a file entry with uncompressed data.
+    /// The `offset` is set to 0 and will be computed when saving.
     pub fn with_data(name: String, data: Vec<u8>, compressed: bool) -> Self {
         let packed_size = data.len() as u32;
         Self {
             name,
-            offset: 0, // Will be set when writing to archive
-            size: 0,   // Will be set by caller based on compression status
+            offset: 0,
+            size: 0, // Caller sets this based on compression status
             packed_size,
             compressed,
             data: Some(data),
         }
     }
 
-    /// Create a new file entry for a compressed file
-    ///
-    /// This method properly tracks both the original and compressed sizes,
-    /// which is essential for DAT2 format compliance.
-    ///
-    /// # Arguments
-    /// * `name` - File path within the archive
-    /// * `original_data` - Uncompressed file content (for size calculation)
-    /// * `compressed_data` - Compressed file content (what gets stored)
+    /// Create a file entry tracking both original and compressed sizes.
+    /// Essential for DAT2 format where the directory tree stores both.
     pub fn with_compression_data(
         name: String,
         original_data: Vec<u8>,
@@ -123,96 +104,45 @@ impl FileEntry {
     ) -> Self {
         Self {
             name,
-            offset: 0,                                 // Will be set when writing
-            size: original_data.len() as u32,          // Original file size
-            packed_size: compressed_data.len() as u32, // Compressed size
+            offset: 0,
+            size: original_data.len() as u32,
+            packed_size: compressed_data.len() as u32,
             compressed: true,
-            data: Some(compressed_data), // Store the compressed data
+            data: Some(compressed_data),
         }
     }
 }
 
-/// Extraction mode for archive files
-///
-/// This enum controls how files are extracted from archives:
-/// - **PreserveStructure**: Maintains the original directory structure
-/// - **Flat**: Extracts all files to the output directory without subdirectories
+/// Controls how files are extracted from archives
 #[derive(Debug, Clone, Copy)]
 pub enum ExtractionMode {
-    /// Preserve the original directory structure when extracting
+    /// Keep the original directory structure
     PreserveStructure,
-    /// Extract all files to a flat directory structure (no subdirectories)
+    /// Put all files in one flat directory
     Flat,
 }
 
-/// Common interface for DAT archive operations
-///
-/// This trait defines the operations that both DAT1 and DAT2 formats support.
-/// It allows uniform handling of archives regardless of their format.
-pub trait ArchiveFormat {
-    /// List files in the archive (all or filtered by patterns)
-    fn list(&self, files: &[String]) -> Result<()>;
+// ── DatArchive enum ────────────────────────────────────────────────
 
-    /// Extract files from the archive
-    fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()>;
-
-    /// Add a file to the archive
-    fn add_file(
-        &mut self,
-        file_path: &Path,
-        compression: CompressionLevel,
-        target_dir: Option<&str>,
-        strip_leading_directory: bool,
-    ) -> Result<()>;
-
-    /// Delete a file from the archive
-    fn delete_file(&mut self, file_name: &str) -> Result<()>;
-
-    /// Save the archive to a file
-    fn save(&self, path: &Path) -> Result<()>;
-}
-
-/// Unified interface for both DAT1 and DAT2 archives
+/// Unified interface for both DAT1 and DAT2 archives.
 ///
-/// This wrapper provides a single API for working with both Fallout archive formats.
-/// The format is automatically detected when opening existing archives, and you
-/// can explicitly choose the format when creating new ones.
+/// Uses an enum instead of trait objects because there are exactly two
+/// known formats - this gives us static dispatch, exhaustive matching,
+/// and no heap allocation for the wrapper.
 ///
-/// ## Memory Usage
-///
-/// **Important**: The entire archive is loaded into memory when opened. This works
-/// well for typical Fallout archives (up to ~200MB), but may not scale to very
-/// large files. For archives significantly larger than available RAM, consider
-/// implementing streaming I/O.
-///
-/// ## Format Detection
-///
-/// When opening archives, the format is detected by examining the file structure:
-/// - **DAT1**: Detected by reading the header and verifying the format
-/// - **DAT2**: Used as fallback when DAT1 detection fails
-///
-/// ## Usage
+/// **Memory**: The entire archive is loaded into memory on open. This works
+/// well for typical Fallout archives (up to ~200MB).
 ///
 /// ```ignore
-/// // Open existing archive (auto-detects format)
-/// let archive = DatArchive::open("master.dat")?;
-///
-/// // Create new archives
-/// let dat1_archive = DatArchive::new_dat1();
-/// let dat2_archive = DatArchive::new_dat2();
+/// let archive = DatArchive::open("master.dat")?;  // auto-detects format
+/// let dat1 = DatArchive::new_dat1();               // create new DAT1
+/// let dat2 = DatArchive::new_dat2();               // create new DAT2
 /// ```
-pub struct DatArchive {
-    inner: Box<dyn ArchiveFormat>,
-    format: ArchiveFormatType,
-}
-
-/// The detected format of a DAT archive
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArchiveFormatType {
-    /// Fallout 1 format (hierarchical directories, LZSS compression)
-    Dat1,
-    /// Fallout 2 format (flat file list, zlib compression)
-    Dat2,
+pub enum DatArchive {
+    /// Fallout 1 format (big-endian, hierarchical dirs, LZSS compression)
+    Dat1(Dat1Archive),
+    /// Fallout 2 format (little-endian, flat file list, zlib compression)
+    Dat2(Dat2Archive),
 }
 
 impl DatArchive {
@@ -221,71 +151,57 @@ impl DatArchive {
         let data = fs::read(&path)
             .with_context(|| format!("Failed to read DAT file: {}", path.as_ref().display()))?;
 
-        // Try to detect format by examining file structure
         if Self::is_dat1_format(&data) {
-            Ok(Self {
-                inner: Box::new(Dat1Archive::from_bytes(data)?),
-                format: ArchiveFormatType::Dat1,
-            })
+            Ok(Self::Dat1(Dat1Archive::from_bytes(data)?))
         } else {
-            Ok(Self {
-                inner: Box::new(Dat2Archive::from_bytes(data)?),
-                format: ArchiveFormatType::Dat2,
-            })
+            Ok(Self::Dat2(Dat2Archive::from_bytes(data)?))
         }
     }
 
-    /// Create a new DAT1 archive
+    /// Create a new empty DAT1 (Fallout 1) archive
     pub fn new_dat1() -> Self {
-        Self {
-            inner: Box::new(Dat1Archive::new()),
-            format: ArchiveFormatType::Dat1,
-        }
+        Self::Dat1(Dat1Archive::new())
     }
 
-    /// Create a new DAT2 archive
+    /// Create a new empty DAT2 (Fallout 2) archive
     pub fn new_dat2() -> Self {
-        Self {
-            inner: Box::new(Dat2Archive::new()),
-            format: ArchiveFormatType::Dat2,
-        }
+        Self::Dat2(Dat2Archive::new())
     }
 
     /// Check if this is a DAT1 archive
     pub fn is_dat1(&self) -> bool {
-        self.format == ArchiveFormatType::Dat1
+        matches!(self, Self::Dat1(_))
     }
 
-    /// Detect if data is DAT1 format by examining the file structure
-    /// DAT1 (Fallout 1) uses big-endian integers, DAT2 (Fallout 2) uses little-endian
+    /// Detect DAT1 format by examining the big-endian header.
+    /// DAT1 has a directory count and a known format identifier (0x0A or 0x5E).
     fn is_dat1_format(data: &[u8]) -> bool {
-        // Need at least 16 bytes to check the header
         if data.len() < 16 {
             return false;
         }
 
-        // Read the first few bytes as big-endian (DAT1 format)
         use byteorder::{BigEndian, ReadBytesExt};
         let mut cursor = std::io::Cursor::new(data);
 
-        // Try to read directory count and format identifier
         if let Ok(dir_count) = cursor.read_u32::<BigEndian>() {
             if let Ok(format_id) = cursor.read_u32::<BigEndian>() {
                 // DAT1 has reasonable directory counts (typically 1-50)
-                // and specific format identifiers (0x0A or 0x5E)
+                // and specific format identifiers
                 return dir_count > 0
                     && dir_count < DAT1_MAX_DIRECTORIES
                     && (format_id == DAT1_FORMAT_ID_1 || format_id == DAT1_FORMAT_ID_2);
             }
         }
 
-        // If we can't parse as DAT1, assume it's DAT2
         false
     }
 
     /// List files in the archive (all or filtered by patterns)
     pub fn list(&self, files: &[String]) -> Result<()> {
-        self.inner.list(files)
+        match self {
+            Self::Dat1(a) => a.list(files),
+            Self::Dat2(a) => a.list(files),
+        }
     }
 
     /// Extract files from the archive
@@ -295,7 +211,10 @@ impl DatArchive {
         files: &[String],
         mode: ExtractionMode,
     ) -> Result<()> {
-        self.inner.extract(output_dir.as_ref(), files, mode)
+        match self {
+            Self::Dat1(a) => a.extract(output_dir.as_ref(), files, mode),
+            Self::Dat2(a) => a.extract(output_dir.as_ref(), files, mode),
+        }
     }
 
     /// Add a file to the archive (directories are processed recursively)
@@ -306,26 +225,107 @@ impl DatArchive {
         target_dir: Option<&str>,
         strip_leading_directory: bool,
     ) -> Result<()> {
-        self.inner.add_file(
-            file_path.as_ref(),
-            compression,
-            target_dir,
-            strip_leading_directory,
-        )
+        match self {
+            Self::Dat1(a) => a.add_file(
+                file_path.as_ref(),
+                compression,
+                target_dir,
+                strip_leading_directory,
+            ),
+            Self::Dat2(a) => a.add_file(
+                file_path.as_ref(),
+                compression,
+                target_dir,
+                strip_leading_directory,
+            ),
+        }
     }
 
     /// Delete a file from the archive
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        self.inner.delete_file(file_name)
+        match self {
+            Self::Dat1(a) => a.delete_file(file_name),
+            Self::Dat2(a) => a.delete_file(file_name),
+        }
     }
 
     /// Save the archive to a file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        self.inner.save(path.as_ref())
+        match self {
+            Self::Dat1(a) => a.save(path.as_ref()),
+            Self::Dat2(a) => a.save(path.as_ref()),
+        }
     }
 }
 
-/// Pattern matching and filtering utilities
+// ── Shared archive operations ──────────────────────────────────────
+
+/// List files using shared filter-and-print logic.
+///
+/// Both DAT1 and DAT2 use this same flow:
+/// normalize patterns -> filter entries -> print listing -> report missing.
+pub fn list_files_filtered(all_files: &[&FileEntry], patterns: &[String]) -> Result<()> {
+    let normalized_patterns = utils::normalize_user_patterns(patterns);
+
+    let (files_to_list, missing_patterns) =
+        filter_and_track_patterns(all_files, &normalized_patterns, |file, pattern| {
+            utils::matches_pattern(&file.name, pattern)
+        });
+
+    utils::print_file_listing(&files_to_list);
+
+    if !missing_patterns.is_empty() {
+        eprintln!("\nFiles not found:");
+        for pattern in &missing_patterns {
+            let display = utils::normalize_path_for_display(pattern);
+            eprintln!("  {display}");
+        }
+        bail!("Some requested files were not found");
+    }
+
+    Ok(())
+}
+
+/// Filter files by patterns and return matched files.
+///
+/// Shared by DAT1 and DAT2 extract paths.
+pub fn filter_files_by_patterns<'a>(
+    all_files: &'a [FileEntry],
+    patterns: &[String],
+) -> Vec<&'a FileEntry> {
+    let normalized_patterns = utils::normalize_user_patterns(patterns);
+
+    let (filtered, _) =
+        filter_and_track_patterns(all_files, &normalized_patterns, |file, pattern| {
+            utils::matches_pattern(&file.name, pattern)
+        });
+
+    filtered
+}
+
+/// Delete a file from a list by normalized name.
+///
+/// Shared by DAT1 and DAT2 delete implementations.
+pub fn delete_file_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> Result<()> {
+    let normalized_name = utils::normalize_user_path(file_name).into_owned();
+
+    if let Some(pos) = files.iter().position(|f| f.name == normalized_name) {
+        let display_name = utils::normalize_path_for_display(&normalized_name);
+        println!("Deleting: {display_name}");
+        files.remove(pos);
+        Ok(())
+    } else {
+        bail!(
+            "File not found: {}",
+            utils::normalize_path_for_display(file_name)
+        );
+    }
+}
+
+/// Filter items by patterns, tracking which patterns matched.
+///
+/// Returns (matched_items, unmatched_patterns). Each item is matched at most
+/// once (by the first matching pattern) to avoid duplicates in listings.
 pub fn filter_and_track_patterns<'a, T>(
     items: &'a [T],
     patterns: &[String],
@@ -343,7 +343,7 @@ pub fn filter_and_track_patterns<'a, T>(
             if matcher(item, pattern) {
                 patterns_found[idx] = true;
                 filtered_items.push(item);
-                break; // Don't list the same item multiple times
+                break; // Don't add the same item twice if multiple patterns match it
             }
         }
     }
@@ -363,22 +363,23 @@ pub fn filter_and_track_patterns<'a, T>(
     (filtered_items, missing_patterns)
 }
 
-/// Helper functions for common file and path operations
+// ── Utility functions ──────────────────────────────────────────────
+
+/// Helper functions for file/path operations and pattern matching
 pub mod utils {
     use super::*;
     use std::borrow::Cow;
 
-    /// Result of expanding file patterns
+    /// Result of expanding file patterns (from globs or @response files)
     #[derive(Debug, Clone)]
     pub struct ExpandedFiles {
         /// The expanded file paths
         pub paths: Vec<PathBuf>,
-        /// Flags indicating whether each path should have its leading directory stripped
+        /// Whether each path should have its leading directory stripped (7z behavior)
         pub strip_directory_flags: Vec<bool>,
     }
 
     impl ExpandedFiles {
-        /// Create a new ExpandedFiles result from PathBufs
         pub fn new(paths: Vec<PathBuf>, strip_directory_flags: Vec<bool>) -> Self {
             debug_assert_eq!(
                 paths.len(),
@@ -391,15 +392,14 @@ pub mod utils {
             }
         }
 
-        /// Convert into an iterator that consumes the struct, yielding (PathBuf, bool)
+        /// Consume into an iterator of (path, should_strip) pairs
         pub fn into_iter(self) -> impl Iterator<Item = (PathBuf, bool)> {
             self.paths.into_iter().zip(self.strip_directory_flags)
         }
     }
 
-    /// Print formatted file listing to stdout
-    /// Common implementation used by both DAT1 and DAT2 formats
-    /// Exits cleanly on broken pipe (e.g., when piped to `head`)
+    /// Print formatted file listing to stdout.
+    /// Exits cleanly on broken pipe (e.g., when piped to `head`).
     pub fn print_file_listing<T: AsRef<FileEntry>>(files: &[T]) {
         print_stdout(format_args!(
             "{:>11} {:>11}  {:>4}  Name",
@@ -418,24 +418,20 @@ pub mod utils {
         }
     }
 
-    /// Collect all files from a path (file or directory)
-    /// If path is a file, returns just that file
-    /// If path is a directory, returns all files in it and all subdirectories recursively
-    /// Validates that all filenames are ASCII-only before returning
+    /// Collect all files from a path (file or directory, recursive).
+    /// Validates that all filenames are ASCII-only.
     pub fn collect_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         let path = path.as_ref();
 
-        // Check if the path exists
         if !path.exists() {
             bail!("Path does not exist: {}", path.display());
         }
 
         if path.is_file() {
-            // If it's a single file, just add it
             files.push(path.to_path_buf());
         } else if path.is_dir() {
-            // If it's a directory, scan through all entries recursively
+            // Scan directory recursively
             for entry in fs::read_dir(path)? {
                 let entry = entry?;
                 let entry_path = entry.path();
@@ -443,13 +439,12 @@ pub mod utils {
                 if entry_path.is_file() {
                     files.push(entry_path);
                 } else if entry_path.is_dir() {
-                    // Always dive into subdirectories
+                    // Always recurse into subdirectories
                     files.extend(collect_files(&entry_path)?);
                 }
             }
         }
 
-        // Validate all file paths are ASCII-only before returning
         for file in &files {
             if let Some(path_str) = file.to_str() {
                 validate_filename_ascii(path_str)
@@ -462,8 +457,7 @@ pub mod utils {
         Ok(files)
     }
 
-    /// Create all parent directories for a file path if they don't exist
-    /// For example, if path is "dir1/dir2/file.txt", creates "dir1" and "dir1/dir2"
+    /// Create all parent directories for a file path
     pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<()> {
         if let Some(parent) = path.as_ref().parent() {
             fs::create_dir_all(parent)
@@ -472,12 +466,8 @@ pub mod utils {
         Ok(())
     }
 
-    /// Convert internal path format (backslashes) to native OS format for display
-    ///
-    /// Internal representation uses backslashes (DAT archive format).
-    /// This converts to the user's expected format:
-    /// - Windows: already backslashes (no change needed)
-    /// - Unix/Linux: backslashes → forward slashes
+    /// Convert internal backslash paths to OS-native format for display.
+    /// On Unix this converts `\` to `/`; on Windows it's a no-op.
     pub fn normalize_path_for_display(path: &str) -> String {
         #[cfg(windows)]
         {
@@ -489,11 +479,8 @@ pub mod utils {
         }
     }
 
-    /// Normalize user input path to internal format (backslashes)
-    ///
-    /// Accepts both forward and backward slashes from users on any platform,
-    /// converting them to our internal backslash format for consistent matching.
-    /// Uses Cow to avoid unnecessary allocations when no conversion is needed.
+    /// Normalize user input path to internal backslash format.
+    /// Uses `Cow` to avoid allocation when the path already uses backslashes.
     pub fn normalize_user_path(path: &str) -> Cow<'_, str> {
         if path.contains('/') {
             Cow::Owned(path.replace('/', "\\"))
@@ -502,10 +489,7 @@ pub mod utils {
         }
     }
 
-    /// Normalize a collection of user input patterns to internal format
-    ///
-    /// This is a common pattern used throughout the codebase for normalizing
-    /// user-provided file patterns before filtering operations.
+    /// Normalize a batch of user patterns to internal backslash format
     pub fn normalize_user_patterns(patterns: &[String]) -> Vec<String> {
         patterns
             .iter()
@@ -513,29 +497,24 @@ pub mod utils {
             .collect()
     }
 
-    /// Check if a string contains glob metacharacters
-    ///
-    /// This is more robust than checking individual characters and can be
-    /// extended to handle escaped characters in the future.
+    /// Check if a string contains glob metacharacters (*, ?, [)
     pub fn contains_glob_metacharacters(pattern: &str) -> bool {
         pattern.contains('*') || pattern.contains('?') || pattern.contains('[')
     }
 
-    /// Match a file name against a pattern, supporting both glob and substring matching
+    /// Match a file name against a pattern.
     ///
-    /// If the pattern contains glob metacharacters (*, ?, [), uses glob matching.
-    /// Otherwise falls back to substring matching for backward compatibility.
-    /// Patterns without path separators match against just the filename.
+    /// If the pattern contains glob metacharacters, uses glob matching.
+    /// Otherwise uses substring matching for backward compatibility.
+    /// Patterns without path separators match against just the filename portion.
     pub fn matches_pattern(file_name: &str, pattern: &str) -> bool {
         if contains_glob_metacharacters(pattern) {
-            // Use glob matching
-            // Normalize both to forward slashes for matching
+            // Normalize both to forward slashes for glob matching
             let normalized_name = file_name.replace('\\', "/");
             let normalized_pattern = pattern.replace('\\', "/");
 
             // If pattern has no path separator, match against filename only
             let (name_to_match, pattern_to_use) = if !normalized_pattern.contains('/') {
-                // Extract just the filename from the full path
                 let filename = normalized_name
                     .rsplit('/')
                     .next()
@@ -545,42 +524,35 @@ pub mod utils {
                 (normalized_name, normalized_pattern)
             };
 
-            // Compile and match the pattern
             match glob::Pattern::new(&pattern_to_use) {
                 Ok(glob_pattern) => glob_pattern.matches(&name_to_match),
-                Err(_) => {
-                    // If pattern is invalid, fall back to substring matching
-                    file_name.contains(pattern)
-                }
+                // Invalid glob pattern: fall back to substring matching
+                Err(_) => file_name.contains(pattern),
             }
         } else {
-            // Substring matching for backward compatibility
             file_name.contains(pattern)
         }
     }
 
-    /// Check if a pattern indicates directory stripping (starts with ./ or .\)
+    /// Check if a pattern starts with ./ or .\ (triggers directory stripping)
     fn should_strip_directory(pattern: &str) -> bool {
         pattern.starts_with("./") || pattern.starts_with(".\\")
     }
 
-    /// Normalize a glob pattern for cross-platform use
-    ///
-    /// Converts backslashes to forward slashes for the glob library.
-    /// Handles escaped backslashes correctly.
+    /// Normalize a glob pattern for the `glob` crate (needs forward slashes).
+    /// Preserves escaped backslashes (\\) used as glob escapes.
     fn normalize_glob_pattern(pattern: &str) -> String {
         pattern
-            .replace("\\\\", "\x00") // Temporarily replace escaped backslashes
-            .replace('\\', "/") // Convert path separators
+            .replace("\\\\", "\x00") // Temporarily protect escaped backslashes
+            .replace('\\', "/")
             .replace('\x00', "\\") // Restore escaped backslashes
     }
 
-    /// Expand @response-file syntax only, returning patterns as-is for archive matching
+    /// Expand @response-file syntax, returning patterns as-is for archive matching.
     ///
-    /// Unlike `expand_response_files`, this does NOT expand glob patterns on the filesystem.
-    /// Used for list/extract/delete commands where patterns should match archive entries.
+    /// Does NOT expand glob patterns on the filesystem - used for
+    /// list/extract/delete commands where patterns match archive entries.
     pub fn expand_response_files_for_archive(files: &[String]) -> Result<Vec<String>> {
-        // Handle response file case
         if files.len() == 1 && files[0].starts_with('@') {
             let response_file_path = &files[0][1..];
             let content = fs::read_to_string(response_file_path)
@@ -594,48 +566,29 @@ pub mod utils {
                 .collect());
         }
 
-        // Check for mixed usage
         if files.iter().any(|f| f.starts_with('@')) {
             bail!("Cannot mix @response-file with explicit file arguments");
         }
 
-        // Return patterns as-is (don't expand globs on filesystem)
         Ok(files.to_vec())
     }
 
-    /// Expand @response-file syntax and glob patterns, tracking directory stripping per file
+    /// Expand @response-file syntax and glob patterns, tracking directory stripping.
     ///
-    /// Returns both the expanded file list and flags indicating which files need directory stripping.
-    /// Directory stripping is applied only to files that come from patterns starting with "./" or ".\"
-    ///
-    /// # Arguments
-    /// * `files` - Command line file arguments (may contain @response-file or globs)
-    ///
-    /// # Returns
-    /// * `ExpandedFiles` struct containing paths and strip flags
-    ///
-    /// # Example
-    /// ```ignore
-    /// let files = vec!["./src/*.rs".to_string()];
-    /// let expanded = expand_response_files_with_stripping(&files)?;
-    /// // All files from ./src/*.rs will have strip_directory_flags set to true
-    /// ```
+    /// Directory stripping (7z behavior) is applied to files from patterns
+    /// starting with "./" or ".\".
     pub fn expand_response_files_with_stripping(files: &[String]) -> Result<ExpandedFiles> {
-        // Handle response file case
         if files.len() == 1 && files[0].starts_with('@') {
             return expand_response_file(&files[0][1..]);
         }
 
-        // Check for mixed usage
         if files.iter().any(|f| f.starts_with('@')) {
             bail!("Cannot mix @response-file with explicit file arguments");
         }
 
-        // Process regular files and glob patterns
         expand_file_patterns(files)
     }
 
-    /// Expand a response file into a list of files
     fn expand_response_file(response_file_path: &str) -> Result<ExpandedFiles> {
         let content = fs::read_to_string(response_file_path)
             .with_context(|| format!("Failed to read response file: {response_file_path}"))?;
@@ -647,12 +600,10 @@ pub mod utils {
             .map(PathBuf::from)
             .collect();
 
-        // Response files don't use directory stripping
         let strip_flags = vec![false; paths.len()];
         Ok(ExpandedFiles::new(paths, strip_flags))
     }
 
-    /// Expand file patterns (including globs) into actual file paths
     fn expand_file_patterns(patterns: &[String]) -> Result<ExpandedFiles> {
         let mut paths = Vec::new();
         let mut strip_flags = Vec::new();
@@ -661,12 +612,12 @@ pub mod utils {
             let should_strip = should_strip_directory(pattern);
 
             if contains_glob_metacharacters(pattern) {
-                // Handle glob pattern
+                // Expand glob on the filesystem (e.g. "src/*.rs" -> list of files)
                 let expanded = expand_single_glob(pattern, should_strip)?;
                 paths.extend(expanded.paths);
                 strip_flags.extend(expanded.strip_directory_flags);
             } else {
-                // Regular file path - add as-is
+                // Regular path - use as-is
                 paths.push(PathBuf::from(pattern));
                 strip_flags.push(should_strip);
             }
@@ -675,7 +626,6 @@ pub mod utils {
         Ok(ExpandedFiles::new(paths, strip_flags))
     }
 
-    /// Expand a single glob pattern
     fn expand_single_glob(pattern: &str, should_strip: bool) -> Result<ExpandedFiles> {
         let normalized_pattern = normalize_glob_pattern(pattern);
         let mut paths = Vec::new();
@@ -703,31 +653,42 @@ pub mod utils {
         Ok(ExpandedFiles::new(paths, strip_flags))
     }
 
-    /// Convert any path to use backslashes (\) for DAT archive storage
-    /// DAT files always store paths with backslashes
+    /// Reject archive paths containing ".." (path traversal protection).
+    ///
+    /// A malicious archive could contain entries like "../../../etc/passwd"
+    /// which would write outside the output directory during extraction.
+    pub fn validate_archive_path(path: &str) -> Result<()> {
+        let normalized = path.replace('\\', "/");
+        for component in normalized.split('/') {
+            if component == ".." {
+                bail!(
+                    "Path traversal detected in archive entry: {}",
+                    normalize_path_for_display(path)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Convert path to backslashes for DAT archive storage
     pub fn normalize_path_for_archive(path: &str) -> String {
         path.replace('/', "\\")
     }
 
-    /// Convert a DAT archive path to the current system's path format
-    /// Archive paths use backslashes, convert to system separator for file operations
+    /// Convert a DAT archive path (backslashes) to the OS path format
     pub fn to_system_path(dat_path: &str) -> PathBuf {
         PathBuf::from(dat_path.replace('\\', std::path::MAIN_SEPARATOR_STR))
     }
 
-    /// Get just the filename (basename) from a path
-    ///
-    /// Accepts both forward and backward slashes for flexibility with user input.
-    /// Internal storage uses backslashes (DAT archive format).
+    /// Get just the filename (basename) from a path.
+    /// Handles both forward and backward slashes.
     pub fn get_filename_from_dat_path(path: &str) -> &str {
-        // Find the last path separator (either forward or backward slash)
         path.rfind(['/', '\\'])
             .map(|pos| &path[pos + 1..])
             .unwrap_or(path)
     }
 
     /// Get the directory part from a DAT archive path.
-    ///
     /// Returns "." if the path has no directory component.
     pub fn get_dirname_from_dat_path(path: &str) -> &str {
         path.rfind(['/', '\\'])
@@ -735,14 +696,11 @@ pub mod utils {
             .unwrap_or(".")
     }
 
-    /// Convert filename bytes from DAT files to ASCII strings
-    ///
-    /// Strictly requires ASCII-only filenames. Fails if any non-ASCII characters are found.
+    /// Decode filename bytes from DAT files to ASCII strings.
+    /// Strips C-style null terminators and rejects non-ASCII content.
     pub fn decode_filename(bytes: &[u8]) -> Result<String> {
-        // Remove null bytes (C-style string terminators)
         let trimmed_bytes: Vec<u8> = bytes.iter().take_while(|&&b| b != 0).copied().collect();
 
-        // Only accept strict ASCII
         match std::str::from_utf8(&trimmed_bytes) {
             Ok(ascii_str) => {
                 validate_filename_ascii(ascii_str)?;
@@ -754,10 +712,8 @@ pub mod utils {
         }
     }
 
-    /// Validate that a filename string contains only ASCII characters
-    ///
-    /// This is used both when decoding filenames from DAT files and when adding
-    /// new files to archives to ensure ASCII-only policy compliance.
+    /// Validate that a filename contains only ASCII characters.
+    /// Used when reading from archives and when adding new files.
     pub fn validate_filename_ascii(filename: &str) -> Result<()> {
         if filename.is_ascii() {
             Ok(())
@@ -766,11 +722,10 @@ pub mod utils {
         }
     }
 
-    /// Calculate the archive path for a file being added to a DAT archive
+    /// Calculate the archive path for a file being added.
     ///
-    /// This handles the complex logic of determining where a file should be placed
-    /// in the archive based on the input file path, base path, and target directory.
-    /// Supports 7z-style directory stripping when strip_leading_directory is true.
+    /// Handles target directory placement and 7z-style directory stripping.
+    /// The result uses backslashes (DAT archive format).
     pub fn calculate_archive_path(
         file: &std::path::Path,
         base_path: &std::path::Path,
@@ -795,16 +750,10 @@ pub mod utils {
                 }
             }
             None => {
-                // Always preserve the full relative path as specified
-                // This ensures consistent behavior whether files were specified
-                // individually or as part of a directory expansion
                 let mut path = file.to_string_lossy().into_owned();
-
-                // Apply directory stripping if requested (7z behavior)
                 if strip_leading_directory {
                     path = strip_leading_directory_from_path(&path);
                 }
-
                 path
             }
         };
@@ -812,10 +761,7 @@ pub mod utils {
         Ok(normalize_path_for_archive(&archive_path))
     }
 
-    /// Normalize path separators and collapse consecutive slashes
-    ///
-    /// This is more efficient than repeatedly calling string.replace()
-    /// and handles all normalization in a single pass.
+    /// Normalize path separators to `/` and collapse consecutive slashes in a single pass
     fn normalize_path_separators(path: &str) -> String {
         let mut result = String::with_capacity(path.len());
         let mut last_was_slash = false;
@@ -827,7 +773,6 @@ pub mod utils {
                         result.push('/');
                         last_was_slash = true;
                     }
-                    // Skip consecutive slashes
                 }
                 _ => {
                     result.push(ch);
@@ -839,24 +784,16 @@ pub mod utils {
         result
     }
 
-    /// Strip the leading directory component from a path (7z-style behavior)
+    /// Strip the leading directory component from a path (7z-style behavior).
     ///
-    /// Examples:
     /// - "patch000/file.txt" -> "file.txt"
     /// - "./patch000/file.txt" -> "file.txt"
     /// - "patch000/subdir/file.txt" -> "subdir/file.txt"
     /// - "file.txt" -> "file.txt" (no change)
-    ///
-    /// This implementation is more efficient than the previous one,
-    /// using a single-pass algorithm instead of multiple string replacements.
     pub fn strip_leading_directory_from_path(path: &str) -> String {
-        // Normalize path separators in a single pass
         let normalized = normalize_path_separators(path);
-
-        // Remove ./ prefix if present
         let without_dot_slash = normalized.strip_prefix("./").unwrap_or(&normalized);
 
-        // Find first separator and skip the leading directory
         match without_dot_slash.find('/') {
             Some(sep_pos) => without_dot_slash[sep_pos + 1..].to_string(),
             None => without_dot_slash.to_string(),

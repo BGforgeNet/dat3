@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -xeuo pipefail
+set -xeu -o pipefail
 
 echo "Cross-compiling static binaries for all platforms..."
 

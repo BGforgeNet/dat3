@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.0
+
+- Path traversal protection: archive entries with `..` in their path are now rejected on extraction.
+
 ## v0.6.0
 
 - Can use globs in list/delete/extract operations.
