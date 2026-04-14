@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.2
+
+- Add-path normalization now strips only `./` / `.\` prefixes and absolute path roots while preserving the first real directory.
+- Absolute source paths are stored as relative archive entries instead of unsafe or invalid absolute paths.
+
 ## v0.6.1
 
 - Path traversal protection: archive entries with `..` in their path are now rejected on extraction.

@@ -245,7 +245,6 @@ impl Dat1Archive {
         file_path: &Path,
         _compression: CompressionLevel,
         target_dir: Option<&str>,
-        strip_leading_directory: bool,
     ) -> Result<()> {
         let base_path = file_path;
         let files = utils::collect_files(file_path).with_context(|| {
@@ -259,12 +258,7 @@ impl Dat1Archive {
             let data =
                 fs::read(&file).with_context(|| format!("Failed to read {}", file.display()))?;
 
-            let archive_path = utils::calculate_archive_path(
-                &file,
-                base_path,
-                target_dir,
-                strip_leading_directory,
-            )?;
+            let archive_path = utils::calculate_archive_path(&file, base_path, target_dir)?;
 
             let size = data.len() as u32;
             let display_path = utils::normalize_path_for_display(&archive_path);

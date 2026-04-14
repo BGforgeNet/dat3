@@ -306,56 +306,70 @@ mod tests {
         }
     }
 
-    // ── strip_leading_directory_from_path ───────────────────────────
+    // ── strip_dot_prefix_from_path ──────────────────────────────────
 
-    mod strip_leading_directory {
+    mod strip_dot_prefix {
         use super::*;
 
         #[test]
-        fn strips_single_directory() {
+        fn leaves_plain_path_unchanged() {
             assert_eq!(
-                utils::strip_leading_directory_from_path("patch000/file.txt"),
-                "file.txt"
+                utils::strip_dot_prefix_from_path("patch000/file.txt"),
+                "patch000/file.txt"
             );
         }
 
         #[test]
         fn strips_with_dot_slash_prefix() {
             assert_eq!(
-                utils::strip_leading_directory_from_path("./patch000/file.txt"),
-                "file.txt"
+                utils::strip_dot_prefix_from_path("./patch000/file.txt"),
+                "patch000/file.txt"
             );
         }
 
         #[test]
         fn preserves_subdirectories() {
             assert_eq!(
-                utils::strip_leading_directory_from_path("patch000/subdir/file.txt"),
-                "subdir/file.txt"
+                utils::strip_dot_prefix_from_path("./patch000/subdir/file.txt"),
+                "patch000/subdir/file.txt"
             );
         }
 
         #[test]
         fn no_directory_returns_filename() {
-            assert_eq!(
-                utils::strip_leading_directory_from_path("file.txt"),
-                "file.txt"
-            );
+            assert_eq!(utils::strip_dot_prefix_from_path("file.txt"), "file.txt");
         }
 
         #[test]
         fn handles_backslashes() {
             assert_eq!(
-                utils::strip_leading_directory_from_path("patch000\\file.txt"),
-                "file.txt"
+                utils::strip_dot_prefix_from_path(".\\patch000\\file.txt"),
+                "patch000/file.txt"
             );
         }
 
         #[test]
         fn collapses_consecutive_slashes() {
             assert_eq!(
-                utils::strip_leading_directory_from_path("patch000//file.txt"),
-                "file.txt"
+                utils::strip_dot_prefix_from_path(".\\patch000//file.txt"),
+                "patch000/file.txt"
+            );
+        }
+
+        #[test]
+        fn strips_unix_root_prefix() {
+            assert_eq!(
+                utils::strip_dot_prefix_from_path("/patch000/file.txt"),
+                "patch000/file.txt"
+            );
+        }
+
+        #[cfg(windows)]
+        #[test]
+        fn strips_windows_drive_prefix() {
+            assert_eq!(
+                utils::strip_dot_prefix_from_path(r"C:\patch000\file.txt"),
+                "patch000/file.txt"
             );
         }
     }
@@ -487,13 +501,9 @@ mod tests {
 
         #[test]
         fn single_file_no_target() {
-            let result = utils::calculate_archive_path(
-                Path::new("file.txt"),
-                Path::new("file.txt"),
-                None,
-                false,
-            )
-            .unwrap();
+            let result =
+                utils::calculate_archive_path(Path::new("file.txt"), Path::new("file.txt"), None)
+                    .unwrap();
             assert_eq!(result, "file.txt");
         }
 
@@ -503,7 +513,6 @@ mod tests {
                 Path::new("file.txt"),
                 Path::new("file.txt"),
                 Some("data"),
-                false,
             )
             .unwrap();
             assert_eq!(result, "data\\file.txt");
@@ -515,10 +524,20 @@ mod tests {
                 Path::new("patch000/file.txt"),
                 Path::new("patch000/file.txt"),
                 None,
-                true,
             )
             .unwrap();
-            assert_eq!(result, "file.txt");
+            assert_eq!(result, "patch000\\file.txt");
+        }
+
+        #[test]
+        fn dot_slash_prefix_is_only_normalized() {
+            let result = utils::calculate_archive_path(
+                Path::new("./patch000/file.txt"),
+                Path::new("./patch000/file.txt"),
+                None,
+            )
+            .unwrap();
+            assert_eq!(result, "patch000\\file.txt");
         }
 
         #[test]
@@ -527,11 +546,48 @@ mod tests {
                 Path::new("art/critters/file.frm"),
                 Path::new("art/critters/file.frm"),
                 None,
-                false,
             )
             .unwrap();
             // Should use backslashes (archive format)
             assert!(result.contains('\\') || !result.contains('/'));
+        }
+
+        #[test]
+        fn absolute_unix_path_strips_root_only() {
+            let result = utils::calculate_archive_path(
+                Path::new("/patch000/file.txt"),
+                Path::new("/patch000/file.txt"),
+                None,
+            )
+            .unwrap();
+            assert_eq!(result, "patch000\\file.txt");
+        }
+
+        #[cfg(windows)]
+        #[test]
+        fn absolute_windows_path_strips_drive_only() {
+            let result = utils::calculate_archive_path(
+                Path::new(r"C:\patch000\file.txt"),
+                Path::new(r"C:\patch000\file.txt"),
+                None,
+            )
+            .unwrap();
+            assert_eq!(result, "patch000\\file.txt");
+        }
+    }
+
+    // ── expand_response_files_with_stripping ──────────────────────
+
+    mod expand_response_files_with_stripping {
+        use super::*;
+
+        #[test]
+        fn dot_slash_prefix_does_not_enable_directory_stripping() {
+            let expanded =
+                utils::expand_response_files_with_stripping(&["./patch000/file.txt".into()])
+                    .unwrap();
+
+            assert_eq!(expanded, vec![Path::new("./patch000/file.txt")]);
         }
     }
 

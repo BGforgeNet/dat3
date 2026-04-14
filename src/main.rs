@@ -143,7 +143,7 @@ fn main() -> Result<()> {
 
             // Count files upfront - fails immediately if any path doesn't exist
             let mut total_files_to_add = 0;
-            for file_path in &expanded.paths {
+            for file_path in &expanded {
                 let collected_files = utils::collect_files(file_path)?;
                 total_files_to_add += collected_files.len();
             }
@@ -169,13 +169,8 @@ fn main() -> Result<()> {
                 eprintln!("Warning: DAT1 format does not support compression, files will be stored uncompressed");
             }
 
-            for (file_path, should_strip_directory) in expanded.into_iter() {
-                archive.add_file(
-                    &file_path,
-                    compression_level,
-                    target_dir.as_deref(),
-                    should_strip_directory,
-                )?;
+            for file_path in expanded {
+                archive.add_file(&file_path, compression_level, target_dir.as_deref())?;
             }
 
             archive.save(&dat_file)?;

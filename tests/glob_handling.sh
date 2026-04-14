@@ -5,7 +5,7 @@ set -xeu -o pipefail
 # shellcheck source=tests/common.sh
 source "$(dirname "$0")/common.sh"
 
-TEST_DIR="test_glob_handling"
+TEST_DIR="$SCRIPT_DIR/test_glob_handling"
 
 # Clean up any previous test
 rm -rf "$TEST_DIR"
@@ -146,35 +146,35 @@ test_glob_pattern "4" "Question mark glob pattern" \
 	"patch000/1.txt patch000/2.txt" \
 	""
 
-# Test 5: Directory stripping with ./ prefix
+# Test 5: Dot-prefix normalization with ./ prefix
 echo ""
-echo "=== Test 5: Directory stripping with ./ prefix ==="
+echo "=== Test 5: Dot-prefix normalization with ./ prefix ==="
 
 # Test Linux build
-echo "Testing Linux directory stripping: ./patch000/*"
+echo "Testing Linux dot-prefix normalization: ./patch000/*"
 "$DAT3" a test5_linux.dat './patch000/*'
-echo "Linux directory stripping archive contents:"
+echo "Linux dot-prefix normalization archive contents:"
 "$DAT3" l test5_linux.dat
 
-# Verify Linux directory stripping - files should be at root level
-echo "Verifying Linux directory stripping..."
-for file in 1.txt 2.txt data.bin test.dat xxx/3.txt yyy/nested.txt; do
+# Verify Linux dot-prefix normalization - files should keep patch000/ prefix
+echo "Verifying Linux dot-prefix normalization..."
+for file in patch000/1.txt patch000/2.txt patch000/data.bin patch000/test.dat patch000/xxx/3.txt patch000/yyy/nested.txt; do
 	verify_file_exists "test5_linux.dat" "$file" "linux"
 done
-echo "Linux directory stripping verification passed!"
+echo "Linux dot-prefix normalization verification passed!"
 
 # Test Windows build
-echo "Testing Windows directory stripping: .\\patch000\\*"
+echo "Testing Windows dot-prefix normalization: .\\patch000\\*"
 run_wine a test5_windows.dat '.\\patch000\\*'
-echo "Windows directory stripping archive contents:"
+echo "Windows dot-prefix normalization archive contents:"
 run_wine l test5_windows.dat
 
-# Verify Windows directory stripping - files should be at root level
-echo "Verifying Windows directory stripping..."
-for file in 1.txt 2.txt data.bin test.dat xxx\\3.txt yyy\\nested.txt; do
+# Verify Windows dot-prefix normalization - files should keep patch000\ prefix
+echo "Verifying Windows dot-prefix normalization..."
+for file in patch000\\1.txt patch000\\2.txt patch000\\data.bin patch000\\test.dat patch000\\xxx\\3.txt patch000\\yyy\\nested.txt; do
 	verify_file_exists "test5_windows.dat" "$file" "windows"
 done
-echo "Windows directory stripping verification passed!"
+echo "Windows dot-prefix normalization verification passed!"
 
 # Test 6: Mixed file type patterns (multiple patterns)
 echo ""
@@ -206,41 +206,37 @@ for file in patch000\\1.txt patch000\\2.txt patch000\\data.bin patch000\\test.da
 done
 echo "Windows mixed file type glob pattern verification passed!"
 
-# Test 7: Mixed directory stripping (some patterns with ./, some without)
+# Test 7: Mixed dot-prefix normalization
 echo ""
-echo "=== Test 7: Mixed directory stripping behavior ==="
+echo "=== Test 7: Mixed dot-prefix normalization ==="
 
 # Test Linux build with mixed patterns
-echo "Testing Linux mixed stripping: patch000/1.txt ./patch000/2.txt patch000/xxx/3.txt"
+echo "Testing Linux mixed normalization: patch000/1.txt ./patch000/2.txt patch000/xxx/3.txt"
 "$DAT3" a test7_linux.dat patch000/1.txt ./patch000/2.txt patch000/xxx/3.txt
-echo "Linux mixed stripping archive contents:"
+echo "Linux mixed normalization archive contents:"
 "$DAT3" l test7_linux.dat
 
-# Verify Linux mixed stripping - only files from ./ patterns should be stripped
-echo "Verifying Linux mixed stripping..."
-# Files from normal patterns should keep their paths
+# Verify Linux mixed normalization - all files should keep their paths
+echo "Verifying Linux mixed normalization..."
 verify_file_exists "test7_linux.dat" "patch000/1.txt" "linux"
+verify_file_exists "test7_linux.dat" "patch000/2.txt" "linux"
 verify_file_exists "test7_linux.dat" "patch000/xxx/3.txt" "linux"
-# Files from ./ patterns should be stripped
-verify_file_exists "test7_linux.dat" "2.txt" "linux"
-echo "Linux mixed stripping verification passed!"
+echo "Linux mixed normalization verification passed!"
 
 # Test Windows build with mixed patterns
-printf "Testing Windows mixed stripping: patch000\\1.txt .\\patch000\\2.txt patch000\\xxx\\3.txt\n"
+printf '%s\n' 'Testing Windows mixed normalization: patch000\1.txt .\patch000\2.txt patch000\xxx\3.txt'
 run_wine a test7_windows.dat 'patch000\1.txt' '.\patch000\2.txt' 'patch000\xxx\3.txt'
-echo "Windows mixed stripping archive contents:"
+echo "Windows mixed normalization archive contents:"
 run_wine l test7_windows.dat
 
-# Verify Windows mixed stripping - only files from .\ patterns should be stripped
-echo "Verifying Windows mixed stripping..."
-# Files from normal patterns should keep their paths
+# Verify Windows mixed normalization - all files should keep their paths
+echo "Verifying Windows mixed normalization..."
 verify_file_exists "test7_windows.dat" "patch000\\1.txt" "windows"
+verify_file_exists "test7_windows.dat" "patch000\\2.txt" "windows"
 verify_file_exists "test7_windows.dat" "patch000\\xxx\\3.txt" "windows"
-# Files from .\ patterns should be stripped
-verify_file_exists "test7_windows.dat" "2.txt" "windows"
-echo "Windows mixed stripping verification passed!"
+echo "Windows mixed normalization verification passed!"
 
-# Test 8: Glob patterns with ./ prefix (both individual files and globs should be stripped)
+# Test 8: Glob patterns with ./ prefix keep their directory
 echo ""
 echo "=== Test 8: Glob patterns with ./ prefix ==="
 
@@ -250,24 +246,24 @@ echo "Testing Linux glob with ./ prefix: ./patch000/*.txt ./patch000/data.bin"
 echo "Linux glob with ./ prefix archive contents:"
 "$DAT3" l test8_linux.dat
 
-# Verify Linux - all files from ./ patterns should be stripped
+# Verify Linux - dot prefix should be removed but directory preserved
 echo "Verifying Linux glob with ./ prefix..."
-verify_file_exists "test8_linux.dat" "1.txt" "linux"
-verify_file_exists "test8_linux.dat" "2.txt" "linux"
-verify_file_exists "test8_linux.dat" "data.bin" "linux"
+verify_file_exists "test8_linux.dat" "patch000/1.txt" "linux"
+verify_file_exists "test8_linux.dat" "patch000/2.txt" "linux"
+verify_file_exists "test8_linux.dat" "patch000/data.bin" "linux"
 echo "Linux glob with ./ prefix verification passed!"
 
-# Test Windows build - glob pattern with .\ prefix  
+# Test Windows build - glob pattern with .\ prefix
 echo "Testing Windows glob with .\\ prefix: .\\patch000\\*.txt .\\patch000\\data.bin"
 run_wine a test8_windows.dat '.\\patch000\\*.txt' '.\\patch000\\data.bin'
 echo "Windows glob with .\\ prefix archive contents:"
 run_wine l test8_windows.dat
 
-# Verify Windows - all files from .\ patterns should be stripped
+# Verify Windows - dot prefix should be removed but directory preserved
 echo "Verifying Windows glob with .\\ prefix..."
-verify_file_exists "test8_windows.dat" "1.txt" "windows"
-verify_file_exists "test8_windows.dat" "2.txt" "windows"
-verify_file_exists "test8_windows.dat" "data.bin" "windows"
+verify_file_exists "test8_windows.dat" "patch000\\1.txt" "windows"
+verify_file_exists "test8_windows.dat" "patch000\\2.txt" "windows"
+verify_file_exists "test8_windows.dat" "patch000\\data.bin" "windows"
 echo "Windows glob with .\\ prefix verification passed!"
 
 # Test 9: Glob pattern filtering when listing archive contents
@@ -283,10 +279,22 @@ OUTPUT=$("$DAT3" l test9.dat '*.txt')
 echo "$OUTPUT"
 
 # Verify .txt files are listed
-echo "$OUTPUT" | grep -q "1.txt" || { echo "ERROR: 1.txt not found"; exit 1; }
-echo "$OUTPUT" | grep -q "2.txt" || { echo "ERROR: 2.txt not found"; exit 1; }
-echo "$OUTPUT" | grep -q "3.txt" || { echo "ERROR: 3.txt not found"; exit 1; }
-echo "$OUTPUT" | grep -q "nested.txt" || { echo "ERROR: nested.txt not found"; exit 1; }
+echo "$OUTPUT" | grep -q "1.txt" || {
+	echo "ERROR: 1.txt not found"
+	exit 1
+}
+echo "$OUTPUT" | grep -q "2.txt" || {
+	echo "ERROR: 2.txt not found"
+	exit 1
+}
+echo "$OUTPUT" | grep -q "3.txt" || {
+	echo "ERROR: 3.txt not found"
+	exit 1
+}
+echo "$OUTPUT" | grep -q "nested.txt" || {
+	echo "ERROR: nested.txt not found"
+	exit 1
+}
 
 # Verify non-.txt files are NOT listed
 if echo "$OUTPUT" | grep -q "data.bin"; then
@@ -307,7 +315,10 @@ OUTPUT=$("$DAT3" l test9.dat 'patch000/xxx/*')
 echo "$OUTPUT"
 
 # Should only match files in patch000/xxx/
-echo "$OUTPUT" | grep -q "3.txt" || { echo "ERROR: xxx/3.txt not found"; exit 1; }
+echo "$OUTPUT" | grep -q "3.txt" || {
+	echo "ERROR: xxx/3.txt not found"
+	exit 1
+}
 
 # Should NOT match files in other directories
 if echo "$OUTPUT" | grep -q "1.txt"; then
@@ -327,8 +338,14 @@ mkdir extract_test
 "$DAT3" x test9.dat '*.txt' -o extract_test/
 
 # Verify .txt files were extracted
-[ -f "extract_test/patch000/1.txt" ] || { echo "ERROR: 1.txt not extracted"; exit 1; }
-[ -f "extract_test/patch000/2.txt" ] || { echo "ERROR: 2.txt not extracted"; exit 1; }
+[ -f "extract_test/patch000/1.txt" ] || {
+	echo "ERROR: 1.txt not extracted"
+	exit 1
+}
+[ -f "extract_test/patch000/2.txt" ] || {
+	echo "ERROR: 2.txt not extracted"
+	exit 1
+}
 
 # Verify non-.txt files were NOT extracted
 if [ -f "extract_test/patch000/data.bin" ]; then
@@ -345,8 +362,14 @@ OUTPUT=$("$DAT3" l test9.dat 'patch000/?.txt')
 echo "$OUTPUT"
 
 # Should match 1.txt and 2.txt but not nested.txt
-echo "$OUTPUT" | grep -q "1.txt" || { echo "ERROR: 1.txt not found"; exit 1; }
-echo "$OUTPUT" | grep -q "2.txt" || { echo "ERROR: 2.txt not found"; exit 1; }
+echo "$OUTPUT" | grep -q "1.txt" || {
+	echo "ERROR: 1.txt not found"
+	exit 1
+}
+echo "$OUTPUT" | grep -q "2.txt" || {
+	echo "ERROR: 2.txt not found"
+	exit 1
+}
 
 if echo "$OUTPUT" | grep -q "nested.txt"; then
 	echo "ERROR: nested.txt should not match ?.txt pattern"

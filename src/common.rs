@@ -223,21 +223,10 @@ impl DatArchive {
         file_path: P,
         compression: CompressionLevel,
         target_dir: Option<&str>,
-        strip_leading_directory: bool,
     ) -> Result<()> {
         match self {
-            Self::Dat1(a) => a.add_file(
-                file_path.as_ref(),
-                compression,
-                target_dir,
-                strip_leading_directory,
-            ),
-            Self::Dat2(a) => a.add_file(
-                file_path.as_ref(),
-                compression,
-                target_dir,
-                strip_leading_directory,
-            ),
+            Self::Dat1(a) => a.add_file(file_path.as_ref(), compression, target_dir),
+            Self::Dat2(a) => a.add_file(file_path.as_ref(), compression, target_dir),
         }
     }
 
@@ -369,34 +358,6 @@ pub fn filter_and_track_patterns<'a, T>(
 pub mod utils {
     use super::*;
     use std::borrow::Cow;
-
-    /// Result of expanding file patterns (from globs or @response files)
-    #[derive(Debug, Clone)]
-    pub struct ExpandedFiles {
-        /// The expanded file paths
-        pub paths: Vec<PathBuf>,
-        /// Whether each path should have its leading directory stripped (7z behavior)
-        pub strip_directory_flags: Vec<bool>,
-    }
-
-    impl ExpandedFiles {
-        pub fn new(paths: Vec<PathBuf>, strip_directory_flags: Vec<bool>) -> Self {
-            debug_assert_eq!(
-                paths.len(),
-                strip_directory_flags.len(),
-                "Paths and flags must have the same length"
-            );
-            Self {
-                paths,
-                strip_directory_flags,
-            }
-        }
-
-        /// Consume into an iterator of (path, should_strip) pairs
-        pub fn into_iter(self) -> impl Iterator<Item = (PathBuf, bool)> {
-            self.paths.into_iter().zip(self.strip_directory_flags)
-        }
-    }
 
     /// Print formatted file listing to stdout.
     /// Exits cleanly on broken pipe (e.g., when piped to `head`).
@@ -534,11 +495,6 @@ pub mod utils {
         }
     }
 
-    /// Check if a pattern starts with ./ or .\ (triggers directory stripping)
-    fn should_strip_directory(pattern: &str) -> bool {
-        pattern.starts_with("./") || pattern.starts_with(".\\")
-    }
-
     /// Normalize a glob pattern for the `glob` crate (needs forward slashes).
     /// Preserves escaped backslashes (\\) used as glob escapes.
     fn normalize_glob_pattern(pattern: &str) -> String {
@@ -573,11 +529,8 @@ pub mod utils {
         Ok(files.to_vec())
     }
 
-    /// Expand @response-file syntax and glob patterns, tracking directory stripping.
-    ///
-    /// Directory stripping (7z behavior) is applied to files from patterns
-    /// starting with "./" or ".\".
-    pub fn expand_response_files_with_stripping(files: &[String]) -> Result<ExpandedFiles> {
+    /// Expand @response-file syntax and glob patterns for add operations.
+    pub fn expand_response_files_with_stripping(files: &[String]) -> Result<Vec<PathBuf>> {
         if files.len() == 1 && files[0].starts_with('@') {
             return expand_response_file(&files[0][1..]);
         }
@@ -589,47 +542,39 @@ pub mod utils {
         expand_file_patterns(files)
     }
 
-    fn expand_response_file(response_file_path: &str) -> Result<ExpandedFiles> {
+    fn expand_response_file(response_file_path: &str) -> Result<Vec<PathBuf>> {
         let content = fs::read_to_string(response_file_path)
             .with_context(|| format!("Failed to read response file: {response_file_path}"))?;
 
-        let paths: Vec<PathBuf> = content
+        let paths = content
             .lines()
             .map(|line| line.trim())
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
             .map(PathBuf::from)
             .collect();
 
-        let strip_flags = vec![false; paths.len()];
-        Ok(ExpandedFiles::new(paths, strip_flags))
+        Ok(paths)
     }
 
-    fn expand_file_patterns(patterns: &[String]) -> Result<ExpandedFiles> {
+    fn expand_file_patterns(patterns: &[String]) -> Result<Vec<PathBuf>> {
         let mut paths = Vec::new();
-        let mut strip_flags = Vec::new();
 
         for pattern in patterns {
-            let should_strip = should_strip_directory(pattern);
-
             if contains_glob_metacharacters(pattern) {
                 // Expand glob on the filesystem (e.g. "src/*.rs" -> list of files)
-                let expanded = expand_single_glob(pattern, should_strip)?;
-                paths.extend(expanded.paths);
-                strip_flags.extend(expanded.strip_directory_flags);
+                paths.extend(expand_single_glob(pattern)?);
             } else {
                 // Regular path - use as-is
                 paths.push(PathBuf::from(pattern));
-                strip_flags.push(should_strip);
             }
         }
 
-        Ok(ExpandedFiles::new(paths, strip_flags))
+        Ok(paths)
     }
 
-    fn expand_single_glob(pattern: &str, should_strip: bool) -> Result<ExpandedFiles> {
+    fn expand_single_glob(pattern: &str) -> Result<Vec<PathBuf>> {
         let normalized_pattern = normalize_glob_pattern(pattern);
         let mut paths = Vec::new();
-        let mut strip_flags = Vec::new();
 
         let glob_iter = glob(&normalized_pattern)
             .with_context(|| format!("Invalid glob pattern: {pattern}"))?;
@@ -638,7 +583,6 @@ pub mod utils {
             match entry {
                 Ok(path) => {
                     paths.push(path);
-                    strip_flags.push(should_strip);
                 }
                 Err(e) => {
                     bail!("Error expanding glob pattern '{}': {}", pattern, e);
@@ -650,7 +594,7 @@ pub mod utils {
             bail!("No files found matching pattern: {}", pattern);
         }
 
-        Ok(ExpandedFiles::new(paths, strip_flags))
+        Ok(paths)
     }
 
     /// Reject archive paths containing ".." (path traversal protection).
@@ -724,13 +668,12 @@ pub mod utils {
 
     /// Calculate the archive path for a file being added.
     ///
-    /// Handles target directory placement and 7z-style directory stripping.
+    /// Handles target directory placement and source path normalization.
     /// The result uses backslashes (DAT archive format).
     pub fn calculate_archive_path(
         file: &std::path::Path,
         base_path: &std::path::Path,
         target_dir: Option<&str>,
-        strip_leading_directory: bool,
     ) -> Result<String> {
         let archive_path = match target_dir {
             Some(target) => {
@@ -749,13 +692,7 @@ pub mod utils {
                     format!("{target}/{filename}")
                 }
             }
-            None => {
-                let mut path = file.to_string_lossy().into_owned();
-                if strip_leading_directory {
-                    path = strip_leading_directory_from_path(&path);
-                }
-                path
-            }
+            None => strip_dot_prefix_from_path(&file.to_string_lossy()),
         };
 
         Ok(normalize_path_for_archive(&archive_path))
@@ -784,19 +721,26 @@ pub mod utils {
         result
     }
 
-    /// Strip the leading directory component from a path (7z-style behavior).
+    /// Normalize a source path for archive storage.
     ///
-    /// - "patch000/file.txt" -> "file.txt"
-    /// - "./patch000/file.txt" -> "file.txt"
-    /// - "patch000/subdir/file.txt" -> "subdir/file.txt"
-    /// - "file.txt" -> "file.txt" (no change)
-    pub fn strip_leading_directory_from_path(path: &str) -> String {
+    /// - "./patch000/file.txt" -> "patch000/file.txt"
+    /// - ".\\patch000\\file.txt" -> "patch000/file.txt"
+    /// - "/patch000/file.txt" -> "patch000/file.txt"
+    /// - "C:\\patch000\\file.txt" -> "patch000/file.txt"
+    /// - "patch000/file.txt" -> "patch000/file.txt" (no change)
+    pub fn strip_dot_prefix_from_path(path: &str) -> String {
         let normalized = normalize_path_separators(path);
-        let without_dot_slash = normalized.strip_prefix("./").unwrap_or(&normalized);
+        let mut normalized_path = std::path::PathBuf::new();
 
-        match without_dot_slash.find('/') {
-            Some(sep_pos) => without_dot_slash[sep_pos + 1..].to_string(),
-            None => without_dot_slash.to_string(),
+        for component in std::path::Path::new(&normalized).components() {
+            match component {
+                std::path::Component::Prefix(_) => {}
+                std::path::Component::RootDir => {}
+                std::path::Component::CurDir if normalized_path.as_os_str().is_empty() => {}
+                other => normalized_path.push(other.as_os_str()),
+            }
         }
+
+        normalize_path_separators(&normalized_path.to_string_lossy())
     }
 }

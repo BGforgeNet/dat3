@@ -113,6 +113,25 @@ dat3 a newarchive.dat myfiles/ --dat1
 dat3 a master.dat @files_to_add.txt
 ```
 
+Add-path normalization:
+
+- `./` and `.\` prefixes are removed before storing paths in the archive
+- absolute source paths have only their filesystem root/prefix stripped
+- the first real directory name is preserved
+
+Examples:
+
+```bash
+dat3 a master.dat ./patch000/file.txt
+# stores as patch000/file.txt
+
+dat3 a master.dat ./patch000/*
+# stores as patch000/...
+
+dat3 a master.dat /tmp/patch000/file.txt
+# stores as tmp/patch000/file.txt
+```
+
 ### Delete files from archive
 
 ```bash
