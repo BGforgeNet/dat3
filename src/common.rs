@@ -223,10 +223,11 @@ impl DatArchive {
         file_path: P,
         compression: CompressionLevel,
         target_dir: Option<&str>,
+        source_root: Option<&Path>,
     ) -> Result<()> {
         match self {
-            Self::Dat1(a) => a.add_file(file_path.as_ref(), compression, target_dir),
-            Self::Dat2(a) => a.add_file(file_path.as_ref(), compression, target_dir),
+            Self::Dat1(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
+            Self::Dat2(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
         }
     }
 
@@ -383,39 +384,67 @@ pub mod utils {
     /// Validates that all filenames are ASCII-only.
     pub fn collect_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
-        let path = path.as_ref();
+        collect_files_inner(path.as_ref(), &mut files)?;
+        Ok(files)
+    }
 
-        if !path.exists() {
-            bail!("Path does not exist: {}", path.display());
+    /// Inner recursive worker for `collect_files`.
+    ///
+    /// Validates ASCII at the leaf push site so each path is checked exactly once.
+    fn collect_files_inner(path: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                bail!("Path does not exist: {}", path.display());
+            }
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("Failed to inspect path: {}", path.display()));
+            }
+        };
+
+        if metadata.file_type().is_symlink() {
+            // Distinguish dangling symlinks (target missing) from non-dangling ones.
+            match path.try_exists() {
+                Ok(true) => eprintln!("Skipping symlink: {}", path.display()),
+                _ => eprintln!("Skipping dangling symlink: {}", path.display()),
+            }
+            return Ok(());
         }
 
-        if path.is_file() {
-            files.push(path.to_path_buf());
-        } else if path.is_dir() {
-            // Scan directory recursively
+        if metadata.is_file() {
+            let path_str = path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Invalid path encoding: {}", path.display()))?;
+            validate_filename_ascii(path_str)
+                .with_context(|| format!("Invalid path: {}", path.display()))?;
+            out.push(path.to_path_buf());
+        } else if metadata.is_dir() {
             for entry in fs::read_dir(path)? {
                 let entry = entry?;
                 let entry_path = entry.path();
+                let entry_metadata = fs::symlink_metadata(&entry_path)
+                    .with_context(|| format!("Failed to inspect path: {}", entry_path.display()))?;
 
-                if entry_path.is_file() {
-                    files.push(entry_path);
-                } else if entry_path.is_dir() {
-                    // Always recurse into subdirectories
-                    files.extend(collect_files(&entry_path)?);
+                if entry_metadata.file_type().is_symlink() {
+                    match entry_path.try_exists() {
+                        Ok(true) => eprintln!("Skipping symlink: {}", entry_path.display()),
+                        _ => eprintln!("Skipping dangling symlink: {}", entry_path.display()),
+                    }
+                } else if entry_metadata.is_file() {
+                    let path_str = entry_path.to_str().ok_or_else(|| {
+                        anyhow::anyhow!("Invalid path encoding: {}", entry_path.display())
+                    })?;
+                    validate_filename_ascii(path_str)
+                        .with_context(|| format!("Invalid path: {}", entry_path.display()))?;
+                    out.push(entry_path);
+                } else if entry_metadata.is_dir() {
+                    collect_files_inner(&entry_path, out)?;
                 }
             }
         }
 
-        for file in &files {
-            if let Some(path_str) = file.to_str() {
-                validate_filename_ascii(path_str)
-                    .with_context(|| format!("Invalid path: {}", file.display()))?;
-            } else {
-                bail!("Invalid path encoding: {}", file.display());
-            }
-        }
-
-        Ok(files)
+        Ok(())
     }
 
     /// Create all parent directories for a file path
@@ -530,54 +559,85 @@ pub mod utils {
     }
 
     /// Expand @response-file syntax and glob patterns for add operations.
-    pub fn expand_response_files_with_stripping(files: &[String]) -> Result<Vec<PathBuf>> {
+    pub fn expand_response_files_with_stripping(
+        files: &[String],
+        change_dir: Option<&Path>,
+    ) -> Result<Vec<PathBuf>> {
         if files.len() == 1 && files[0].starts_with('@') {
-            return expand_response_file(&files[0][1..]);
+            return expand_response_file(&files[0][1..], change_dir);
         }
 
         if files.iter().any(|f| f.starts_with('@')) {
             bail!("Cannot mix @response-file with explicit file arguments");
         }
 
-        expand_file_patterns(files)
+        expand_file_patterns(files, change_dir)
     }
 
-    fn expand_response_file(response_file_path: &str) -> Result<Vec<PathBuf>> {
+    fn expand_response_file(
+        response_file_path: &str,
+        change_dir: Option<&Path>,
+    ) -> Result<Vec<PathBuf>> {
         let content = fs::read_to_string(response_file_path)
             .with_context(|| format!("Failed to read response file: {response_file_path}"))?;
 
-        let paths = content
+        let paths: Vec<String> = content
             .lines()
             .map(|line| line.trim())
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .map(PathBuf::from)
+            .map(String::from)
             .collect();
 
-        Ok(paths)
+        expand_file_patterns(&paths, change_dir)
     }
 
-    fn expand_file_patterns(patterns: &[String]) -> Result<Vec<PathBuf>> {
+    /// Expand glob patterns and join relative patterns against `-C`.
+    ///
+    /// For relative patterns under `-C`, rejects components other than `Normal`
+    /// (e.g. `..`) up-front so glob expansion cannot silently walk outside the
+    /// `-C` directory. Does NOT canonicalize, check symlinks, or bounds-check
+    /// the final resolved paths — callers must pipe every result through
+    /// `resolve_add_input_path` for the full security gate.
+    fn expand_file_patterns(
+        patterns: &[String],
+        change_dir: Option<&Path>,
+    ) -> Result<Vec<PathBuf>> {
         let mut paths = Vec::new();
 
         for pattern in patterns {
+            let resolved_pattern = if let Some(base_dir) = change_dir {
+                let pattern_path = Path::new(pattern);
+                if pattern_path.is_absolute() {
+                    // Pass absolute paths through unchanged; security validation
+                    // is deferred to resolve_add_input_path.
+                    pattern_path.to_path_buf()
+                } else {
+                    validate_change_dir_operand(pattern_path)?;
+                    base_dir.join(pattern)
+                }
+            } else {
+                PathBuf::from(pattern)
+            };
+
             if contains_glob_metacharacters(pattern) {
                 // Expand glob on the filesystem (e.g. "src/*.rs" -> list of files)
-                paths.extend(expand_single_glob(pattern)?);
+                paths.extend(expand_single_glob(&resolved_pattern)?);
             } else {
                 // Regular path - use as-is
-                paths.push(PathBuf::from(pattern));
+                paths.push(resolved_pattern);
             }
         }
 
         Ok(paths)
     }
 
-    fn expand_single_glob(pattern: &str) -> Result<Vec<PathBuf>> {
-        let normalized_pattern = normalize_glob_pattern(pattern);
+    fn expand_single_glob(pattern: &Path) -> Result<Vec<PathBuf>> {
+        let display_pattern = pattern.display().to_string();
+        let normalized_pattern = normalize_glob_pattern(&display_pattern);
         let mut paths = Vec::new();
 
         let glob_iter = glob(&normalized_pattern)
-            .with_context(|| format!("Invalid glob pattern: {pattern}"))?;
+            .with_context(|| format!("Invalid glob pattern: {display_pattern}"))?;
 
         for entry in glob_iter {
             match entry {
@@ -585,13 +645,13 @@ pub mod utils {
                     paths.push(path);
                 }
                 Err(e) => {
-                    bail!("Error expanding glob pattern '{}': {}", pattern, e);
+                    bail!("Error expanding glob pattern '{}': {}", display_pattern, e);
                 }
             }
         }
 
         if paths.is_empty() {
-            bail!("No files found matching pattern: {}", pattern);
+            bail!("No files found matching pattern: {}", display_pattern);
         }
 
         Ok(paths)
@@ -612,6 +672,98 @@ pub mod utils {
             }
         }
         Ok(())
+    }
+
+    /// Validate and normalize a path to be stored in a new archive.
+    ///
+    /// - Rejects `..` (ParentDir), absolute roots, and Windows drive prefixes.
+    /// - `.` (CurDir) components are silently removed.
+    /// - Returns the normalized path string with components joined by `/`.
+    /// - Returns an error if the post-normalization result is empty.
+    pub fn validate_add_archive_path(path: &str) -> Result<String> {
+        let normalized = normalize_path_separators(path);
+        if normalized.is_empty() {
+            bail!("Invalid archive path: path is empty");
+        }
+
+        // Walk components: filter out CurDir ('.'), reject everything that is
+        // not Normal (RootDir, Prefix, ParentDir all indicate unsafe paths).
+        let mut parts: Vec<&str> = Vec::new();
+        for component in Path::new(&normalized).components() {
+            match component {
+                std::path::Component::Normal(s) => {
+                    parts.push(s.to_str().unwrap_or_default());
+                }
+                std::path::Component::CurDir => {
+                    // silently skip '.' components
+                }
+                _ => {
+                    bail!(
+                        "Invalid archive path for add operation: {}",
+                        normalize_path_for_display(path)
+                    );
+                }
+            }
+        }
+
+        let result = parts.join("/");
+        if result.is_empty() {
+            bail!("Invalid archive path: path is empty after normalization");
+        }
+
+        Ok(result)
+    }
+
+    /// Resolve an add operand against `-C`, rejecting operands that escape it.
+    ///
+    /// This is the sole security gate for add operands under `-C`. It:
+    /// - canonicalizes the path to resolve any `..` components,
+    /// - rejects symlinks (dangling or not) to prevent link-following attacks,
+    /// - rejects paths whose canonical form falls outside `change_dir`.
+    ///
+    /// `expand_file_patterns` intentionally skips these checks and delegates
+    /// them here so that validation happens exactly once per resolved path.
+    pub fn resolve_add_input_path(path: &Path, change_dir: Option<&Path>) -> Result<PathBuf> {
+        let Some(base_dir) = change_dir else {
+            return Ok(path.to_path_buf());
+        };
+
+        let candidate = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            base_dir.join(path)
+        };
+
+        // Check if the path is a symlink before resolving - symlinks are always skipped
+        let metadata = fs::symlink_metadata(&candidate)
+            .with_context(|| format!("Failed to inspect path: {}", candidate.display()))?;
+
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "Symlinks are not allowed in add operations: {}",
+                normalize_path_for_display(&path.display().to_string())
+            );
+        }
+
+        // Canonicalize both paths for proper comparison
+        let resolved = fs::canonicalize(&candidate)
+            .with_context(|| format!("Failed to resolve add path: {}", candidate.display()))?;
+
+        let canonical_base = fs::canonicalize(base_dir).with_context(|| {
+            format!(
+                "Failed to canonicalize base directory: {}",
+                base_dir.display()
+            )
+        })?;
+
+        if !resolved.starts_with(&canonical_base) {
+            bail!(
+                "Add path escapes -C directory: {}",
+                normalize_path_for_display(&path.display().to_string())
+            );
+        }
+
+        Ok(resolved)
     }
 
     /// Convert path to backslashes for DAT archive storage
@@ -674,28 +826,69 @@ pub mod utils {
         file: &std::path::Path,
         base_path: &std::path::Path,
         target_dir: Option<&str>,
+        source_root: Option<&std::path::Path>,
     ) -> Result<String> {
-        let archive_path = match target_dir {
-            Some(target) => {
-                if base_path.is_dir() {
-                    let relative_path = if let Some(parent) = base_path.parent() {
-                        file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
-                    } else {
-                        file.to_string_lossy()
-                    };
-                    format!("{target}/{relative_path}")
-                } else {
-                    let filename = file
-                        .file_name()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid filename for: {}", file.display()))?
-                        .to_string_lossy();
-                    format!("{target}/{filename}")
+        let archive_path = match source_root {
+            Some(root) => {
+                let relative_path = file.strip_prefix(root).with_context(|| {
+                    format!(
+                        "Resolved path '{}' is outside source root '{}'",
+                        file.display(),
+                        root.display()
+                    )
+                })?;
+                let relative_path = normalize_path_separators(&relative_path.to_string_lossy());
+
+                match target_dir {
+                    Some(target) => format!("{target}/{relative_path}"),
+                    None => relative_path,
                 }
             }
-            None => strip_dot_prefix_from_path(&file.to_string_lossy()),
+            None => match target_dir {
+                Some(target) => {
+                    if base_path.is_dir() {
+                        let relative_path = if let Some(parent) = base_path.parent() {
+                            file.strip_prefix(parent).unwrap_or(file).to_string_lossy()
+                        } else {
+                            file.to_string_lossy()
+                        };
+                        format!("{target}/{relative_path}")
+                    } else {
+                        let filename = file
+                            .file_name()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("Invalid filename for: {}", file.display())
+                            })?
+                            .to_string_lossy();
+                        format!("{target}/{filename}")
+                    }
+                }
+                None => strip_dot_prefix_from_path(&file.to_string_lossy()),
+            },
         };
 
+        let archive_path = validate_add_archive_path(&archive_path)?;
         Ok(normalize_path_for_archive(&archive_path))
+    }
+
+    fn validate_change_dir_operand(path: &Path) -> Result<()> {
+        if path.as_os_str().is_empty() {
+            bail!("Empty add path is not allowed with -C");
+        }
+
+        for component in path.components() {
+            match component {
+                std::path::Component::Normal(_) => {}
+                _ => {
+                    bail!(
+                        "Invalid add path with -C: {}",
+                        normalize_path_for_display(&path.display().to_string())
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Normalize path separators to `/` and collapse consecutive slashes in a single pass

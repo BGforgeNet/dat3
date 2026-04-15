@@ -5,7 +5,7 @@ A cross-platform tool for managing Fallout 1 and 2 DAT archive files.
 Supports both DAT1 (Fallout 1) and DAT2 (Fallout 2) formats.
 */
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -69,6 +69,9 @@ enum Commands {
     #[command(name = "a")]
     Add {
         dat_file: PathBuf,
+        /// Resolve add operands relative to this directory
+        #[arg(short = 'C', long = "change-dir", value_name = "DIR")]
+        change_dir: Option<PathBuf>,
         /// Files or directories to add
         files: Vec<PathBuf>,
         /// Compression level 0-9
@@ -125,6 +128,7 @@ fn main() -> Result<()> {
         Commands::Add {
             dat_file,
             files,
+            change_dir,
             compression,
             dat1,
             target_dir,
@@ -134,12 +138,30 @@ fn main() -> Result<()> {
             let compression = compression.unwrap_or(1); // default: level 1
             let compression_level = CompressionLevel::new(compression)?;
 
+            let change_dir = match change_dir {
+                Some(path) => {
+                    let resolved = std::fs::canonicalize(&path).with_context(|| {
+                        format!("Failed to resolve -C directory: {}", path.display())
+                    })?;
+                    if !resolved.is_dir() {
+                        bail!("-C must point to a directory: {}", path.display());
+                    }
+                    Some(resolved)
+                }
+                None => None,
+            };
+
             // Expand @response files and glob patterns
             let file_strings: Vec<String> = files
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
-            let expanded = utils::expand_response_files_with_stripping(&file_strings)?;
+            let expanded =
+                utils::expand_response_files_with_stripping(&file_strings, change_dir.as_deref())?;
+            let expanded: Vec<PathBuf> = expanded
+                .iter()
+                .map(|path| utils::resolve_add_input_path(path, change_dir.as_deref()))
+                .collect::<Result<_>>()?;
 
             // Count files upfront - fails immediately if any path doesn't exist
             let mut total_files_to_add = 0;
@@ -170,7 +192,12 @@ fn main() -> Result<()> {
             }
 
             for file_path in expanded {
-                archive.add_file(&file_path, compression_level, target_dir.as_deref())?;
+                archive.add_file(
+                    &file_path,
+                    compression_level,
+                    target_dir.as_deref(),
+                    change_dir.as_deref(),
+                )?;
             }
 
             archive.save(&dat_file)?;

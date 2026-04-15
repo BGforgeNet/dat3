@@ -97,6 +97,9 @@ dat3 d master.dat @files.txt
 # Add single file
 dat3 a master.dat myfile.txt
 
+# Add files relative to another directory
+dat3 a master.dat -C ./mods patch000/file.txt
+
 # Add directory (automatically recursive)
 dat3 a master.dat myfolder/
 
@@ -118,6 +121,8 @@ Add-path normalization:
 - `./` and `.\` prefixes are removed before storing paths in the archive
 - absolute source paths have only their filesystem root/prefix stripped
 - the first real directory name is preserved
+- `a -C DIR ...` resolves add operands inside `DIR` and stores paths relative to `DIR`
+- `a -C DIR ...` rejects `.`/`..` components and paths that resolve outside `DIR`
 
 Examples:
 

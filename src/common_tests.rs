@@ -492,6 +492,42 @@ mod tests {
         fn rejects_dot_dot_only() {
             assert!(utils::validate_archive_path("..").is_err());
         }
+
+        #[test]
+        fn normalizes_single_dot_component_for_added_archive_paths() {
+            assert_eq!(
+                utils::validate_add_archive_path("art/./file.frm").unwrap(),
+                "art/file.frm"
+            );
+        }
+
+        #[test]
+        fn normalizes_leading_dot_slash() {
+            assert_eq!(utils::validate_add_archive_path("./foo").unwrap(), "foo");
+        }
+
+        #[test]
+        fn normalizes_internal_dot_component() {
+            assert_eq!(
+                utils::validate_add_archive_path("foo/./bar").unwrap(),
+                "foo/bar"
+            );
+        }
+
+        #[test]
+        fn rejects_dot_only_as_empty() {
+            assert!(utils::validate_add_archive_path(".").is_err());
+        }
+
+        #[test]
+        fn rejects_dot_slash_dot_as_empty() {
+            assert!(utils::validate_add_archive_path("./.").is_err());
+        }
+
+        #[test]
+        fn rejects_absolute_path_for_added_archive_paths() {
+            assert!(utils::validate_add_archive_path("/art/file.frm").is_err());
+        }
     }
 
     // ── calculate_archive_path ─────────────────────────────────────
@@ -501,9 +537,13 @@ mod tests {
 
         #[test]
         fn single_file_no_target() {
-            let result =
-                utils::calculate_archive_path(Path::new("file.txt"), Path::new("file.txt"), None)
-                    .unwrap();
+            let result = utils::calculate_archive_path(
+                Path::new("file.txt"),
+                Path::new("file.txt"),
+                None,
+                None,
+            )
+            .unwrap();
             assert_eq!(result, "file.txt");
         }
 
@@ -513,6 +553,7 @@ mod tests {
                 Path::new("file.txt"),
                 Path::new("file.txt"),
                 Some("data"),
+                None,
             )
             .unwrap();
             assert_eq!(result, "data\\file.txt");
@@ -523,6 +564,7 @@ mod tests {
             let result = utils::calculate_archive_path(
                 Path::new("patch000/file.txt"),
                 Path::new("patch000/file.txt"),
+                None,
                 None,
             )
             .unwrap();
@@ -535,6 +577,7 @@ mod tests {
                 Path::new("./patch000/file.txt"),
                 Path::new("./patch000/file.txt"),
                 None,
+                None,
             )
             .unwrap();
             assert_eq!(result, "patch000\\file.txt");
@@ -545,6 +588,7 @@ mod tests {
             let result = utils::calculate_archive_path(
                 Path::new("art/critters/file.frm"),
                 Path::new("art/critters/file.frm"),
+                None,
                 None,
             )
             .unwrap();
@@ -558,9 +602,57 @@ mod tests {
                 Path::new("/patch000/file.txt"),
                 Path::new("/patch000/file.txt"),
                 None,
+                None,
             )
             .unwrap();
             assert_eq!(result, "patch000\\file.txt");
+        }
+
+        #[test]
+        fn change_dir_becomes_archive_root() {
+            let result = utils::calculate_archive_path(
+                Path::new("mods/patch000/file.txt"),
+                Path::new("mods/patch000/file.txt"),
+                None,
+                Some(Path::new("mods")),
+            )
+            .unwrap();
+            assert_eq!(result, "patch000\\file.txt");
+        }
+
+        #[test]
+        fn change_dir_resolution_happens_before_target_dir() {
+            let result = utils::calculate_archive_path(
+                Path::new("mods/patch000/file.txt"),
+                Path::new("mods/patch000/file.txt"),
+                Some("data"),
+                Some(Path::new("mods")),
+            )
+            .unwrap();
+            assert_eq!(result, "data\\patch000\\file.txt");
+        }
+
+        #[test]
+        fn normalizes_internal_dot_component() {
+            let result = utils::calculate_archive_path(
+                Path::new("art/./file.frm"),
+                Path::new("art/./file.frm"),
+                None,
+                None,
+            )
+            .unwrap();
+            assert_eq!(result, "art\\file.frm");
+        }
+
+        #[test]
+        fn rejects_file_outside_change_dir() {
+            let result = utils::calculate_archive_path(
+                Path::new("outside/file.txt"),
+                Path::new("outside/file.txt"),
+                None,
+                Some(Path::new("mods")),
+            );
+            assert!(result.is_err());
         }
 
         #[cfg(windows)]
@@ -570,9 +662,274 @@ mod tests {
                 Path::new(r"C:\patch000\file.txt"),
                 Path::new(r"C:\patch000\file.txt"),
                 None,
+                None,
             )
             .unwrap();
             assert_eq!(result, "patch000\\file.txt");
+        }
+    }
+
+    // ── resolve_add_input_path ────────────────────────────────────
+
+    mod resolve_add_input_path {
+        use super::*;
+        use std::fs;
+        use std::path::PathBuf;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        #[test]
+        fn rejects_absolute_path_outside_change_dir() {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let parent = std::env::temp_dir().join(format!("dat3-abs-outside-{unique}"));
+            let mods = parent.join("mods");
+            fs::create_dir_all(&mods).unwrap();
+            let outside = parent.join("outside.txt");
+            fs::write(&outside, b"secret").unwrap();
+
+            let result = utils::resolve_add_input_path(&outside, Some(&mods));
+
+            assert!(
+                result.is_err(),
+                "absolute path outside change_dir must be rejected"
+            );
+            fs::remove_dir_all(parent).unwrap();
+        }
+
+        /// RAII guard that restores the original working directory on drop.
+        /// Ensures test cleanup even if the test panics.
+        struct CurrentDirGuard {
+            original: PathBuf,
+        }
+
+        impl CurrentDirGuard {
+            fn enter(new_dir: &std::path::Path) -> Self {
+                let original = std::env::current_dir().unwrap();
+                std::env::set_current_dir(new_dir).unwrap();
+                Self { original }
+            }
+        }
+
+        impl Drop for CurrentDirGuard {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.original);
+            }
+        }
+
+        fn make_temp_dir(name: &str) -> std::path::PathBuf {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("dat3-{name}-{unique}"));
+            fs::create_dir_all(&path).unwrap();
+            path
+        }
+
+        #[test]
+        fn resolves_relative_path_inside_change_dir() {
+            let root = make_temp_dir("resolve-inside");
+            let file = root.join("patch000/file.txt");
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, b"test").unwrap();
+
+            let resolved =
+                utils::resolve_add_input_path(Path::new("patch000/file.txt"), Some(&root)).unwrap();
+
+            assert_eq!(resolved, fs::canonicalize(file).unwrap());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[test]
+        fn allows_absolute_path_inside_change_dir() {
+            let root = make_temp_dir("resolve-absolute");
+            let file = root.join("patch000/file.txt");
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, b"test").unwrap();
+
+            let resolved = utils::resolve_add_input_path(&file, Some(&root)).unwrap();
+
+            assert_eq!(resolved, fs::canonicalize(file).unwrap());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[test]
+        fn leaves_relative_path_unchanged_without_change_dir() {
+            let root = make_temp_dir("resolve-relative");
+            let file = root.join("patch000/file.txt");
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, b"test").unwrap();
+
+            let _guard = CurrentDirGuard::enter(&root);
+            let resolved =
+                utils::resolve_add_input_path(Path::new("patch000/file.txt"), None).unwrap();
+
+            assert_eq!(resolved, Path::new("patch000/file.txt"));
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[test]
+        fn rejects_parent_traversal_outside_change_dir() {
+            let parent = make_temp_dir("resolve-parent");
+            let root = parent.join("mods");
+            fs::create_dir_all(&root).unwrap();
+            let outside = parent.join("outside.txt");
+            fs::write(&outside, b"test").unwrap();
+
+            let result = utils::resolve_add_input_path(Path::new("../outside.txt"), Some(&root));
+
+            assert!(result.is_err());
+            fs::remove_dir_all(parent).unwrap();
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn rejects_symlinked_file_inside_change_dir() {
+            use std::os::unix::fs::symlink;
+
+            let root = make_temp_dir("resolve-symlink-file");
+            let real_file = root.join("real.txt");
+            let link_file = root.join("link.txt");
+            fs::write(&real_file, b"real").unwrap();
+            symlink(&real_file, &link_file).unwrap();
+
+            let result = utils::resolve_add_input_path(Path::new("link.txt"), Some(&root));
+
+            assert!(result.is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn rejects_symlinked_directory_inside_change_dir() {
+            use std::os::unix::fs::symlink;
+
+            let root = make_temp_dir("resolve-symlink-dir");
+            let real_dir = root.join("real_dir");
+            let link_dir = root.join("link_dir");
+            fs::create_dir(&real_dir).unwrap();
+            symlink(&real_dir, &link_dir).unwrap();
+
+            let result = utils::resolve_add_input_path(Path::new("link_dir"), Some(&root));
+
+            assert!(result.is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn rejects_symlink_to_outside_via_absolute_path() {
+            use std::os::unix::fs::symlink;
+
+            let parent = make_temp_dir("resolve-symlink-abs");
+            let root = parent.join("mods");
+            let outside = parent.join("secret.txt");
+            fs::create_dir_all(&root).unwrap();
+            fs::write(&outside, b"secret").unwrap();
+
+            // Create symlink inside root that points to file outside
+            let link_in_root = root.join("link_to_outside");
+            symlink(&outside, &link_in_root).unwrap();
+
+            // Using absolute path to the symlink should still reject it
+            let result = utils::resolve_add_input_path(&link_in_root, Some(&root));
+
+            assert!(result.is_err());
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    // ── collect_files ─────────────────────────────────────────────
+
+    mod collect_files {
+        use super::*;
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        fn make_temp_dir(name: &str) -> std::path::PathBuf {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("dat3-{name}-{unique}"));
+            fs::create_dir_all(&path).unwrap();
+            path
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn reports_dangling_symlink() {
+            // A dangling symlink (target does not exist) must be skipped silently;
+            // the message includes the word "dangling" to distinguish it from a
+            // non-dangling symlink skip.
+            use std::os::unix::fs::symlink;
+
+            let root = make_temp_dir("collect-dangling");
+            let real_file = root.join("real.txt");
+            fs::write(&real_file, b"real").unwrap();
+
+            // Create a symlink whose target does not exist
+            let dangling = root.join("dangling.txt");
+            symlink(root.join("nonexistent.txt"), &dangling).unwrap();
+
+            let files = utils::collect_files(&root).unwrap();
+
+            // The dangling symlink must be skipped; only real.txt is collected
+            assert_eq!(files.len(), 1);
+            assert!(files[0].ends_with("real.txt"));
+
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[test]
+        fn rejects_non_ascii_in_nested_subdir() {
+            // Files with non-ASCII names inside nested subdirectories must cause an error.
+            let root = make_temp_dir("collect-nonascii");
+            let sub = root.join("sub");
+            fs::create_dir_all(&sub).unwrap();
+
+            // Write a file whose path will contain a non-ASCII character.
+            // We use a byte-level approach to create the file since the name itself
+            // is non-ASCII on the filesystem.
+            let non_ascii_name = "caf\u{00e9}.txt"; // "café.txt"
+            let file = sub.join(non_ascii_name);
+            fs::write(&file, b"content").unwrap();
+
+            let result = utils::collect_files(&root);
+
+            assert!(
+                result.is_err(),
+                "non-ASCII filename in nested subdir must be rejected"
+            );
+
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn skips_symlinked_files_and_directories() {
+            use std::os::unix::fs::symlink;
+
+            let root = make_temp_dir("collect-symlinks");
+            let real_file = root.join("patch000/real.txt");
+            let outside_dir = root.join("outside");
+            let outside_file = outside_dir.join("secret.txt");
+            let file_link = root.join("patch000/link.txt");
+            let dir_link = root.join("patch000/linkdir");
+
+            fs::create_dir_all(real_file.parent().unwrap()).unwrap();
+            fs::create_dir_all(&outside_dir).unwrap();
+            fs::write(&real_file, b"real").unwrap();
+            fs::write(&outside_file, b"secret").unwrap();
+            symlink(&outside_file, &file_link).unwrap();
+            symlink(&outside_dir, &dir_link).unwrap();
+
+            let files = utils::collect_files(root.join("patch000")).unwrap();
+
+            assert_eq!(files, vec![real_file]);
+            fs::remove_dir_all(root).unwrap();
         }
     }
 
@@ -580,14 +937,85 @@ mod tests {
 
     mod expand_response_files_with_stripping {
         use super::*;
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        fn make_temp_dir(name: &str) -> std::path::PathBuf {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("dat3-{name}-{unique}"));
+            fs::create_dir_all(&path).unwrap();
+            path
+        }
 
         #[test]
         fn dot_slash_prefix_does_not_enable_directory_stripping() {
             let expanded =
-                utils::expand_response_files_with_stripping(&["./patch000/file.txt".into()])
+                utils::expand_response_files_with_stripping(&["./patch000/file.txt".into()], None)
                     .unwrap();
 
             assert_eq!(expanded, vec![Path::new("./patch000/file.txt")]);
+        }
+
+        #[test]
+        fn allows_absolute_path_inside_change_dir() {
+            let root = make_temp_dir("expand-abs-inside");
+            let file = root.join("file.txt");
+            fs::write(&file, b"test").unwrap();
+
+            let expanded = utils::expand_response_files_with_stripping(
+                &[file.to_str().unwrap().into()],
+                Some(&root),
+            )
+            .unwrap();
+
+            assert_eq!(expanded, vec![file]);
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        #[test]
+        fn passes_through_absolute_path_outside_change_dir() {
+            // expand_response_files_with_stripping no longer validates bounds —
+            // that is deferred to resolve_add_input_path (the sole security gate).
+            // The function must return the absolute path unchanged.
+            let parent = make_temp_dir("expand-abs-outside");
+            let root = parent.join("mods");
+            let outside = parent.join("secret.txt");
+            fs::create_dir_all(&root).unwrap();
+            fs::write(&outside, b"secret").unwrap();
+
+            let result = utils::expand_response_files_with_stripping(
+                &[outside.to_str().unwrap().into()],
+                Some(&root),
+            );
+
+            // expand_response_files_with_stripping should succeed; security
+            // enforcement happens in resolve_add_input_path
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), vec![outside]);
+            fs::remove_dir_all(parent).unwrap();
+        }
+
+        #[test]
+        fn passes_through_absolute_path_not_in_change_dir() {
+            // Same as above: absolute path resolution is deferred to
+            // resolve_add_input_path, not done here.
+            let root = make_temp_dir("expand-abs-parent");
+
+            // /etc/passwd may not exist; use a path that does to avoid NotFound
+            // inside glob expansion (no glob here, so it just passes through).
+            let result =
+                utils::expand_response_files_with_stripping(&["/etc/passwd".into()], Some(&root));
+
+            // No longer rejected at this stage — validation is in resolve_add_input_path
+            assert!(result.is_ok());
+            assert_eq!(
+                result.unwrap(),
+                vec![std::path::PathBuf::from("/etc/passwd")]
+            );
+            fs::remove_dir_all(root).unwrap();
         }
     }
 

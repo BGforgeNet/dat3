@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.0
+
+- Add `-C`/`--change-dir` flag for `a` (add) operation: resolves file operands relative to the given directory and rejects any operand that escapes it or is a symlink.
+- `a` (add) now skips all symlinks encountered during directory recursion (previously followed) and no longer errors on dangling symlinks.
+- `a` (add) now rejects archive paths containing `..` components, empty paths, or absolute-root/drive prefixes; `.` components are silently normalized away.
+
 ## v0.6.2
 
 - Add-path normalization now strips only `./` / `.\` prefixes and absolute path roots while preserving the first real directory.
