@@ -98,7 +98,8 @@ dat3 d master.dat @files.txt
 dat3 a master.dat myfile.txt
 
 # Add files relative to another directory
-dat3 a master.dat -C ./mods patch000/file.txt
+dat3 a master.dat -C patch000 file.txt  # patch000/file.txt
+Adding: file.txt  # Added to archive root
 
 # Add directory (automatically recursive)
 dat3 a master.dat myfolder/
