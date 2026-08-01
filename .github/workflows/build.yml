@@ -27,7 +27,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.97.1
           components: rustfmt, clippy
           targets: x86_64-unknown-linux-musl, x86_64-pc-windows-gnu, i686-pc-windows-gnu
 
