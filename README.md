@@ -168,7 +168,7 @@ Delete only deletes file records. It doesn't reduce archive size.
 
 ### Requirements
 
-- Rust 1.70 or newer
+- Rust 1.87 or newer
 - Target-specific toolchains (install as needed)
 
 ### Build
