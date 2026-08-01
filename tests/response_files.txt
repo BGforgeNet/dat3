@@ -1,3 +1,0 @@
-text/english/credits.txt
-text\english\game\stat.msg
-art/critters/critters.lst

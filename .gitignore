@@ -12,7 +12,6 @@
 !/tests/*.sh
 !/tests/rpu.md5
 !/tests/dat2.exe
-!/tests/response_files.txt
 
 # IDE
 .vscode/
