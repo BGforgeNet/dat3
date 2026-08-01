@@ -326,6 +326,17 @@ impl Dat1Archive {
             }
         }
 
+        // DAT1 stores file offsets as u32; reject payloads the format cannot address.
+        let total_payload: u64 = self
+            .directories
+            .iter()
+            .flat_map(|d| &d.files)
+            .map(|f| f.packed_size as u64)
+            .sum();
+        if data_offset as u64 + total_payload > u32::MAX as u64 {
+            bail!("DAT1 archive would exceed the format's 4 GiB offset limit");
+        }
+
         let mut current_offset = data_offset;
 
         // Write directory content headers and file entries
@@ -380,5 +391,30 @@ impl Dat1Archive {
         fs::write(path, output).context("Failed to write DAT1 file")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_errors_when_payload_exceeds_u32_offsets() {
+        let archive = Dat1Archive {
+            directories: vec![Directory {
+                name: ".".to_string(),
+                files: vec![FileEntry {
+                    name: "A.TXT".to_string(),
+                    offset: 0,
+                    size: u32::MAX,
+                    packed_size: u32::MAX,
+                    compressed: false,
+                    data: Some(Vec::new()),
+                }],
+            }],
+            data: Vec::new(),
+        };
+        let target = std::env::temp_dir().join("dat3_dat1_overflow_test.dat");
+        assert!(archive.save(&target).is_err());
     }
 }

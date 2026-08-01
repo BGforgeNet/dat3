@@ -399,16 +399,23 @@ pub mod utils {
             return Ok(data.clone());
         }
 
-        let start = file.offset as usize;
-        let end = start + file.packed_size as usize;
-
-        if end > archive_data.len() {
-            bail!(
+        // Checked math: offset/packed_size come from the archive file and can be
+        // hostile; try_from also guards 32-bit targets where u64 -> usize narrows.
+        let out_of_bounds = || {
+            anyhow::anyhow!(
                 "File data extends beyond archive: {} (offset: {}, size: {})",
                 file.name,
                 file.offset,
                 file.packed_size
-            );
+            )
+        };
+        let start = usize::try_from(file.offset).map_err(|_| out_of_bounds())?;
+        let end = start
+            .checked_add(file.packed_size as usize)
+            .ok_or_else(out_of_bounds)?;
+
+        if end > archive_data.len() {
+            return Err(out_of_bounds());
         }
 
         Ok(archive_data[start..end].to_vec())

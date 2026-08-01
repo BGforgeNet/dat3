@@ -89,8 +89,13 @@ impl Dat2Archive {
             );
         }
 
-        // Directory tree position: dat_size - tree_size - 8 (footer)
-        let tree_start = footer.dat_size as usize - footer.tree_size as usize - 8;
+        // Directory tree position: dat_size - tree_size - 8 (footer).
+        // tree_size is untrusted archive input; checked math turns a hostile
+        // value into a clean error instead of an underflow.
+        let tree_start = (footer.dat_size as usize)
+            .checked_sub(footer.tree_size as usize)
+            .and_then(|v| v.checked_sub(8))
+            .context("Invalid DAT2 footer: tree size exceeds file size")?;
         if tree_start < 4 {
             bail!("Invalid directory tree position");
         }
@@ -320,6 +325,13 @@ impl Dat2Archive {
     ///
     /// DAT2 layout: file data, then directory tree, then 8-byte footer.
     pub fn save(&self, path: &Path) -> Result<()> {
+        // DAT2 stores file offsets as u32. Entries keep data.len() == packed_size,
+        // so this bounds the u32 offset accumulation below.
+        let total_payload: u64 = self.files.iter().map(|f| f.packed_size as u64).sum();
+        if total_payload > u32::MAX as u64 {
+            bail!("DAT2 archive would exceed the format's 4 GiB offset limit");
+        }
+
         let mut output = Vec::new();
         let mut cursor = Cursor::new(&mut output);
 
@@ -365,7 +377,8 @@ impl Dat2Archive {
 
         let footer = Dat2Footer {
             tree_size,
-            dat_size: total_size as u32,
+            dat_size: u32::try_from(total_size)
+                .context("DAT2 archive would exceed the format's 4 GiB size limit")?,
         };
         let footer_bytes = footer.to_bytes()?;
         cursor.write_all(&footer_bytes)?;
@@ -374,5 +387,38 @@ impl Dat2Archive {
         fs::write(path, output).context("Failed to write DAT2 file")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_bytes_errors_when_tree_size_exceeds_file_size() {
+        // 12-byte file whose footer claims a tree larger than the whole file:
+        // must produce a clean error, not an arithmetic underflow.
+        let mut data = vec![0u8; 4];
+        data.extend_from_slice(&0xFFFF_FFF0u32.to_le_bytes()); // tree_size
+        data.extend_from_slice(&12u32.to_le_bytes()); // dat_size == file length
+        assert!(Dat2Archive::from_bytes(data).is_err());
+    }
+
+    #[test]
+    fn save_errors_when_payload_exceeds_u32_offsets() {
+        let huge_entry = |name: &str| FileEntry {
+            name: name.to_string(),
+            offset: 0,
+            size: u32::MAX,
+            packed_size: u32::MAX,
+            compressed: false,
+            data: Some(Vec::new()),
+        };
+        let archive = Dat2Archive {
+            files: vec![huge_entry("A.TXT"), huge_entry("B.TXT")],
+            data: Vec::new(),
+        };
+        let target = std::env::temp_dir().join("dat3_dat2_overflow_test.dat");
+        assert!(archive.save(&target).is_err());
     }
 }

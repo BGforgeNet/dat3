@@ -101,6 +101,12 @@ mod tests {
             let archive = [0u8; 4];
             assert!(utils::read_file_slice(&archive, &stored_entry(2, 3)).is_err());
         }
+
+        #[test]
+        fn errors_on_offset_overflow_instead_of_panicking() {
+            let archive = [0u8; 4];
+            assert!(utils::read_file_slice(&archive, &stored_entry(u64::MAX, 1)).is_err());
+        }
     }
 
     // ── CLI argument parsing ───────────────────────────────────────
