@@ -109,6 +109,60 @@ mod tests {
         }
     }
 
+    // ── write_atomically ───────────────────────────────────────────
+
+    mod write_atomically {
+        use super::*;
+        use std::fs;
+
+        fn scratch_dir(tag: &str) -> std::path::PathBuf {
+            let dir = std::env::temp_dir().join(format!("dat3_wa_{}_{}", std::process::id(), tag));
+            fs::create_dir_all(&dir).unwrap();
+            dir
+        }
+
+        #[test]
+        fn writes_bytes_to_target() {
+            let dir = scratch_dir("write");
+            let target = dir.join("out.dat");
+            utils::write_atomically(&target, b"payload").unwrap();
+            assert_eq!(fs::read(&target).unwrap(), b"payload");
+            fs::remove_dir_all(&dir).unwrap();
+        }
+
+        #[test]
+        fn replaces_existing_file() {
+            let dir = scratch_dir("replace");
+            let target = dir.join("out.dat");
+            fs::write(&target, b"old").unwrap();
+            utils::write_atomically(&target, b"new").unwrap();
+            assert_eq!(fs::read(&target).unwrap(), b"new");
+            fs::remove_dir_all(&dir).unwrap();
+        }
+
+        #[test]
+        fn leaves_no_temp_residue() {
+            let dir = scratch_dir("residue");
+            let target = dir.join("out.dat");
+            utils::write_atomically(&target, b"payload").unwrap();
+            let names: Vec<_> = fs::read_dir(&dir)
+                .unwrap()
+                .map(|e| e.unwrap().file_name())
+                .collect();
+            assert_eq!(names, vec![std::ffi::OsString::from("out.dat")]);
+            fs::remove_dir_all(&dir).unwrap();
+        }
+
+        #[test]
+        fn errors_when_parent_directory_missing() {
+            let target = std::env::temp_dir()
+                .join(format!("dat3_wa_missing_{}", std::process::id()))
+                .join("nope")
+                .join("out.dat");
+            assert!(utils::write_atomically(&target, b"payload").is_err());
+        }
+    }
+
     // ── CLI argument parsing ───────────────────────────────────────
 
     mod cli_args {

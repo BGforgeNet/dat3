@@ -384,7 +384,7 @@ impl Dat2Archive {
         cursor.write_all(&footer_bytes)?;
 
         // Step 4: Write to disk
-        fs::write(path, output).context("Failed to write DAT2 file")?;
+        utils::write_atomically(path, &output).context("Failed to write DAT2 file")?;
 
         Ok(())
     }

@@ -4,6 +4,7 @@
 
 - Corrupt or truncated archives now produce a clean error instead of crashing (malformed DAT2 footer) or silently extracting truncated data (damaged DAT1 LZSS streams).
 - Creating an archive whose contents exceed the DAT formats' 4 GiB offset limit is now rejected with an error instead of writing a corrupt file.
+- Saves are now atomic: an interrupted `a` (add) or `d` (delete) no longer corrupts or destroys the existing archive.
 
 ## v0.7.0
 

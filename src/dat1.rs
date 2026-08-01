@@ -388,7 +388,7 @@ impl Dat1Archive {
             }
         }
 
-        fs::write(path, output).context("Failed to write DAT1 file")?;
+        utils::write_atomically(path, &output).context("Failed to write DAT1 file")?;
 
         Ok(())
     }

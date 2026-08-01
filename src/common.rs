@@ -380,6 +380,27 @@ pub mod utils {
         }
     }
 
+    /// Write archive bytes to a same-directory temp file, then rename it over
+    /// the target, so an interrupted save cannot destroy an existing archive.
+    pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
+        let file_name = path
+            .file_name()
+            .with_context(|| format!("Invalid archive path: {}", path.display()))?;
+        let mut tmp_name = std::ffi::OsString::from(".");
+        tmp_name.push(file_name);
+        tmp_name.push(".tmp");
+        let tmp_path = path.with_file_name(tmp_name);
+
+        fs::write(&tmp_path, bytes)
+            .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+        if let Err(e) = fs::rename(&tmp_path, path) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(e)
+                .with_context(|| format!("Failed to move archive into place: {}", path.display()));
+        }
+        Ok(())
+    }
+
     /// Resolve the on-disk output path for an archive entry being extracted.
     pub fn resolve_output_path(
         output_dir: &Path,
