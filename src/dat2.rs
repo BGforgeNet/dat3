@@ -393,6 +393,44 @@ impl Dat2Archive {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        #[test]
+        fn save_then_parse_round_trips(
+            payloads in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8)
+        ) {
+            let mut archive = Dat2Archive::new();
+            for (i, data) in payloads.iter().enumerate() {
+                let mut entry = FileEntry::with_data(format!("F{i}.BIN"), data.clone(), false);
+                entry.size = data.len() as u32;
+                archive.files.push(entry);
+            }
+
+            let target = std::env::temp_dir()
+                .join(format!("dat3_prop_dat2_{}.dat", std::process::id()));
+            archive.save(&target).unwrap();
+            let bytes = std::fs::read(&target).unwrap();
+            std::fs::remove_file(&target).ok();
+
+            let reparsed = Dat2Archive::from_bytes(bytes).unwrap();
+            prop_assert_eq!(reparsed.files.len(), payloads.len());
+            for (i, data) in payloads.iter().enumerate() {
+                prop_assert_eq!(&reparsed.files[i].name, &format!("F{i}.BIN"));
+                prop_assert_eq!(reparsed.files[i].size as usize, data.len());
+                prop_assert!(!reparsed.files[i].compressed);
+                let read_back = reparsed.read_file_data(&reparsed.files[i]).unwrap();
+                prop_assert_eq!(&read_back, data);
+            }
+        }
+
+        #[test]
+        fn from_bytes_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
+            let _ = Dat2Archive::from_bytes(bytes);
+        }
+    }
 
     #[test]
     fn from_bytes_errors_when_tree_size_exceeds_file_size() {

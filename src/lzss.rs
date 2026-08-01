@@ -157,9 +157,33 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// LZSS compression for DAT1 files (not yet implemented).
+///
+/// Currently DAT1 archives are created with uncompressed files.
+/// This stub exists for future implementation.
+#[allow(dead_code)] // Stub for future LZSS compression support
+pub fn compress(_data: &[u8]) -> Result<Vec<u8>> {
+    todo!("LZSS compression not implemented - DAT1 files are stored uncompressed")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn decompress_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
+            let _ = decompress(&bytes);
+        }
+
+        #[test]
+        fn raw_blocks_round_trip(payload in prop::collection::vec(any::<u8>(), 1..512)) {
+            let mut stream = (-(payload.len() as i16)).to_be_bytes().to_vec();
+            stream.extend_from_slice(&payload);
+            prop_assert_eq!(decompress(&stream).unwrap(), payload);
+        }
+    }
 
     /// Raw (uncompressed) block: negative i16 BE size, then |size| literal bytes.
     fn raw_block(payload: &[u8]) -> Vec<u8> {
@@ -209,13 +233,4 @@ mod tests {
         let stream = [0x00, 0x02];
         assert!(decompress(&stream).is_err());
     }
-}
-
-/// LZSS compression for DAT1 files (not yet implemented).
-///
-/// Currently DAT1 archives are created with uncompressed files.
-/// This stub exists for future implementation.
-#[allow(dead_code)] // Stub for future LZSS compression support
-pub fn compress(_data: &[u8]) -> Result<Vec<u8>> {
-    todo!("LZSS compression not implemented - DAT1 files are stored uncompressed")
 }

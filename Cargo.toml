@@ -21,7 +21,9 @@ byteorder = "1.5"          # Read/write integers in different byte orders
 deku = "0.19"              # Declarative binary parsing
 
 # Command-line interface
-clap = { version = "4.4", features = ["derive"] }
+# <4.6: clap 4.6 switched to syn 3 while deku's derive macros still use syn 2,
+# and [bans] multiple-versions = "deny" forbids carrying both. Lift when deku moves to syn 3.
+clap = { version = ">=4.4, <4.6", features = ["derive"] }
 
 # Compression and performance
 flate2 = "1.0"             # zlib compression for DAT2 format  
@@ -42,3 +44,6 @@ strip = true
 
 [profile.release.package."*"]
 opt-level = 3
+
+[dev-dependencies]
+proptest = "1.11.0"
