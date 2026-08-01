@@ -26,7 +26,10 @@ deku = "0.19"              # Declarative binary parsing
 clap = { version = ">=4.4, <4.6", features = ["derive"] }
 
 # Compression and performance
-flate2 = "1.0"             # zlib compression for DAT2 format  
+# zlib-rs backend: measurably faster than the default miniz_oxide (level-9 archive
+# creation -17%, extraction -11% on a 129 MB archive) and pure Rust, so the
+# mingw/musl cross-builds need no C toolchain.
+flate2 = { version = "1.1", features = ["zlib-rs"] } # zlib compression for DAT2 format
 rayon = "1.8"              # Parallel processing for faster extraction
 
 # Cross-platform path handling

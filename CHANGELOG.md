@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Faster DAT2 compression and decompression (new zlib backend): high-compression archive creation is ~17% faster, extraction ~11% faster.
 - Fixed: a DAT2 archive containing only empty files could be created but not reopened ("Invalid directory tree position").
 - Corrupt or truncated archives now produce a clean error instead of crashing (malformed DAT2 footer) or silently extracting truncated data (damaged DAT1 LZSS streams).
 - Creating an archive whose contents exceed the DAT formats' 4 GiB offset limit is now rejected with an error instead of writing a corrupt file.
