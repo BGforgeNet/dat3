@@ -96,8 +96,10 @@ impl Dat2Archive {
             .checked_sub(footer.tree_size as usize)
             .and_then(|v| v.checked_sub(8))
             .context("Invalid DAT2 footer: tree size exceeds file size")?;
-        if tree_start < 4 {
-            bail!("Invalid directory tree position");
+        // The tree must at least hold its own 4-byte file count. tree_start itself may
+        // legitimately be 0: an archive whose files are all empty has no data section.
+        if footer.tree_size < 4 {
+            bail!("Invalid DAT2 footer: directory tree too small");
         }
 
         // Read file count
@@ -429,6 +431,28 @@ mod tests {
         fn from_bytes_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
             let _ = Dat2Archive::from_bytes(bytes);
         }
+    }
+
+    #[test]
+    fn round_trips_archive_whose_only_file_is_empty() {
+        // Zero total data bytes puts the directory tree at offset 0; the parser must accept it.
+        let mut archive = Dat2Archive::new();
+        archive.files.push(FileEntry::with_data(
+            "EMPTY.TXT".to_string(),
+            Vec::new(),
+            false,
+        ));
+
+        let target =
+            std::env::temp_dir().join(format!("dat3_dat2_empty_{}.dat", std::process::id()));
+        archive.save(&target).unwrap();
+        let bytes = std::fs::read(&target).unwrap();
+        std::fs::remove_file(&target).ok();
+
+        let reparsed = Dat2Archive::from_bytes(bytes).unwrap();
+        assert_eq!(reparsed.files.len(), 1);
+        assert_eq!(reparsed.files[0].name, "EMPTY.TXT");
+        assert_eq!(reparsed.files[0].size, 0);
     }
 
     #[test]
