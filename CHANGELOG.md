@@ -7,6 +7,7 @@
 - Corrupt or truncated archives now produce a clean error instead of crashing (malformed DAT2 footer) or silently extracting truncated data (damaged DAT1 LZSS streams).
 - Creating an archive whose contents exceed the DAT formats' 4 GiB offset limit is now rejected with an error instead of writing a corrupt file.
 - Saves are now atomic: an interrupted `a` (add) or `d` (delete) no longer corrupts or destroys the existing archive.
+- Saving uses far less memory: archives stream to disk instead of being assembled in RAM first (peak usage down ~60-70%, e.g. 1.9 GiB to 0.6 GiB when creating a DAT1 from 600 MB of files), and saves are 10-35% faster.
 
 ## v0.7.0
 

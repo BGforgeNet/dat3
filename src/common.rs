@@ -380,9 +380,14 @@ pub mod utils {
         }
     }
 
-    /// Write archive bytes to a same-directory temp file, then rename it over
-    /// the target, so an interrupted save cannot destroy an existing archive.
-    pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
+    /// Stream archive bytes to a same-directory temp file via the given closure,
+    /// then rename it over the target, so an interrupted save cannot destroy an
+    /// existing archive. Streaming keeps peak memory at one file's data instead
+    /// of buffering the whole archive.
+    pub fn write_atomically(
+        path: &Path,
+        write: impl FnOnce(&mut std::io::BufWriter<fs::File>) -> Result<()>,
+    ) -> Result<()> {
         let file_name = path
             .file_name()
             .with_context(|| format!("Invalid archive path: {}", path.display()))?;
@@ -391,8 +396,20 @@ pub mod utils {
         tmp_name.push(".tmp");
         let tmp_path = path.with_file_name(tmp_name);
 
-        fs::write(&tmp_path, bytes)
-            .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+        let result = fs::File::create(&tmp_path)
+            .with_context(|| format!("Failed to create {}", tmp_path.display()))
+            .and_then(|file| {
+                let mut writer = std::io::BufWriter::new(file);
+                write(&mut writer)?;
+                writer
+                    .flush()
+                    .with_context(|| format!("Failed to write {}", tmp_path.display()))
+            });
+        if let Err(e) = result {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(e);
+        }
+
         if let Err(e) = fs::rename(&tmp_path, path) {
             let _ = fs::remove_file(&tmp_path);
             return Err(e)

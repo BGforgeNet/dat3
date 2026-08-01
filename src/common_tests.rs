@@ -114,6 +114,7 @@ mod tests {
     mod write_atomically {
         use super::*;
         use std::fs;
+        use std::io::Write;
 
         fn scratch_dir(tag: &str) -> std::path::PathBuf {
             let dir = std::env::temp_dir().join(format!("dat3_wa_{}_{}", std::process::id(), tag));
@@ -125,7 +126,7 @@ mod tests {
         fn writes_bytes_to_target() {
             let dir = scratch_dir("write");
             let target = dir.join("out.dat");
-            utils::write_atomically(&target, b"payload").unwrap();
+            utils::write_atomically(&target, |w| Ok(w.write_all(b"payload")?)).unwrap();
             assert_eq!(fs::read(&target).unwrap(), b"payload");
             fs::remove_dir_all(&dir).unwrap();
         }
@@ -135,7 +136,7 @@ mod tests {
             let dir = scratch_dir("replace");
             let target = dir.join("out.dat");
             fs::write(&target, b"old").unwrap();
-            utils::write_atomically(&target, b"new").unwrap();
+            utils::write_atomically(&target, |w| Ok(w.write_all(b"new")?)).unwrap();
             assert_eq!(fs::read(&target).unwrap(), b"new");
             fs::remove_dir_all(&dir).unwrap();
         }
@@ -144,7 +145,7 @@ mod tests {
         fn leaves_no_temp_residue() {
             let dir = scratch_dir("residue");
             let target = dir.join("out.dat");
-            utils::write_atomically(&target, b"payload").unwrap();
+            utils::write_atomically(&target, |w| Ok(w.write_all(b"payload")?)).unwrap();
             let names: Vec<_> = fs::read_dir(&dir)
                 .unwrap()
                 .map(|e| e.unwrap().file_name())
@@ -159,7 +160,26 @@ mod tests {
                 .join(format!("dat3_wa_missing_{}", std::process::id()))
                 .join("nope")
                 .join("out.dat");
-            assert!(utils::write_atomically(&target, b"payload").is_err());
+            assert!(utils::write_atomically(&target, |w| Ok(w.write_all(b"payload")?)).is_err());
+        }
+
+        #[test]
+        fn removes_temp_and_preserves_target_when_write_fails() {
+            let dir = scratch_dir("failpath");
+            let target = dir.join("out.dat");
+            fs::write(&target, b"old").unwrap();
+            let result = utils::write_atomically(&target, |w| {
+                w.write_all(b"partial")?;
+                anyhow::bail!("simulated mid-save failure")
+            });
+            assert!(result.is_err());
+            assert_eq!(fs::read(&target).unwrap(), b"old");
+            let names: Vec<_> = fs::read_dir(&dir)
+                .unwrap()
+                .map(|e| e.unwrap().file_name())
+                .collect();
+            assert_eq!(names, vec![std::ffi::OsString::from("out.dat")]);
+            fs::remove_dir_all(&dir).unwrap();
         }
     }
 

@@ -296,31 +296,13 @@ impl Dat1Archive {
 
     /// Save the archive to a file
     pub fn save(&self, path: &Path) -> Result<()> {
-        let mut output = Vec::new();
-
-        output.write_all(
-            &Dat1Header {
-                dir_count: self.directories.len() as u32,
-                format_id: DAT1_FORMAT_ID,
-                unknown2: 0,
-                unknown3: 0,
-            }
-            .to_bytes()?,
-        )?;
-
-        // Write directory names
+        // Calculate where file data starts: header, directory names, then
+        // directory content blocks. Computed up front so entry offsets are
+        // known before anything is written.
+        let mut data_offset: u32 = 16; // Archive header
         for dir in &self.directories {
-            output.write_all(
-                &Dat1Name {
-                    len: dir.name.len() as u8,
-                    bytes: dir.name.as_bytes().to_vec(),
-                }
-                .to_bytes()?,
-            )?;
+            data_offset += 1 + dir.name.len() as u32; // Length-prefixed directory name
         }
-
-        // Calculate where file data starts (after all directory content blocks)
-        let mut data_offset = output.len() as u32;
         for dir in &self.directories {
             data_offset += 16; // Directory content header: file_count + 3 unknown fields
             for file in &dir.files {
@@ -340,53 +322,75 @@ impl Dat1Archive {
             bail!("DAT1 archive would exceed the format's 4 GiB offset limit");
         }
 
-        let mut current_offset = data_offset;
-
-        // Write directory content headers and file entries
-        for dir in &self.directories {
+        utils::write_atomically(path, |output| {
             output.write_all(
-                &Dat1DirHeader {
-                    file_count: dir.files.len() as u32,
-                    unknown4: DAT1_FORMAT_ID,
-                    unknown5: DAT1_DIRECTORY_UNKNOWN5,
-                    unknown6: 0,
+                &Dat1Header {
+                    dir_count: self.directories.len() as u32,
+                    format_id: DAT1_FORMAT_ID,
+                    unknown2: 0,
+                    unknown3: 0,
                 }
                 .to_bytes()?,
             )?;
 
-            for file in &dir.files {
-                let stored_name = stored_file_name(&dir.name, &file.name);
-                let entry = Dat1FileEntry {
-                    name_len: stored_name.len() as u8,
-                    name_bytes: stored_name.as_bytes().to_vec(),
-                    attributes: if file.compressed {
-                        DAT1_COMPRESSED_FLAG
-                    } else {
-                        DAT1_UNCOMPRESSED_FLAG
-                    },
-                    offset: current_offset,
-                    size: file.size,
-                    packed_size: if file.compressed { file.packed_size } else { 0 },
-                };
-                output.write_all(&entry.to_bytes()?)?;
-
-                current_offset += file.packed_size;
+            // Write directory names
+            for dir in &self.directories {
+                output.write_all(
+                    &Dat1Name {
+                        len: dir.name.len() as u8,
+                        bytes: dir.name.as_bytes().to_vec(),
+                    }
+                    .to_bytes()?,
+                )?;
             }
-        }
 
-        // Write file data
-        for dir in &self.directories {
-            for file in &dir.files {
-                let data = if let Some(ref file_data) = file.data {
-                    file_data.clone() // File data is already in memory (newly added file)
-                } else {
-                    self.read_file_data(file)? // Need to read from the original archive
-                };
-                output.write_all(&data)?;
+            let mut current_offset = data_offset;
+
+            // Write directory content headers and file entries
+            for dir in &self.directories {
+                output.write_all(
+                    &Dat1DirHeader {
+                        file_count: dir.files.len() as u32,
+                        unknown4: DAT1_FORMAT_ID,
+                        unknown5: DAT1_DIRECTORY_UNKNOWN5,
+                        unknown6: 0,
+                    }
+                    .to_bytes()?,
+                )?;
+
+                for file in &dir.files {
+                    let stored_name = stored_file_name(&dir.name, &file.name);
+                    let entry = Dat1FileEntry {
+                        name_len: stored_name.len() as u8,
+                        name_bytes: stored_name.as_bytes().to_vec(),
+                        attributes: if file.compressed {
+                            DAT1_COMPRESSED_FLAG
+                        } else {
+                            DAT1_UNCOMPRESSED_FLAG
+                        },
+                        offset: current_offset,
+                        size: file.size,
+                        packed_size: if file.compressed { file.packed_size } else { 0 },
+                    };
+                    output.write_all(&entry.to_bytes()?)?;
+
+                    current_offset += file.packed_size;
+                }
             }
-        }
 
-        utils::write_atomically(path, &output).context("Failed to write DAT1 file")?;
+            // Write file data, borrowing in-memory entries instead of cloning
+            for dir in &self.directories {
+                for file in &dir.files {
+                    match file.data {
+                        Some(ref file_data) => output.write_all(file_data)?,
+                        None => output.write_all(&self.read_file_data(file)?)?,
+                    }
+                }
+            }
+
+            Ok(())
+        })
+        .context("Failed to write DAT1 file")?;
 
         Ok(())
     }

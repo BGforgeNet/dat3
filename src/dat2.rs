@@ -333,59 +333,62 @@ impl Dat2Archive {
             bail!("DAT2 archive would exceed the format's 4 GiB offset limit");
         }
 
-        let mut output = Vec::new();
-        let mut cursor = Cursor::new(&mut output);
+        utils::write_atomically(path, |cursor| {
+            // Step 1: Write all file data
+            let mut current_offset = 0u32;
+            let mut file_offsets = Vec::new();
 
-        // Step 1: Write all file data
-        let mut current_offset = 0u32;
-        let mut file_offsets = Vec::new();
+            for file in &self.files {
+                file_offsets.push(current_offset);
 
-        for file in &self.files {
-            file_offsets.push(current_offset);
+                let owned;
+                let data: &[u8] = match file.data {
+                    Some(ref file_data) => file_data, // Already in memory (newly added file)
+                    None => {
+                        owned = self.read_file_data(file)?; // Read from the original archive
+                        &owned
+                    }
+                };
 
-            let data = if let Some(ref file_data) = file.data {
-                file_data.clone() // File data is already in memory (newly added file)
-            } else {
-                self.read_file_data(file)? // Need to read from the original archive
+                cursor.write_all(data)?;
+                current_offset += data.len() as u32;
+            }
+
+            // Step 2: Write directory tree, tracking its size since a file
+            // writer has no cheap position() like the old in-memory cursor
+            let tree_start = current_offset as u64;
+            cursor.write_u32::<LittleEndian>(self.files.len() as u32)?;
+            let mut tree_size: u64 = 4;
+
+            for (i, file) in self.files.iter().enumerate() {
+                let entry = Dat2FileEntry {
+                    filename_size: file.name.len() as u32,
+                    filename_bytes: file.name.as_bytes().to_vec(),
+                    compression_type: if file.compressed { 1 } else { 0 },
+                    real_size: file.size,
+                    packed_size: file.packed_size,
+                    offset: file_offsets[i],
+                };
+
+                let entry_bytes = entry.to_bytes()?;
+                cursor.write_all(&entry_bytes)?;
+                tree_size += entry_bytes.len() as u64;
+            }
+
+            // Step 3: Write 8-byte footer
+            let total_size = tree_start + tree_size + 8;
+
+            let footer = Dat2Footer {
+                tree_size: tree_size as u32,
+                dat_size: u32::try_from(total_size)
+                    .context("DAT2 archive would exceed the format's 4 GiB size limit")?,
             };
+            let footer_bytes = footer.to_bytes()?;
+            cursor.write_all(&footer_bytes)?;
 
-            cursor.write_all(&data)?;
-            current_offset += data.len() as u32;
-        }
-
-        // Step 2: Write directory tree
-        let tree_start = cursor.position();
-        cursor.write_u32::<LittleEndian>(self.files.len() as u32)?;
-
-        for (i, file) in self.files.iter().enumerate() {
-            let entry = Dat2FileEntry {
-                filename_size: file.name.len() as u32,
-                filename_bytes: file.name.as_bytes().to_vec(),
-                compression_type: if file.compressed { 1 } else { 0 },
-                real_size: file.size,
-                packed_size: file.packed_size,
-                offset: file_offsets[i],
-            };
-
-            let entry_bytes = entry.to_bytes()?;
-            cursor.write_all(&entry_bytes)?;
-        }
-
-        // Step 3: Write 8-byte footer
-        let tree_end = cursor.position();
-        let tree_size = (tree_end - tree_start) as u32;
-        let total_size = tree_end + 8;
-
-        let footer = Dat2Footer {
-            tree_size,
-            dat_size: u32::try_from(total_size)
-                .context("DAT2 archive would exceed the format's 4 GiB size limit")?,
-        };
-        let footer_bytes = footer.to_bytes()?;
-        cursor.write_all(&footer_bytes)?;
-
-        // Step 4: Write to disk
-        utils::write_atomically(path, &output).context("Failed to write DAT2 file")?;
+            Ok(())
+        })
+        .context("Failed to write DAT2 file")?;
 
         Ok(())
     }
