@@ -43,7 +43,15 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
     let mut dictionary = vec![0u8; DICT_SIZE];
     let mut dict_write_pos;
 
-    while let Ok(block_size) = cursor.read_i16::<BigEndian>() {
+    loop {
+        // The stream may end cleanly at a block boundary; a partial 2-byte
+        // block header past that point is truncation, not end-of-stream.
+        if cursor.position() == compressed_data.len() as u64 {
+            break;
+        }
+        let block_size = cursor
+            .read_i16::<BigEndian>()
+            .map_err(|e| anyhow::anyhow!("Truncated LZSS stream: incomplete block header: {e}"))?;
         if block_size == 0 {
             break;
         }
@@ -80,15 +88,17 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
 
                 flags >>= 1;
                 if (flags & 256) == 0 {
-                    match cursor.read_u8() {
-                        Ok(c) => {
-                            flags = (c as u16) | 0xff00;
-                            bytes_read += 1;
-                            if bytes_read > bytes_to_process {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
+                    let c = cursor.read_u8().map_err(|e| {
+                        anyhow::anyhow!(
+                            "Truncated LZSS stream: failed to read flag byte at position {}: {}",
+                            bytes_read,
+                            e
+                        )
+                    })?;
+                    flags = (c as u16) | 0xff00;
+                    bytes_read += 1;
+                    if bytes_read > bytes_to_process {
+                        break;
                     }
                 }
 
@@ -145,6 +155,60 @@ pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
     }
 
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Raw (uncompressed) block: negative i16 BE size, then |size| literal bytes.
+    fn raw_block(payload: &[u8]) -> Vec<u8> {
+        let mut v = (-(payload.len() as i16)).to_be_bytes().to_vec();
+        v.extend_from_slice(payload);
+        v
+    }
+
+    #[test]
+    fn decompresses_raw_block() {
+        assert_eq!(decompress(&raw_block(b"ABC")).unwrap(), b"ABC");
+    }
+
+    #[test]
+    fn zero_block_size_terminates_stream() {
+        let mut stream = raw_block(b"ABC");
+        stream.extend_from_slice(&[0x00, 0x00]);
+        assert_eq!(decompress(&stream).unwrap(), b"ABC");
+    }
+
+    #[test]
+    fn decompresses_literal_in_compressed_block() {
+        // Compressed block of 2 bytes: flag byte 0x01 (bit 0 set = literal), then the literal.
+        let stream = [0x00, 0x02, 0x01, b'X'];
+        assert_eq!(decompress(&stream).unwrap(), b"X");
+    }
+
+    #[test]
+    fn errors_on_truncated_block_header() {
+        // A lone trailing byte cannot form the 2-byte block-size header.
+        let mut stream = raw_block(b"ABC");
+        stream.push(0x00);
+        assert!(decompress(&stream).is_err());
+    }
+
+    #[test]
+    fn errors_on_truncated_raw_block() {
+        // Header claims 5 raw bytes, only 3 present.
+        let mut stream = (-5i16).to_be_bytes().to_vec();
+        stream.extend_from_slice(b"ABC");
+        assert!(decompress(&stream).is_err());
+    }
+
+    #[test]
+    fn errors_on_compressed_block_with_missing_data() {
+        // Header claims a 2-byte compressed block, but the stream ends immediately.
+        let stream = [0x00, 0x02];
+        assert!(decompress(&stream).is_err());
+    }
 }
 
 /// LZSS compression for DAT1 files (not yet implemented).
