@@ -201,7 +201,7 @@ impl Dat1Archive {
 
             // Decompress LZSS if needed
             let final_data = if file.compressed {
-                lzss::decompress(&file_data)
+                lzss::decompress(&file_data, file.size as usize)
                     .with_context(|| format!("Failed to decompress {}", file.name))?
             } else {
                 file_data

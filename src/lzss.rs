@@ -33,13 +33,16 @@ const INITIAL_DICT_POS: usize = DICT_SIZE - MAX_MATCH; // 4078
 /// Each compressed block resets the dictionary (filled with spaces, position 4078).
 /// A flag byte controls whether subsequent data is a literal byte or a
 /// 2-byte dictionary reference (position + length).
-pub fn decompress(compressed_data: &[u8]) -> Result<Vec<u8>> {
+pub fn decompress(compressed_data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     if compressed_data.is_empty() {
         return Ok(Vec::new());
     }
 
     let mut cursor = Cursor::new(compressed_data);
-    let mut output = Vec::new();
+    // expected_size is untrusted archive metadata, so cap the reservation by the
+    // format's maximum expansion: 17 compressed bytes (flag + 8 two-byte
+    // references) yield at most 8 * 18 = 144 output bytes, under 9x.
+    let mut output = Vec::with_capacity(expected_size.min(compressed_data.len().saturating_mul(9)));
     let mut dictionary = vec![0u8; DICT_SIZE];
     let mut dict_write_pos;
 
@@ -174,15 +177,22 @@ mod tests {
     proptest! {
         #[test]
         fn decompress_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
-            let _ = decompress(&bytes);
+            let _ = decompress(&bytes, 0);
         }
 
         #[test]
         fn raw_blocks_round_trip(payload in prop::collection::vec(any::<u8>(), 1..512)) {
             let mut stream = (-(payload.len() as i16)).to_be_bytes().to_vec();
             stream.extend_from_slice(&payload);
-            prop_assert_eq!(decompress(&stream).unwrap(), payload);
+            prop_assert_eq!(decompress(&stream, payload.len()).unwrap(), payload);
         }
+    }
+
+    #[test]
+    fn does_not_trust_hostile_expected_size() {
+        // expected_size comes from archive metadata; a crafted value must not
+        // trigger a giant (or overflowing) upfront allocation.
+        assert_eq!(decompress(&raw_block(b"ABC"), usize::MAX).unwrap(), b"ABC");
     }
 
     /// Raw (uncompressed) block: negative i16 BE size, then |size| literal bytes.
@@ -194,21 +204,21 @@ mod tests {
 
     #[test]
     fn decompresses_raw_block() {
-        assert_eq!(decompress(&raw_block(b"ABC")).unwrap(), b"ABC");
+        assert_eq!(decompress(&raw_block(b"ABC"), 3).unwrap(), b"ABC");
     }
 
     #[test]
     fn zero_block_size_terminates_stream() {
         let mut stream = raw_block(b"ABC");
         stream.extend_from_slice(&[0x00, 0x00]);
-        assert_eq!(decompress(&stream).unwrap(), b"ABC");
+        assert_eq!(decompress(&stream, 3).unwrap(), b"ABC");
     }
 
     #[test]
     fn decompresses_literal_in_compressed_block() {
         // Compressed block of 2 bytes: flag byte 0x01 (bit 0 set = literal), then the literal.
         let stream = [0x00, 0x02, 0x01, b'X'];
-        assert_eq!(decompress(&stream).unwrap(), b"X");
+        assert_eq!(decompress(&stream, 3).unwrap(), b"X");
     }
 
     #[test]
@@ -216,7 +226,7 @@ mod tests {
         // A lone trailing byte cannot form the 2-byte block-size header.
         let mut stream = raw_block(b"ABC");
         stream.push(0x00);
-        assert!(decompress(&stream).is_err());
+        assert!(decompress(&stream, 8).is_err());
     }
 
     #[test]
@@ -224,13 +234,13 @@ mod tests {
         // Header claims 5 raw bytes, only 3 present.
         let mut stream = (-5i16).to_be_bytes().to_vec();
         stream.extend_from_slice(b"ABC");
-        assert!(decompress(&stream).is_err());
+        assert!(decompress(&stream, 8).is_err());
     }
 
     #[test]
     fn errors_on_compressed_block_with_missing_data() {
         // Header claims a 2-byte compressed block, but the stream ends immediately.
         let stream = [0x00, 0x02];
-        assert!(decompress(&stream).is_err());
+        assert!(decompress(&stream, 8).is_err());
     }
 }
