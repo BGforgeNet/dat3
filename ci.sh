@@ -9,7 +9,7 @@ fi
 
 # Install CI tools with pinned versions if not present
 if ! command -v cargo-audit &>/dev/null; then
-	cargo binstall -y --force cargo-audit@0.22.0 cargo-deny@0.19.0 cargo-machete@0.9.1 cargo-bloat@0.12.1
+	cargo binstall -y --force cargo-audit@0.22.0 cargo-deny@0.19.0 cargo-machete@0.9.1
 fi
 
 # Format check
