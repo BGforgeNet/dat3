@@ -35,6 +35,27 @@ mod tests {
         }
     }
 
+    // ── CLI argument parsing ───────────────────────────────────────
+
+    mod cli_args {
+        use clap::Parser;
+
+        #[test]
+        fn rejects_out_of_range_compression_at_parse_time() {
+            let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "10", "file"]);
+            assert!(
+                result.is_err(),
+                "compression level 10 should be rejected during argument parsing"
+            );
+        }
+
+        #[test]
+        fn accepts_maximum_compression_level() {
+            let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "9", "file"]);
+            assert!(result.is_ok());
+        }
+    }
+
     // ── normalize_path_for_display ─────────────────────────────────
 
     mod normalize_path_for_display {

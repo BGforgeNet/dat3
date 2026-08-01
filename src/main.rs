@@ -75,7 +75,7 @@ enum Commands {
         /// Files or directories to add
         files: Vec<PathBuf>,
         /// Compression level 0-9
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = clap::value_parser!(u8).range(0..=9))]
         compression: Option<u8>,
         /// Force DAT1 format for new archives
         #[arg(long)]
