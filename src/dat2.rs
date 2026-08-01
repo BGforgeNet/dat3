@@ -172,15 +172,7 @@ impl Dat2Archive {
                     );
                 }
 
-                let output_path = match mode {
-                    ExtractionMode::Flat => {
-                        let filename = utils::get_filename_from_dat_path(&file.name);
-                        output_dir.join(filename)
-                    }
-                    ExtractionMode::PreserveStructure => {
-                        output_dir.join(utils::to_system_path(&file.name))
-                    }
-                };
+                let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
 
                 utils::ensure_dir_exists(&output_path)?;
 
@@ -206,23 +198,7 @@ impl Dat2Archive {
 
     /// Read file data from a shared byte slice (thread-safe for parallel extraction)
     fn read_file_data_from_slice(&self, archive_data: &[u8], file: &FileEntry) -> Result<Vec<u8>> {
-        if let Some(ref data) = file.data {
-            return Ok(data.clone());
-        }
-
-        let start = file.offset as usize;
-        let end = start + file.packed_size as usize;
-
-        if end > archive_data.len() {
-            bail!(
-                "File data extends beyond archive: {} (offset: {}, size: {})",
-                file.name,
-                file.offset,
-                file.packed_size
-            );
-        }
-
-        Ok(archive_data[start..end].to_vec())
+        utils::read_file_slice(archive_data, file)
     }
 
     /// Read file data from the archive's own data buffer

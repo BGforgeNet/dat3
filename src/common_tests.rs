@@ -35,6 +35,74 @@ mod tests {
         }
     }
 
+    // ── resolve_output_path ────────────────────────────────────────
+
+    mod resolve_output_path {
+        use super::*;
+        use std::path::PathBuf;
+
+        #[test]
+        fn flat_mode_joins_bare_filename() {
+            let p = utils::resolve_output_path(
+                Path::new("out"),
+                "ART\\CRITTERS\\FILE.FRM",
+                ExtractionMode::Flat,
+            );
+            assert_eq!(p, PathBuf::from("out").join("FILE.FRM"));
+        }
+
+        #[test]
+        fn preserve_mode_joins_full_system_path() {
+            let p = utils::resolve_output_path(
+                Path::new("out"),
+                "ART\\CRITTERS\\FILE.FRM",
+                ExtractionMode::PreserveStructure,
+            );
+            #[cfg(not(windows))]
+            assert_eq!(p, PathBuf::from("out/ART/CRITTERS/FILE.FRM"));
+            #[cfg(windows)]
+            assert_eq!(p, PathBuf::from("out\\ART\\CRITTERS\\FILE.FRM"));
+        }
+    }
+
+    // ── read_file_slice ────────────────────────────────────────────
+
+    mod read_file_slice {
+        use super::*;
+
+        fn stored_entry(offset: u64, packed_size: u32) -> FileEntry {
+            FileEntry {
+                name: "A\\B.TXT".to_string(),
+                offset,
+                size: packed_size,
+                packed_size,
+                compressed: false,
+                data: None,
+            }
+        }
+
+        #[test]
+        fn returns_in_memory_data_when_present() {
+            let mut entry = stored_entry(0, 3);
+            entry.data = Some(vec![1, 2, 3]);
+            let out = utils::read_file_slice(&[], &entry).unwrap();
+            assert_eq!(out, vec![1, 2, 3]);
+        }
+
+        #[test]
+        fn slices_at_offset_and_packed_size() {
+            let archive = [0u8, 10, 20, 30, 40];
+            let out = utils::read_file_slice(&archive, &stored_entry(1, 3)).unwrap();
+            assert_eq!(out, vec![10, 20, 30]);
+        }
+
+        #[test]
+        fn errors_when_range_exceeds_archive() {
+            let archive = [0u8; 4];
+            assert!(utils::read_file_slice(&archive, &stored_entry(2, 3)).is_err());
+        }
+    }
+
     // ── CLI argument parsing ───────────────────────────────────────
 
     mod cli_args {

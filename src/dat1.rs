@@ -191,15 +191,7 @@ impl Dat1Archive {
             let display_name = utils::normalize_path_for_display(&file.name);
             println!("Extracting: {display_name}");
 
-            let output_path = match mode {
-                ExtractionMode::Flat => {
-                    let filename = utils::get_filename_from_dat_path(&file.name);
-                    output_dir.join(filename)
-                }
-                ExtractionMode::PreserveStructure => {
-                    output_dir.join(utils::to_system_path(&file.name))
-                }
-            };
+            let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
 
             utils::ensure_dir_exists(&output_path)?;
 
@@ -224,18 +216,7 @@ impl Dat1Archive {
 
     /// Read file data from the raw archive bytes
     fn read_file_data(&self, file: &FileEntry) -> Result<Vec<u8>> {
-        if let Some(ref data) = file.data {
-            return Ok(data.clone());
-        }
-
-        let start = file.offset as usize;
-        let end = start + file.packed_size as usize;
-
-        if end > self.data.len() {
-            bail!("File data extends beyond archive: {}", file.name);
-        }
-
-        Ok(self.data[start..end].to_vec())
+        utils::read_file_slice(&self.data, file)
     }
 
     /// Add files to the archive.

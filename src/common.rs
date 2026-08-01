@@ -380,6 +380,40 @@ pub mod utils {
         }
     }
 
+    /// Resolve the on-disk output path for an archive entry being extracted.
+    pub fn resolve_output_path(
+        output_dir: &Path,
+        archive_name: &str,
+        mode: ExtractionMode,
+    ) -> PathBuf {
+        match mode {
+            ExtractionMode::Flat => output_dir.join(get_filename_from_dat_path(archive_name)),
+            ExtractionMode::PreserveStructure => output_dir.join(to_system_path(archive_name)),
+        }
+    }
+
+    /// Read one entry's raw (possibly still compressed) bytes: in-memory data
+    /// for newly added entries, a bounds-checked slice of the archive buffer otherwise.
+    pub fn read_file_slice(archive_data: &[u8], file: &FileEntry) -> Result<Vec<u8>> {
+        if let Some(ref data) = file.data {
+            return Ok(data.clone());
+        }
+
+        let start = file.offset as usize;
+        let end = start + file.packed_size as usize;
+
+        if end > archive_data.len() {
+            bail!(
+                "File data extends beyond archive: {} (offset: {}, size: {})",
+                file.name,
+                file.offset,
+                file.packed_size
+            );
+        }
+
+        Ok(archive_data[start..end].to_vec())
+    }
+
     /// Collect all files from a path (file or directory, recursive).
     /// Validates that all filenames are ASCII-only.
     pub fn collect_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
