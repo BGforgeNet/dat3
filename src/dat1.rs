@@ -14,9 +14,12 @@ LZSS compression for writing is not implemented - files are stored uncompressed.
 
 use anyhow::{bail, Context, Result};
 use deku::prelude::*;
+use rayon::prelude::*;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 use crate::common::{self, utils, CompressionLevel, ExtractionMode, FileEntry};
 use crate::lzss;
@@ -180,37 +183,58 @@ impl Dat1Archive {
         common::list_files_filtered(&all_files, files)
     }
 
-    /// Extract files from the archive
+    /// Extract files from the archive in parallel, mirroring the DAT2 path
+    /// (per-file LZSS decompression and disk writes are independent).
     pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
         let all_flat = self.all_files_flat();
         let files_to_extract = common::filter_files_by_patterns(&all_flat, files);
+        let total_files = files_to_extract.len();
+        let completed = AtomicUsize::new(0);
 
-        for file in files_to_extract {
-            utils::validate_archive_path(&file.name)?;
+        println!("Extracting {total_files} files...");
+        let start = Instant::now();
 
-            let display_name = utils::normalize_path_for_display(&file.name);
-            println!("Extracting: {display_name}");
+        files_to_extract
+            .par_iter()
+            .try_for_each(|file| -> Result<()> {
+                utils::validate_archive_path(&file.name)?;
 
-            let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
+                // Progress reporting every 1000 files
+                let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                if count.is_multiple_of(1000) || count == total_files {
+                    let elapsed = start.elapsed().as_millis();
+                    let files_per_sec = count as f64 / elapsed as f64 * 1000.0;
+                    println!(
+                        "Progress: {count}/{total_files} files extracted ({files_per_sec:.1} files/sec)"
+                    );
+                }
 
-            utils::ensure_dir_exists(&output_path)?;
+                let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
 
-            let file_data = self
-                .read_file_data(file)
-                .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
+                utils::ensure_dir_exists(&output_path)?;
 
-            // Decompress LZSS if needed
-            let final_data = if file.compressed {
-                lzss::decompress(&file_data, file.size as usize)
-                    .with_context(|| format!("Failed to decompress {}", file.name))?
-            } else {
-                file_data
-            };
+                let file_data = self
+                    .read_file_data(file)
+                    .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
 
-            fs::write(&output_path, final_data)
-                .with_context(|| format!("Failed to write {}", output_path.display()))?;
-        }
+                // Decompress LZSS if needed
+                let final_data = if file.compressed {
+                    lzss::decompress(&file_data, file.size as usize)
+                        .with_context(|| format!("Failed to decompress {}", file.name))?
+                } else {
+                    file_data
+                };
 
+                fs::write(&output_path, final_data)
+                    .with_context(|| format!("Failed to write {}", output_path.display()))?;
+
+                Ok(())
+            })?;
+
+        println!(
+            "Extraction completed in {:.2}s",
+            start.elapsed().as_secs_f64()
+        );
         Ok(())
     }
 
@@ -449,6 +473,37 @@ mod tests {
         fn from_bytes_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
             let _ = Dat1Archive::from_bytes(bytes);
         }
+    }
+
+    #[test]
+    fn extract_writes_decompressed_entries_to_disk() {
+        // Valid literal-only LZSS stream for b"HELLO": one compressed block of
+        // 6 bytes - flag 0xFF (all-literal), then the 5 literals.
+        let lzss_stream = vec![0x00, 0x06, 0xFF, b'H', b'E', b'L', b'L', b'O'];
+
+        let mut archive = Dat1Archive::new();
+        let mut plain =
+            FileEntry::with_data("PLAIN.TXT".to_string(), b"plain data".to_vec(), false);
+        plain.size = 10; // with_data leaves size unset; DAT1 reads uncompressed lengths from it
+        archive.directories[0].files.push(plain);
+        let mut packed = FileEntry::with_data("PACKED.TXT".to_string(), lzss_stream, true);
+        packed.size = 5; // decompressed length of "HELLO"
+        archive.directories[0].files.push(packed);
+
+        let dir = std::env::temp_dir().join(format!("dat3_dat1_extract_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("t.dat");
+        archive.save(&target).unwrap();
+
+        let reparsed = Dat1Archive::from_bytes(std::fs::read(&target).unwrap()).unwrap();
+        let out = dir.join("out");
+        reparsed
+            .extract(&out, &[], ExtractionMode::PreserveStructure)
+            .unwrap();
+
+        assert_eq!(std::fs::read(out.join("PLAIN.TXT")).unwrap(), b"plain data");
+        assert_eq!(std::fs::read(out.join("PACKED.TXT")).unwrap(), b"HELLO");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
