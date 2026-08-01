@@ -13,9 +13,9 @@ LZSS compression for writing is not implemented - files are stored uncompressed.
 */
 
 use anyhow::{bail, Context, Result};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use deku::prelude::*;
 use std::fs;
-use std::io::{Cursor, Read, Write};
+use std::io::Write;
 use std::path::Path;
 
 use crate::common::{self, utils, CompressionLevel, ExtractionMode, FileEntry};
@@ -26,6 +26,48 @@ const DAT1_COMPRESSED_FLAG: u32 = 0x40;
 const DAT1_UNCOMPRESSED_FLAG: u32 = 0x20;
 const DAT1_FORMAT_ID: u32 = 0x0A;
 const DAT1_DIRECTORY_UNKNOWN5: u32 = 0x10;
+
+/// 16-byte archive header
+#[derive(Debug, DekuRead, DekuWrite)]
+#[deku(endian = "big")]
+struct Dat1Header {
+    dir_count: u32,
+    format_id: u32, // format identifier seen in original files
+    unknown2: u32,  // always zero in practice
+    unknown3: u32,  // always zero in practice
+}
+
+/// Length-prefixed name, used for directory names
+#[derive(Debug, DekuRead, DekuWrite)]
+#[deku(endian = "big")]
+struct Dat1Name {
+    len: u8,
+    #[deku(count = "len")]
+    bytes: Vec<u8>,
+}
+
+/// 16-byte per-directory content header
+#[derive(Debug, DekuRead, DekuWrite)]
+#[deku(endian = "big")]
+struct Dat1DirHeader {
+    file_count: u32,
+    unknown4: u32,
+    unknown5: u32,
+    unknown6: u32,
+}
+
+/// File entry as stored in a directory's content block
+#[derive(Debug, DekuRead, DekuWrite)]
+#[deku(endian = "big")]
+struct Dat1FileEntry {
+    name_len: u8,
+    #[deku(count = "name_len")]
+    name_bytes: Vec<u8>,
+    attributes: u32,
+    offset: u32,
+    size: u32,
+    packed_size: u32,
+}
 
 /// A directory within a DAT1 archive.
 /// DAT1 uses hierarchical directories; the root is named ".".
@@ -57,85 +99,43 @@ impl Dat1Archive {
 
     /// Parse an existing DAT1 archive from raw bytes
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
-        let mut cursor = Cursor::new(&data);
-
-        // Read 16-byte header
-        let dir_count = cursor
-            .read_u32::<BigEndian>()
-            .context("Failed to read directory count from DAT1 header")?;
-        let _unknown1 = cursor
-            .read_u32::<BigEndian>()
-            .context("Failed to read unknown1 field from DAT1 header")?;
-        let _unknown2 = cursor
-            .read_u32::<BigEndian>()
-            .context("Failed to read unknown2 field from DAT1 header")?;
-        let _unknown3 = cursor
-            .read_u32::<BigEndian>()
-            .context("Failed to read unknown3 field from DAT1 header")?;
+        let ((mut rest, _), header) = Dat1Header::from_bytes((&data, 0))
+            .map_err(|e| anyhow::anyhow!("Failed to parse DAT1 header: {e}"))?;
 
         // Read directory names
         let mut dir_names = Vec::new();
-        for i in 0..dir_count {
-            let name_len = cursor
-                .read_u8()
-                .with_context(|| format!("Failed to read name length for directory {i}"))?
-                as usize;
-            let mut name_bytes = vec![0u8; name_len];
-            cursor
-                .read_exact(&mut name_bytes)
-                .with_context(|| format!("Failed to read name bytes for directory {i}"))?;
-            let name =
-                utils::decode_filename(&name_bytes).context("Failed to decode directory name")?;
-            dir_names.push(name);
+        for i in 0..header.dir_count {
+            let ((r, _), name) = Dat1Name::from_bytes((rest, 0))
+                .map_err(|e| anyhow::anyhow!("Failed to parse name for directory {i}: {e}"))?;
+            rest = r;
+            dir_names.push(
+                utils::decode_filename(&name.bytes).context("Failed to decode directory name")?,
+            );
         }
 
         // Read directory contents (file entries per directory)
         let mut directories = Vec::new();
         for dir_name in dir_names {
-            let file_count = cursor
-                .read_u32::<BigEndian>()
-                .with_context(|| format!("Failed to read file count for directory '{dir_name}'"))?;
-            let _unknown4 = cursor.read_u32::<BigEndian>().with_context(|| {
-                format!("Failed to read unknown4 field for directory '{dir_name}'")
+            let ((r, _), dir_header) = Dat1DirHeader::from_bytes((rest, 0)).map_err(|e| {
+                anyhow::anyhow!("Failed to parse content header for directory '{dir_name}': {e}")
             })?;
-            let _unknown5 = cursor.read_u32::<BigEndian>().with_context(|| {
-                format!("Failed to read unknown5 field for directory '{dir_name}'")
-            })?;
-            let _unknown6 = cursor.read_u32::<BigEndian>().with_context(|| {
-                format!("Failed to read unknown6 field for directory '{dir_name}'")
-            })?;
+            rest = r;
 
             let mut files = Vec::new();
-
-            for j in 0..file_count {
-                let name_len = cursor.read_u8().with_context(|| {
-                    format!("Failed to read name length for file {j} in directory '{dir_name}'")
-                })? as usize;
-                let mut name_bytes = vec![0u8; name_len];
-                cursor.read_exact(&mut name_bytes).with_context(|| {
-                    format!("Failed to read name bytes for file {j} in directory '{dir_name}'")
+            for j in 0..dir_header.file_count {
+                let ((r, _), entry) = Dat1FileEntry::from_bytes((rest, 0)).map_err(|e| {
+                    anyhow::anyhow!("Failed to parse file entry {j} in directory '{dir_name}': {e}")
                 })?;
-                let name =
-                    utils::decode_filename(&name_bytes).context("Failed to decode file name")?;
+                rest = r;
 
-                let attributes = cursor.read_u32::<BigEndian>().with_context(|| {
-                    format!("Failed to read attributes for file '{name}' in directory '{dir_name}'")
-                })?;
-                let offset = cursor.read_u32::<BigEndian>().with_context(|| {
-                    format!("Failed to read offset for file '{name}' in directory '{dir_name}'")
-                })? as u64;
-                let size = cursor.read_u32::<BigEndian>().with_context(|| {
-                    format!("Failed to read size for file '{name}' in directory '{dir_name}'")
-                })?;
-                let packed_size = cursor.read_u32::<BigEndian>().with_context(|| {
-                    format!(
-                        "Failed to read packed size for file '{name}' in directory '{dir_name}'"
-                    )
-                })?;
-
-                let compressed = attributes & DAT1_COMPRESSED_FLAG != 0;
-                let actual_packed_size = if packed_size == 0 { size } else { packed_size };
-
+                let name = utils::decode_filename(&entry.name_bytes)
+                    .context("Failed to decode file name")?;
+                let compressed = entry.attributes & DAT1_COMPRESSED_FLAG != 0;
+                let actual_packed_size = if entry.packed_size == 0 {
+                    entry.size
+                } else {
+                    entry.packed_size
+                };
                 let full_name = if dir_name == "." {
                     name
                 } else {
@@ -144,8 +144,8 @@ impl Dat1Archive {
 
                 files.push(FileEntry {
                     name: full_name,
-                    offset,
-                    size,
+                    offset: entry.offset as u64,
+                    size: entry.size,
                     packed_size: actual_packed_size,
                     compressed,
                     data: None,
@@ -297,32 +297,35 @@ impl Dat1Archive {
     /// Save the archive to a file
     pub fn save(&self, path: &Path) -> Result<()> {
         let mut output = Vec::new();
-        let mut cursor = Cursor::new(&mut output);
 
-        // Write 16-byte header
-        cursor.write_u32::<BigEndian>(self.directories.len() as u32)?;
-        cursor.write_u32::<BigEndian>(DAT1_FORMAT_ID)?; // unknown1: format identifier seen in original files
-        cursor.write_u32::<BigEndian>(0)?; // unknown2: always zero in practice
-        cursor.write_u32::<BigEndian>(0)?; // unknown3: always zero in practice
+        output.write_all(
+            &Dat1Header {
+                dir_count: self.directories.len() as u32,
+                format_id: DAT1_FORMAT_ID,
+                unknown2: 0,
+                unknown3: 0,
+            }
+            .to_bytes()?,
+        )?;
 
         // Write directory names
         for dir in &self.directories {
-            cursor.write_u8(dir.name.len() as u8)?;
-            cursor.write_all(dir.name.as_bytes())?;
+            output.write_all(
+                &Dat1Name {
+                    len: dir.name.len() as u8,
+                    bytes: dir.name.as_bytes().to_vec(),
+                }
+                .to_bytes()?,
+            )?;
         }
 
-        // Calculate where file data starts (after all directory content headers)
-        let mut data_offset = cursor.position() as u32;
+        // Calculate where file data starts (after all directory content blocks)
+        let mut data_offset = output.len() as u32;
         for dir in &self.directories {
-            data_offset += 16; // Directory header: file_count + 3 unknown fields
+            data_offset += 16; // Directory content header: file_count + 3 unknown fields
             for file in &dir.files {
-                let file_name_len =
-                    if file.name.starts_with(&format!("{}\\", dir.name)) && dir.name != "." {
-                        file.name.len() - dir.name.len() - 1
-                    } else {
-                        file.name.len()
-                    };
-                data_offset += 1 + file_name_len as u32 + 16; // name_len byte + name + entry fields
+                // name_len byte + stored name + 4 u32 entry fields
+                data_offset += 1 + stored_file_name(&dir.name, &file.name).len() as u32 + 16;
             }
         }
 
@@ -341,36 +344,31 @@ impl Dat1Archive {
 
         // Write directory content headers and file entries
         for dir in &self.directories {
-            cursor.write_u32::<BigEndian>(dir.files.len() as u32)?;
-            cursor.write_u32::<BigEndian>(DAT1_FORMAT_ID)?;
-            cursor.write_u32::<BigEndian>(DAT1_DIRECTORY_UNKNOWN5)?;
-            cursor.write_u32::<BigEndian>(0)?;
+            output.write_all(
+                &Dat1DirHeader {
+                    file_count: dir.files.len() as u32,
+                    unknown4: DAT1_FORMAT_ID,
+                    unknown5: DAT1_DIRECTORY_UNKNOWN5,
+                    unknown6: 0,
+                }
+                .to_bytes()?,
+            )?;
 
             for file in &dir.files {
-                // Strip directory prefix from filename for storage
-                let file_name =
-                    if file.name.starts_with(&format!("{}\\", dir.name)) && dir.name != "." {
-                        &file.name[dir.name.len() + 1..]
+                let stored_name = stored_file_name(&dir.name, &file.name);
+                let entry = Dat1FileEntry {
+                    name_len: stored_name.len() as u8,
+                    name_bytes: stored_name.as_bytes().to_vec(),
+                    attributes: if file.compressed {
+                        DAT1_COMPRESSED_FLAG
                     } else {
-                        &file.name
-                    };
-
-                cursor.write_u8(file_name.len() as u8)?;
-                cursor.write_all(file_name.as_bytes())?;
-
-                let attributes = if file.compressed {
-                    DAT1_COMPRESSED_FLAG
-                } else {
-                    DAT1_UNCOMPRESSED_FLAG
+                        DAT1_UNCOMPRESSED_FLAG
+                    },
+                    offset: current_offset,
+                    size: file.size,
+                    packed_size: if file.compressed { file.packed_size } else { 0 },
                 };
-                cursor.write_u32::<BigEndian>(attributes)?;
-                cursor.write_u32::<BigEndian>(current_offset)?;
-                cursor.write_u32::<BigEndian>(file.size)?;
-                cursor.write_u32::<BigEndian>(if file.compressed {
-                    file.packed_size
-                } else {
-                    0
-                })?;
+                output.write_all(&entry.to_bytes()?)?;
 
                 current_offset += file.packed_size;
             }
@@ -384,7 +382,7 @@ impl Dat1Archive {
                 } else {
                     self.read_file_data(file)? // Need to read from the original archive
                 };
-                cursor.write_all(&data)?;
+                output.write_all(&data)?;
             }
         }
 
@@ -392,6 +390,18 @@ impl Dat1Archive {
 
         Ok(())
     }
+}
+
+/// Name as stored in a directory's content block: the directory prefix is
+/// stripped for real directories; root (".") entries are stored as-is.
+fn stored_file_name<'a>(dir_name: &str, file_name: &'a str) -> &'a str {
+    if dir_name == "." {
+        return file_name;
+    }
+    file_name
+        .strip_prefix(dir_name)
+        .and_then(|rest| rest.strip_prefix('\\'))
+        .unwrap_or(file_name)
 }
 
 #[cfg(test)]
