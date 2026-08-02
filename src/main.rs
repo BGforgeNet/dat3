@@ -7,15 +7,16 @@ Supports both DAT1 (Fallout 1) and DAT2 (Fallout 2) formats.
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Use a faster memory allocator on Linux
 #[cfg(target_os = "linux")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-mod arcanum; // Arcanum (Troika) DAT format implementation, read-only
+mod arcanum; // Arcanum (Troika) DAT format implementation
 mod common; // Shared utilities and the main DatArchive interface
+mod config; // Optional .bgforge.yml defaults
 mod dat1; // Fallout 1 DAT format implementation
 mod dat2; // Fallout 2 DAT format implementation
 mod lzss; // LZSS decompression for DAT1 files
@@ -78,7 +79,8 @@ enum Commands {
         /// Compression level 0-9
         #[arg(short, long, value_parser = clap::value_parser!(u8).range(0..=9))]
         compression: Option<u8>,
-        /// Format for new archives, dat2 if not given (existing archives keep theirs)
+        /// Format for new archives; without it, .bgforge.yml's
+        /// dat3.default_format applies, then dat2 (existing archives keep theirs)
         #[arg(long, value_enum)]
         format: Option<ArchiveFormat>,
         /// Target directory inside the archive
@@ -212,7 +214,11 @@ fn main() -> Result<()> {
                 }
                 archive
             } else {
-                match format.unwrap_or(ArchiveFormat::Dat2) {
+                // Explicit flag wins; then the per-directory config; then dat2
+                let format = format
+                    .or_else(|| config::default_format(Path::new(".")))
+                    .unwrap_or(ArchiveFormat::Dat2);
+                match format {
                     ArchiveFormat::Dat1 => DatArchive::new_dat1(),
                     ArchiveFormat::Dat2 => DatArchive::new_dat2(),
                     ArchiveFormat::Arcanum => DatArchive::new_arcanum(),

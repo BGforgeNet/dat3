@@ -207,6 +207,7 @@ deny = [
 skip = [
     #"ansi_term@0.11.0",
     #{ crate = "ansi_term@0.11.0", reason = "you can specify a reason why it can't be updated/removed" },
+    { crate = "hashbrown@0.16.1", reason = "yaml-rust2's hashlink pins hashbrown 0.16 while deku's build-time toml_edit chain uses 0.17; drop once a yaml-rust2 release depends on hashlink >= 0.12, which moves to 0.17" },
 ]
 # Similarly to `skip` allows you to skip certain crates during duplicate
 # detection. Unlike skip, it also includes the entire tree of transitive

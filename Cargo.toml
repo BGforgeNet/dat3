@@ -34,6 +34,10 @@ rayon = "1.8"              # Parallel processing for faster extraction
 
 # Cross-platform path handling
 glob = "0.3"               # Glob pattern matching for cross-platform support
+# Reads .bgforge.yml for the default-format setting. Default features off:
+# they only add encoding_rs for non-UTF-8 input detection, which a config
+# file doesn't need (and whose BSD-3-Clause part the license gate rejects).
+yaml-rust2 = { version = "0.11", default-features = false }
 
 # Optional: Use mimalloc on Linux for better performance
 [target.'cfg(target_os = "linux")'.dependencies]

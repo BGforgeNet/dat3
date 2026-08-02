@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Breaking: the `a` command's `--dat1` flag is replaced by `--format dat1|dat2|arcanum` (default `dat2` for new archives).
+- New: an optional `.bgforge.yml` in the current directory (`dat3.default_format: dat1|dat2|arcanum`) sets the default format for newly created archives; `--format` still wins.
 - New: support for Arcanum (Troika) DAT archives - auto-detected on open for listing, extraction, adding, and deleting; `a --format arcanum` creates a new Arcanum archive.
 - Fallout 1 (DAT1) archives now extract in parallel like DAT2 ones, roughly 1.5-2x faster on multi-core machines. Per-file `Extracting:` lines are replaced by DAT2-style progress reporting.
 - Faster DAT2 compression and decompression (new zlib backend): high-compression archive creation is ~17% faster, extraction ~11% faster.
