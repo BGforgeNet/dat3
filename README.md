@@ -168,8 +168,6 @@ dat3 d master.dat 'art/critters/*.frm'
 dat3 d master.dat @files_to_delete.txt
 ```
 
-Delete only deletes file records. It doesn't reduce archive size.
-
 ## Differences from DAT2
 
 - Directories are always processed recursively.
