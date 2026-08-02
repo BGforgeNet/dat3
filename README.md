@@ -4,6 +4,8 @@ Fallout .dat management cli.
 
 Crossplatform, static Rust re-implementation of DAT2, with minor differences.
 
+Also handles Arcanum .dat archives: existing ones are auto-detected by all commands; `a --format arcanum` creates a new one.
+
 - [Usage](#usage)
 - [Differences from DAT2](#differences-from-dat2)
 - [Building](#building)
@@ -110,8 +112,9 @@ dat3 a master.dat largefile.txt -c 9
 # Add to specific directory in archive
 dat3 a master.dat myfile.txt -t "art/graphics"
 
-# Force DAT1 format for new archive
-dat3 a newarchive.dat myfiles/ --dat1
+# Choose the format for a new archive (dat1, dat2, arcanum; default dat2)
+dat3 a newarchive.dat myfiles/ --format dat1
+dat3 a newarchive.dat myfiles/ --format arcanum
 
 # Add files from response file
 dat3 a master.dat @files_to_add.txt

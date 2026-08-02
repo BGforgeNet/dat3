@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+- Breaking: the `a` command's `--dat1` flag is replaced by `--format dat1|dat2|arcanum` (default `dat2` for new archives).
+- New: support for Arcanum (Troika) DAT archives - auto-detected on open for listing, extraction, adding, and deleting; `a --format arcanum` creates a new Arcanum archive.
 - Fallout 1 (DAT1) archives now extract in parallel like DAT2 ones, roughly 1.5-2x faster on multi-core machines. Per-file `Extracting:` lines are replaced by DAT2-style progress reporting.
 - Faster DAT2 compression and decompression (new zlib backend): high-compression archive creation is ~17% faster, extraction ~11% faster.
 - Fixed: a DAT2 archive containing only empty files could be created but not reopened ("Invalid directory tree position").
 - Corrupt or truncated archives now produce a clean error instead of crashing (malformed DAT2 footer) or silently extracting truncated data (damaged DAT1 LZSS streams).
+- A crafted size field in an archive can no longer force an outsized upfront memory allocation.
 - Creating an archive whose contents exceed the DAT formats' 4 GiB offset limit is now rejected with an error instead of writing a corrupt file.
 - Saves are now atomic: an interrupted `a` (add) or `d` (delete) no longer corrupts or destroys the existing archive.
 - Saving uses far less memory: archives stream to disk instead of being assembled in RAM first (peak usage down ~60-70%, e.g. 1.9 GiB to 0.6 GiB when creating a DAT1 from 600 MB of files), and saves are 10-35% faster.

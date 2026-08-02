@@ -62,7 +62,7 @@ fi
 
 # Test 4: DAT1 format should also prevent duplicates
 echo "dat1 content" >dat1_file.txt
-$DAT3 a --dat1 dat1.dat dat1_file.txt
+$DAT3 a --format dat1 dat1.dat dat1_file.txt
 $DAT3 a dat1.dat dat1_file.txt
 $DAT3 a dat1.dat dat1_file.txt
 

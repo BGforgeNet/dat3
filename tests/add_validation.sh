@@ -107,7 +107,7 @@ fi
 # Test 7: -C should make archive paths relative to the provided directory
 mkdir -p modroot/patch000
 echo "mod content" >modroot/patch000/from_c.txt
-if ! $DAT3 a from_c.dat --dat1 -C modroot patch000/from_c.txt; then
+if ! $DAT3 a from_c.dat --format dat1 -C modroot patch000/from_c.txt; then
 	echo "Error: Should have succeeded with -C relative path"
 	exit 1
 fi
@@ -119,7 +119,7 @@ fi
 
 # Test 8: -C should reject paths that escape the provided directory
 echo "outside" >outside.txt
-if $DAT3 a escaped.dat --dat1 -C modroot ../outside.txt; then
+if $DAT3 a escaped.dat --format dat1 -C modroot ../outside.txt; then
 	echo "Error: Should have failed when path escapes -C directory"
 	exit 1
 fi
@@ -131,7 +131,7 @@ fi
 
 # Test 9: -C should allow absolute paths that stay inside the provided directory
 absolute_in_root="$(pwd)/modroot/patch000/from_c.txt"
-if ! $DAT3 a from_c_absolute.dat --dat1 -C modroot "$absolute_in_root"; then
+if ! $DAT3 a from_c_absolute.dat --format dat1 -C modroot "$absolute_in_root"; then
 	echo "Error: Should have succeeded with absolute path inside -C directory"
 	exit 1
 fi
@@ -146,7 +146,7 @@ mkdir -p modroot_symlink/patch001
 echo "real content" >modroot_symlink/patch001/real.txt
 echo "secret content" >modroot_symlink/secret.txt
 ln -s ../secret.txt modroot_symlink/patch001/link.txt
-if ! $DAT3 a symlink_skip.dat --dat1 -C modroot_symlink patch001; then
+if ! $DAT3 a symlink_skip.dat --format dat1 -C modroot_symlink patch001; then
 	echo "Error: Should have succeeded while skipping symlink"
 	exit 1
 fi

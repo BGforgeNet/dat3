@@ -1,8 +1,8 @@
 /*!
 # Common Types and Utilities
 
-Shared code for both DAT1 and DAT2 formats. Provides a unified `DatArchive`
-enum so callers don't need to know which format they're working with.
+Shared code for the DAT1, DAT2, and Arcanum formats. Provides a unified
+`DatArchive` enum so callers don't need to know which format they're working with.
 */
 
 use anyhow::{bail, Context, Result};
@@ -11,6 +11,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use crate::arcanum::ArcanumArchive;
 use crate::dat1::Dat1Archive;
 use crate::dat2::Dat2Archive;
 
@@ -53,7 +54,7 @@ impl CompressionLevel {
 
 /// Represents a single file stored in a DAT archive.
 ///
-/// Used by both DAT1 and DAT2 formats. For files already in an archive,
+/// Used by all supported archive formats. For files already in an archive,
 /// `data` is None and content is read from the raw archive bytes using `offset`.
 /// For newly added files, `data` holds the content and `offset` is 0.
 #[derive(Debug, Clone)]
@@ -124,25 +125,29 @@ pub enum ExtractionMode {
 
 // ── DatArchive enum ────────────────────────────────────────────────
 
-/// Unified interface for both DAT1 and DAT2 archives.
+/// Unified interface for DAT1, DAT2, and Arcanum archives.
 ///
-/// Uses an enum instead of trait objects because there are exactly two
-/// known formats - this gives us static dispatch, exhaustive matching,
+/// Uses an enum instead of trait objects because the set of known formats
+/// is small and fixed - this gives us static dispatch, exhaustive matching,
 /// and no heap allocation for the wrapper.
 ///
-/// **Memory**: The entire archive is loaded into memory on open. This works
-/// well for typical Fallout archives (up to ~200MB).
+/// **Memory**: The entire archive is loaded into memory on open, whatever the
+/// format. Fallout archives typically stay under ~200MB; retail Arcanum
+/// archives run considerably larger and are held in RAM the same way.
 ///
 /// ```ignore
 /// let archive = DatArchive::open("master.dat")?;  // auto-detects format
 /// let dat1 = DatArchive::new_dat1();               // create new DAT1
 /// let dat2 = DatArchive::new_dat2();               // create new DAT2
+/// let arc = DatArchive::new_arcanum();             // create new Arcanum
 /// ```
 pub enum DatArchive {
     /// Fallout 1 format (big-endian, hierarchical dirs, LZSS compression)
     Dat1(Dat1Archive),
     /// Fallout 2 format (little-endian, flat file list, zlib compression)
     Dat2(Dat2Archive),
+    /// Arcanum format (little-endian, flat entry table, zlib compression)
+    Arcanum(ArcanumArchive),
 }
 
 impl DatArchive {
@@ -151,7 +156,12 @@ impl DatArchive {
         let data = fs::read(&path)
             .with_context(|| format!("Failed to read DAT file: {}", path.as_ref().display()))?;
 
-        if Self::is_dat1_format(&data) {
+        // Arcanum is the only format with a real magic, so its check is
+        // authoritative and goes first; DAT1 is a header heuristic and DAT2
+        // (which has no signature at all) is the fallback.
+        if crate::arcanum::is_arcanum_format(&data) {
+            Ok(Self::Arcanum(ArcanumArchive::from_bytes(data)?))
+        } else if Self::is_dat1_format(&data) {
             Ok(Self::Dat1(Dat1Archive::from_bytes(data)?))
         } else {
             Ok(Self::Dat2(Dat2Archive::from_bytes(data)?))
@@ -168,9 +178,23 @@ impl DatArchive {
         Self::Dat2(Dat2Archive::new())
     }
 
+    /// Create a new empty Arcanum archive
+    pub fn new_arcanum() -> Self {
+        Self::Arcanum(ArcanumArchive::new())
+    }
+
     /// Check if this is a DAT1 archive
     pub fn is_dat1(&self) -> bool {
         matches!(self, Self::Dat1(_))
+    }
+
+    /// Human-readable format name for error messages
+    pub fn format_name(&self) -> &'static str {
+        match self {
+            Self::Dat1(_) => "DAT1",
+            Self::Dat2(_) => "DAT2",
+            Self::Arcanum(_) => "Arcanum",
+        }
     }
 
     /// Detect DAT1 format by examining the big-endian header.
@@ -201,6 +225,7 @@ impl DatArchive {
         match self {
             Self::Dat1(a) => a.list(files),
             Self::Dat2(a) => a.list(files),
+            Self::Arcanum(a) => a.list(files),
         }
     }
 
@@ -214,6 +239,7 @@ impl DatArchive {
         match self {
             Self::Dat1(a) => a.extract(output_dir.as_ref(), files, mode),
             Self::Dat2(a) => a.extract(output_dir.as_ref(), files, mode),
+            Self::Arcanum(a) => a.extract(output_dir.as_ref(), files, mode),
         }
     }
 
@@ -228,6 +254,9 @@ impl DatArchive {
         match self {
             Self::Dat1(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
             Self::Dat2(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
+            Self::Arcanum(a) => {
+                a.add_file(file_path.as_ref(), compression, target_dir, source_root)
+            }
         }
     }
 
@@ -236,6 +265,7 @@ impl DatArchive {
         match self {
             Self::Dat1(a) => a.delete_file(file_name),
             Self::Dat2(a) => a.delete_file(file_name),
+            Self::Arcanum(a) => a.delete_file(file_name),
         }
     }
 
@@ -244,6 +274,7 @@ impl DatArchive {
         match self {
             Self::Dat1(a) => a.save(path.as_ref()),
             Self::Dat2(a) => a.save(path.as_ref()),
+            Self::Arcanum(a) => a.save(path.as_ref()),
         }
     }
 }
@@ -252,7 +283,7 @@ impl DatArchive {
 
 /// List files using shared filter-and-print logic.
 ///
-/// Both DAT1 and DAT2 use this same flow:
+/// All formats use this same flow:
 /// normalize patterns -> filter entries -> print listing -> report missing.
 pub fn list_files_filtered(all_files: &[&FileEntry], patterns: &[String]) -> Result<()> {
     let normalized_patterns = utils::normalize_user_patterns(patterns);
@@ -278,7 +309,7 @@ pub fn list_files_filtered(all_files: &[&FileEntry], patterns: &[String]) -> Res
 
 /// Filter files by patterns and return matched files.
 ///
-/// Shared by DAT1 and DAT2 extract paths.
+/// Shared by all formats' extract paths.
 pub fn filter_files_by_patterns<'a>(
     all_files: &'a [FileEntry],
     patterns: &[String],
@@ -291,6 +322,173 @@ pub fn filter_files_by_patterns<'a>(
         });
 
     filtered
+}
+
+/// Extract entries stored as raw bytes or zlib streams, in parallel.
+///
+/// Shared by the DAT2 and Arcanum formats, which differ in how the entry
+/// table is framed but store file payloads identically.
+pub fn extract_zlib_archive_parallel(
+    archive_data: &[u8],
+    files_to_extract: &[&FileEntry],
+    output_dir: &Path,
+    mode: ExtractionMode,
+) -> Result<()> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let total_files = files_to_extract.len();
+    let completed = AtomicUsize::new(0);
+
+    println!("Extracting {total_files} files...");
+    let start = std::time::Instant::now();
+
+    files_to_extract
+        .par_iter()
+        .try_for_each(|file| -> Result<()> {
+            utils::validate_archive_path(&file.name)?;
+
+            // Progress reporting every 1000 files
+            let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            if count.is_multiple_of(1000) || count == total_files {
+                let elapsed = start.elapsed().as_millis();
+                let files_per_sec = count as f64 / elapsed as f64 * 1000.0;
+                println!(
+                    "Progress: {count}/{total_files} files extracted ({files_per_sec:.1} files/sec)"
+                );
+            }
+
+            let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
+
+            utils::ensure_dir_exists(&output_path)?;
+
+            // Read and optionally decompress
+            let file_data = utils::read_file_slice(archive_data, file)?;
+            let final_data = if file.compressed {
+                decompress_zlib(&file_data, file.size as usize)
+                    .with_context(|| format!("Failed to decompress {}", file.name))?
+            } else {
+                file_data
+            };
+
+            fs::write(&output_path, final_data)
+                .with_context(|| format!("Failed to write {}", output_path.display()))?;
+
+            Ok(())
+        })?;
+
+    let total_time = start.elapsed();
+    println!("Extraction completed in {:.2}s", total_time.as_secs_f64());
+    Ok(())
+}
+
+/// Read files from disk into an entry list: zlib-compress when it saves
+/// space, replace same-named entries, dedupe the batch, and keep the list
+/// sorted case-insensitively as the zlib-based formats require.
+///
+/// Shared by the DAT2 and Arcanum add paths.
+pub fn add_files_zlib(
+    entries: &mut Vec<FileEntry>,
+    file_path: &Path,
+    compression: CompressionLevel,
+    target_dir: Option<&str>,
+    source_root: Option<&Path>,
+) -> Result<()> {
+    use rayon::prelude::*;
+    use std::collections::HashSet;
+
+    let base_path = file_path;
+    let files = utils::collect_files(file_path).with_context(|| {
+        format!(
+            "Failed to collect files from path '{}'",
+            file_path.display()
+        )
+    })?;
+
+    // Process files in parallel
+    let results: Result<Vec<FileEntry>> = files
+        .par_iter()
+        .map(|file| {
+            process_single_file_for_adding(file, base_path, compression, target_dir, source_root)
+        })
+        .collect();
+
+    let new_entries = results?; // Collect results, propagating the first error if any file failed
+
+    // Remove existing files that match new file names
+    let new_file_names: HashSet<String> = new_entries.iter().map(|e| e.name.clone()).collect();
+    entries.retain(|existing_file| !new_file_names.contains(&existing_file.name));
+
+    // Add new files, deduplicating within the batch (keep first occurrence).
+    // This can happen if the user passes the same file or two files with the same name.
+    let mut seen_names = HashSet::new();
+    for entry in new_entries {
+        if seen_names.insert(entry.name.clone()) {
+            entries.push(entry);
+        }
+    }
+
+    // The formats require entries sorted alphabetically (case-insensitive)
+    entries.sort_by_key(|f| f.name.to_lowercase());
+
+    Ok(())
+}
+
+/// Process a single file for adding to an archive
+fn process_single_file_for_adding(
+    file: &Path,
+    base_path: &Path,
+    compression: CompressionLevel,
+    target_dir: Option<&str>,
+    source_root: Option<&Path>,
+) -> Result<FileEntry> {
+    let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
+    let archive_path = utils::calculate_archive_path(file, base_path, target_dir, source_root)?;
+    let display_path = utils::normalize_path_for_display(&archive_path);
+    println!("Adding: {display_path}");
+
+    if compression.level() > 0 {
+        let compressed_data = compress_zlib(&data, compression.level())?;
+        // Only use compression if it actually saves space
+        if compressed_data.len() < data.len() {
+            Ok(FileEntry::with_compression_data(
+                archive_path,
+                data,
+                compressed_data,
+            ))
+        } else {
+            let mut entry = FileEntry::with_data(archive_path, data, false);
+            entry.size = entry.packed_size;
+            Ok(entry)
+        }
+    } else {
+        let mut entry = FileEntry::with_data(archive_path, data, false);
+        entry.size = entry.packed_size;
+        Ok(entry)
+    }
+}
+
+/// Compress data using zlib
+fn compress_zlib(data: &[u8], level: u8) -> Result<Vec<u8>> {
+    let mut encoder =
+        flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::new(level as u32));
+    encoder.write_all(data)?;
+    encoder.finish().context("Failed to compress with zlib")
+}
+
+/// Decompress zlib data with a pre-allocated output buffer
+pub fn decompress_zlib(data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
+    use std::io::Read;
+
+    let mut decoder = flate2::read::ZlibDecoder::new(data);
+    // expected_size is untrusted archive metadata, so cap the reservation by
+    // deflate's maximum expansion of ~1032:1 (raw deflate stores 8 bits per
+    // symbol at minimum overhead).
+    let mut decompressed = Vec::with_capacity(expected_size.min(data.len().saturating_mul(1032)));
+    decoder
+        .read_to_end(&mut decompressed)
+        .context("Failed to decompress zlib data")?;
+    Ok(decompressed)
 }
 
 /// Delete a file from a list by normalized name.

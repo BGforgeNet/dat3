@@ -35,6 +35,24 @@ mod tests {
         }
     }
 
+    // ── decompress_zlib ────────────────────────────────────────────
+
+    mod decompress_zlib {
+        use super::*;
+        use std::io::Write;
+
+        #[test]
+        fn does_not_trust_hostile_expected_size() {
+            // expected_size comes from archive metadata; a crafted value must
+            // not trigger a giant (or panicking) upfront allocation.
+            let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::new(6));
+            enc.write_all(b"ABC").unwrap();
+            let compressed = enc.finish().unwrap();
+
+            assert_eq!(decompress_zlib(&compressed, usize::MAX).unwrap(), b"ABC");
+        }
+    }
+
     // ── resolve_output_path ────────────────────────────────────────
 
     mod resolve_output_path {
@@ -201,6 +219,30 @@ mod tests {
         fn accepts_maximum_compression_level() {
             let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "9", "file"]);
             assert!(result.is_ok());
+        }
+
+        #[test]
+        fn accepts_each_archive_format() {
+            for format in ["dat1", "dat2", "arcanum"] {
+                let result = crate::Cli::try_parse_from([
+                    "dat3", "a", "test.dat", "--format", format, "file",
+                ]);
+                assert!(result.is_ok(), "--format {format} should parse");
+            }
+        }
+
+        #[test]
+        fn rejects_unknown_format_and_removed_format_flags() {
+            for args in [
+                ["dat3", "a", "test.dat", "--format", "zip", "file"].as_slice(),
+                ["dat3", "a", "test.dat", "--dat1", "file"].as_slice(),
+                ["dat3", "a", "test.dat", "--arcanum", "file"].as_slice(),
+            ] {
+                assert!(
+                    crate::Cli::try_parse_from(args.iter().copied()).is_err(),
+                    "{args:?} should be rejected"
+                );
+            }
         }
     }
 

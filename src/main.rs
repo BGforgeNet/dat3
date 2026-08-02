@@ -6,7 +6,7 @@ Supports both DAT1 (Fallout 1) and DAT2 (Fallout 2) formats.
 */
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 // Use a faster memory allocator on Linux
@@ -14,6 +14,7 @@ use std::path::PathBuf;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod arcanum; // Arcanum (Troika) DAT format implementation, read-only
 mod common; // Shared utilities and the main DatArchive interface
 mod dat1; // Fallout 1 DAT format implementation
 mod dat2; // Fallout 2 DAT format implementation
@@ -77,9 +78,9 @@ enum Commands {
         /// Compression level 0-9
         #[arg(short, long, value_parser = clap::value_parser!(u8).range(0..=9))]
         compression: Option<u8>,
-        /// Force DAT1 format for new archives
-        #[arg(long)]
-        dat1: bool,
+        /// Format for new archives, dat2 if not given (existing archives keep theirs)
+        #[arg(long, value_enum)]
+        format: Option<ArchiveFormat>,
         /// Target directory inside the archive
         #[arg(short, long)]
         target_dir: Option<String>,
@@ -91,6 +92,28 @@ enum Commands {
         dat_file: PathBuf,
         files: Vec<String>,
     },
+}
+
+/// Archive format selector for the `a` command
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+enum ArchiveFormat {
+    /// Fallout 1 (big-endian, LZSS; created uncompressed)
+    Dat1,
+    /// Fallout 2 (little-endian, zlib) - the default for new archives
+    Dat2,
+    /// Arcanum (little-endian, zlib)
+    Arcanum,
+}
+
+impl ArchiveFormat {
+    /// The value as typed on the command line, for error messages
+    fn arg_name(self) -> &'static str {
+        match self {
+            Self::Dat1 => "dat1",
+            Self::Dat2 => "dat2",
+            Self::Arcanum => "arcanum",
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -130,7 +153,7 @@ fn main() -> Result<()> {
             files,
             change_dir,
             compression,
-            dat1,
+            format,
             target_dir,
         } => {
             // Track if the user explicitly set compression (for the DAT1 warning below)
@@ -177,14 +200,23 @@ fn main() -> Result<()> {
             let mut archive = if dat_file.exists() {
                 // Open existing archive - format is fixed, can't change it
                 let archive = DatArchive::open(&dat_file)?;
-                if dat1 && !archive.is_dat1() {
-                    bail!("Error: {} is a DAT2 archive, but --dat1 flag was specified. Cannot change archive format.", dat_file.display());
+                if let Some(requested) = format {
+                    let actual = match archive {
+                        DatArchive::Dat1(_) => ArchiveFormat::Dat1,
+                        DatArchive::Dat2(_) => ArchiveFormat::Dat2,
+                        DatArchive::Arcanum(_) => ArchiveFormat::Arcanum,
+                    };
+                    if requested != actual {
+                        bail!("{}: archive format is {}, but --format {} was specified. Cannot change the format of an existing archive.", dat_file.display(), archive.format_name(), requested.arg_name());
+                    }
                 }
                 archive
-            } else if dat1 {
-                DatArchive::new_dat1() // Fallout 1 format
             } else {
-                DatArchive::new_dat2() // Fallout 2 format (default)
+                match format.unwrap_or(ArchiveFormat::Dat2) {
+                    ArchiveFormat::Dat1 => DatArchive::new_dat1(),
+                    ArchiveFormat::Dat2 => DatArchive::new_dat2(),
+                    ArchiveFormat::Arcanum => DatArchive::new_arcanum(),
+                }
             };
 
             if archive.is_dat1() && compression_explicitly_set && compression > 0 {
