@@ -10,9 +10,12 @@ cd "$(dirname "$0")"
 source ./common.sh
 
 # Cross-check the Arcanum format against Troika's own dbmaker.exe
-# (usage: dbmaker [option] output input; -r recurse, -u unpack, -cN level)
+# (usage: dbmaker [option] output input; -r recurse, -u unpack, -cN level).
+# Absolute path: the helper is called from working directories other than
+# this script's own, where a bare dbmaker.exe would not resolve.
+DBMAKER_EXE="$PWD/dbmaker.exe"
 dbmaker() {
-	WINEDEBUG=-all wine dbmaker.exe "$@" 2>/dev/null
+	WINEDEBUG=-all wine "$DBMAKER_EXE" "$@" 2>/dev/null
 }
 
 SRC_DIR="arcanum_src"
