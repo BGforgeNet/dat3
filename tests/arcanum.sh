@@ -40,10 +40,15 @@ mkdir "$DB_OUT"
 (cd "$DB_OUT" && dbmaker -u "../$DAT3_DAT")
 diff -r "$SRC_DIR" "$DB_OUT"
 
-# dbmaker writes, dat3 auto-detects and reads
+# dbmaker writes, dat3 auto-detects and reads. dbmaker's input operand takes
+# files, not directory names (a directory silently packs nothing), so name
+# the tree explicitly, with the format's backslash separators.
 rm -f "$DB_DAT"
-(cd "$SRC_DIR" && dbmaker -r -q "../$DB_DAT" data)
+(cd "$SRC_DIR" && dbmaker -q "../$DB_DAT" 'data\numbers.txt' 'data\sub\tiny.txt' 'data\sub\zeros.bin')
+ls -l "$DB_DAT"
 $DAT3 l "$DB_DAT"
+# 2 header lines + 3 files; a silent empty build must die here, not at diff
+[ "$($DAT3 l "$DB_DAT" | wc -l)" -eq 5 ]
 rm -rf "$DAT3_OUT"
 $DAT3 x "$DB_DAT" -o "$DAT3_OUT"
 diff -r "$SRC_DIR" "$DAT3_OUT"
