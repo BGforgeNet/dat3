@@ -120,18 +120,7 @@ dat3 a newarchive.dat myfiles/ --format arcanum
 dat3 a master.dat @files_to_add.txt
 ```
 
-### Default format via .bgforge.yml
-
-When `a` creates a new archive and no `--format` is given, an optional `.bgforge.yml` in the current directory picks the default:
-
-```yaml
-dat3:
-  default_format: arcanum
-```
-
-Supported values: `dat1`, `dat2`, `arcanum`. An unrecognized value prints a warning and `dat2` is used. An explicit `--format` always wins, and existing archives always keep their format.
-
-Add-path normalization:
+#### Add-path normalization
 
 - `./` and `.\` prefixes are removed before storing paths in the archive
 - absolute source paths have only their filesystem root/prefix stripped
@@ -151,6 +140,17 @@ dat3 a master.dat ./patch000/*
 dat3 a master.dat /tmp/patch000/file.txt
 # stores as tmp/patch000/file.txt
 ```
+
+#### Default format via .bgforge.yml
+
+When `a` creates a new archive and no `--format` is given, an optional `.bgforge.yml` in the current directory picks the default:
+
+```yaml
+dat3:
+  default_format: arcanum
+```
+
+Supported values: `dat1`, `dat2`, `arcanum`. An unrecognized value prints a warning and `dat2` is used. An explicit `--format` always wins, and existing archives always keep their format.
 
 ### Delete files from archive
 
