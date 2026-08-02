@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0
 
 - Breaking: the `a` command's `--dat1` flag is replaced by `--format dat1|dat2|arcanum` (default `dat2` for new archives).
 - New: an optional `.bgforge.yml` in the current directory (`dat3.default_format: dat1|dat2|arcanum`) sets the default format for newly created archives; `--format` still wins.
