@@ -9,6 +9,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 cd tests
 ./non-ascii.sh
 ./rpu.sh
+./arcanum.sh
 
 # Put Fallout 1 critter.dat into tests/f1 to run this
 if [ -f f1/critter.dat ]; then

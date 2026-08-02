@@ -52,7 +52,15 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools p7zip-full
+
+      - name: Cache test fixtures
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            tests/rpu_v2.4.33.zip
+            tests/ArcanumDemo.dat
+          key: test-fixtures-rpu-v2.4.33-arcanum-demo-v1
 
       - name: Build binaries
         run: ./build.sh
