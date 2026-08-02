@@ -4,7 +4,7 @@ Fallout .dat management cli.
 
 Crossplatform, static Rust re-implementation of DAT2, with minor differences.
 
-Also handles Arcanum .dat archives: existing ones are auto-detected by all commands; `a --format arcanum` creates a new one.
+Also supports Arcanum .dat archives.
 
 - [Usage](#usage)
 - [Differences from DAT2](#differences-from-dat2)
