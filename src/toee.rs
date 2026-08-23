@@ -30,6 +30,11 @@ const V0_MAGIC: [u8; 4] = *b" TAD";
 /// reader enforces per entry, which is what shipped archives are built against.
 const MAX_COMPONENT_BYTES: usize = 260;
 
+/// Longest full path: a backstop on parser memory rather than a format limit,
+/// since a path is materialized per entry and unbounded depth turned a 2.9 MB
+/// archive into 14.3 GB of strings. Shipped archives peak at 111 bytes.
+const MAX_PATH_BYTES: usize = 1024;
+
 const FLAG_RAW: u32 = 0x1;
 const FLAG_ZLIB: u32 = 0x2;
 const FLAG_DIR: u32 = 0x400;
@@ -420,6 +425,9 @@ impl ToeeArchive {
                 }
                 None => entries[i].name.clone(),
             };
+            if path.len() > MAX_PATH_BYTES {
+                bail!("Invalid ToEE tree: path at entry {i} exceeds {MAX_PATH_BYTES} bytes");
+            }
             visiting[i] = false;
             paths[i] = Some(path);
         }
@@ -495,6 +503,12 @@ impl ToeeArchive {
                 full_name.push('\\');
             }
             full_name.push_str(part);
+            if full_name.len() > MAX_PATH_BYTES {
+                bail!(
+                    "ToEE archive path is longer than {MAX_PATH_BYTES} bytes: {}",
+                    utils::normalize_path_for_display(&full_name)
+                );
+            }
             let key = full_name.to_lowercase();
             // Only the last component is the thing being inserted; the rest are
             // the directories that have to exist above it.
@@ -893,20 +907,41 @@ mod tests {
     }
 
     #[test]
-    fn parses_a_deep_parent_chain_without_recursing() {
-        // Run on a deliberately small stack: 4000 levels overflows it if the
-        // path walk recurses once per level, while the iterative walk needs a
-        // constant frame no matter how deep the chain is.
+    fn rejects_a_deep_chain_without_overflowing_the_stack() {
+        // Run on a deliberately small stack. A recursive walk descends the whole
+        // 4000-level chain before building any path, so it dies on the stack
+        // before the length cap can speak; the iterative walk climbs in a loop
+        // and reports the over-long path as an ordinary error.
         let bytes = deep_chain_archive(4000);
-        let parsed = std::thread::Builder::new()
+        let error = std::thread::Builder::new()
             .stack_size(256 * 1024)
             .spawn(move || ToeeArchive::from_bytes(bytes))
             .unwrap()
             .join()
             .unwrap()
-            .unwrap();
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(&MAX_PATH_BYTES.to_string()), "{error}");
+    }
+
+    #[test]
+    fn parses_a_chain_that_stays_under_the_path_cap() {
+        let bytes = deep_chain_archive(400);
+        let parsed = ToeeArchive::from_bytes(bytes).unwrap();
         assert_eq!(parsed.files.len(), 1);
-        assert_eq!(parsed.files[0].name.matches('\\').count(), 3999);
+        assert_eq!(parsed.files[0].name.matches('\\').count(), 399);
+    }
+
+    #[test]
+    fn refuses_to_write_a_path_over_the_cap() {
+        let mut archive = ToeeArchive::new();
+        let deep = vec!["dir"; MAX_PATH_BYTES / 4 + 1].join("\\");
+        archive
+            .files
+            .push(raw_file(&format!("{deep}\\x.txt"), b"x"));
+        let path = ScratchPath::new("toee_long_path");
+        let error = archive.save(&path).unwrap_err().to_string();
+        assert!(error.contains(&MAX_PATH_BYTES.to_string()), "{error}");
     }
 
     #[test]
