@@ -187,7 +187,7 @@ impl Dat1Archive {
     /// (per-file LZSS decompression and disk writes are independent).
     pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
         let all_flat = self.all_files_flat();
-        let files_to_extract = common::filter_files_by_patterns(&all_flat, files);
+        let files_to_extract = common::filter_files_by_patterns(&all_flat, files)?;
         let total_files = files_to_extract.len();
         let completed = AtomicUsize::new(0);
 
@@ -503,6 +503,35 @@ mod tests {
 
         assert_eq!(std::fs::read(out.join("PLAIN.TXT")).unwrap(), b"plain data");
         assert_eq!(std::fs::read(out.join("PACKED.TXT")).unwrap(), b"HELLO");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn extract_errors_and_writes_nothing_when_a_requested_file_is_missing() {
+        let mut archive = Dat1Archive::new();
+        let mut plain =
+            FileEntry::with_data("PLAIN.TXT".to_string(), b"plain data".to_vec(), false);
+        plain.size = 10;
+        archive.directories[0].files.push(plain);
+
+        let dir =
+            std::env::temp_dir().join(format!("dat3_dat1_extract_missing_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("t.dat");
+        archive.save(&target).unwrap();
+        let reparsed = Dat1Archive::from_bytes(std::fs::read(&target).unwrap()).unwrap();
+
+        let out = dir.join("out");
+        let patterns = vec!["PLAIN.TXT".to_string(), "NOPE.TXT".to_string()];
+        let err = reparsed
+            .extract(&out, &patterns, ExtractionMode::PreserveStructure)
+            .unwrap_err();
+
+        assert!(
+            err.to_string().contains("not found"),
+            "unexpected error: {err}"
+        );
+        assert!(!out.join("PLAIN.TXT").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

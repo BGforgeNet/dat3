@@ -138,7 +138,7 @@ impl Dat2Archive {
 
     /// Extract files from the archive using parallel processing
     pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
-        let files_to_extract = common::filter_files_by_patterns(&self.files, files);
+        let files_to_extract = common::filter_files_by_patterns(&self.files, files)?;
         common::extract_zlib_archive_parallel(&self.data, &files_to_extract, output_dir, mode)
     }
 
@@ -281,6 +281,36 @@ mod tests {
         fn from_bytes_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
             let _ = Dat2Archive::from_bytes(bytes);
         }
+    }
+
+    #[test]
+    fn extract_errors_and_writes_nothing_when_a_requested_file_is_missing() {
+        let mut archive = Dat2Archive::new();
+        let mut entry = FileEntry::with_data("A.TXT".to_string(), b"data".to_vec(), false);
+        entry.size = 4;
+        archive.files.push(entry);
+
+        let dir =
+            std::env::temp_dir().join(format!("dat3_dat2_extract_missing_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("t.dat");
+        archive.save(&target).unwrap();
+        let reparsed = Dat2Archive::from_bytes(std::fs::read(&target).unwrap()).unwrap();
+
+        let out = dir.join("out");
+        let patterns = vec!["A.TXT".to_string(), "NOPE.TXT".to_string()];
+        let err = reparsed
+            .extract(&out, &patterns, ExtractionMode::PreserveStructure)
+            .unwrap_err();
+
+        assert!(
+            err.to_string().contains("not found"),
+            "unexpected error: {err}"
+        );
+        // Missing patterns are rejected before anything is written, so a typo never
+        // leaves a half-populated output directory.
+        assert!(!out.join("A.TXT").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
