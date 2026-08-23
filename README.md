@@ -182,6 +182,8 @@ dat3 d master.dat @files_to_delete.txt
 
 - Rust 1.87 or newer
 - Target-specific toolchains (install as needed)
+- [Zig](https://ziglang.org/) and `cargo-zigbuild` for the aarch64 target: mimalloc is C, and no
+  aarch64-musl C compiler is packaged for common distros
 
 ### Build
 
@@ -195,6 +197,8 @@ Binaries will be at:
 
 ```bash
 target/x86_64-unknown-linux-musl/release/dat3
+target/aarch64-unknown-linux-musl/release/dat3
 target/x86_64-pc-windows-gnu/release/dat3.exe
 target/i686-pc-windows-gnu/release/dat3.exe
+target/wasm32-wasip1/release/dat3.wasm
 ```

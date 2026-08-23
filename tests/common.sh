@@ -92,11 +92,24 @@ hash_tree() {
 	(cd "$dir" && LC_ALL=C find . -type f -print0 | LC_ALL=C sort -z | xargs -0 md5sum) >"$out"
 }
 
-# Wine cross-check scripts call this first: a missing wine is a hard failure
-# for them, while test.sh decides whether to run them at all.
-require_wine() {
-	if ! command -v wine >/dev/null 2>&1; then
-		echo "Error: this test cross-checks against Windows binaries and needs wine" >&2
+# Tests needing an external runtime call one of these first: a missing runtime is
+# a hard failure for them, while test.sh decides whether to run them at all.
+require_runtime() {
+	local runtime="$1" purpose="$2"
+	if ! command -v "$runtime" >/dev/null 2>&1; then
+		echo "Error: this test $purpose and needs $runtime" >&2
 		exit 1
 	fi
+}
+
+require_wine() {
+	require_runtime wine "cross-checks against the original Windows binaries"
+}
+
+require_wasmtime() {
+	require_runtime wasmtime "runs the WebAssembly build"
+}
+
+require_qemu_aarch64() {
+	require_runtime qemu-aarch64-static "runs the arm64 build"
 }

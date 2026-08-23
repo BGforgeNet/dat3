@@ -29,7 +29,7 @@ jobs:
         with:
           toolchain: 1.97.1
           components: rustfmt, clippy
-          targets: x86_64-unknown-linux-musl, x86_64-pc-windows-gnu, i686-pc-windows-gnu
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-pc-windows-gnu, i686-pc-windows-gnu, wasm32-wasip1
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -52,7 +52,27 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools p7zip-full
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools p7zip-full qemu-user-static
+
+      # mimalloc is C and apt has no aarch64-musl compiler; zig supplies one.
+      - name: Install Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Install cargo-zigbuild
+        run: |
+          if ! command -v cargo-zigbuild &>/dev/null; then
+            cargo binstall -y cargo-zigbuild@0.23.0
+          fi
+
+      # Runs the WebAssembly build in tests/wasm.sh. 47.0.4 rather than the
+      # older 47.0.3: it fixes a sandbox escape (GHSA-vqjp-4c8c-hfgg).
+      - name: Install wasmtime
+        run: |
+          if ! command -v wasmtime &>/dev/null; then
+            cargo binstall -y wasmtime-cli@47.0.4
+          fi
 
       - name: Cache test fixtures
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -71,15 +91,19 @@ jobs:
       - name: Prepare release assets
         run: |
           cp target/x86_64-unknown-linux-musl/release/dat3 dat3
+          cp target/aarch64-unknown-linux-musl/release/dat3 dat3-arm64
           cp target/x86_64-pc-windows-gnu/release/dat3.exe dat3.exe
           cp target/i686-pc-windows-gnu/release/dat3.exe dat3-win32.exe
+          cp target/wasm32-wasip1/release/dat3.wasm dat3.wasm
 
       - name: Prepare debug assets
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
           cp target/x86_64-unknown-linux-musl/debug/dat3 dat3-debug
+          cp target/aarch64-unknown-linux-musl/debug/dat3 dat3-arm64-debug
           cp target/x86_64-pc-windows-gnu/debug/dat3.exe dat3-debug.exe
           cp target/i686-pc-windows-gnu/debug/dat3.exe dat3-win32-debug.exe
+          cp target/wasm32-wasip1/debug/dat3.wasm dat3-debug.wasm
 
       - name: Upload release artifacts
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
@@ -88,8 +112,10 @@ jobs:
           name: dat3
           path: |
             dat3
+            dat3-arm64
             dat3.exe
             dat3-win32.exe
+            dat3.wasm
           if-no-files-found: error
 
       - name: Upload debug artifacts
@@ -99,8 +125,10 @@ jobs:
           name: dat3-debug
           path: |
             dat3-debug
+            dat3-arm64-debug
             dat3-debug.exe
             dat3-win32-debug.exe
+            dat3-debug.wasm
           if-no-files-found: error
 
       - name: Release with assets
@@ -111,8 +139,10 @@ jobs:
           name: ${{ github.ref_name }}
           files: |
             dat3
+            dat3-arm64
             dat3.exe
             dat3-win32.exe
+            dat3.wasm
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

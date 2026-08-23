@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New: releases now ship a static Linux arm64 binary (`dat3-arm64`) and a WebAssembly build (`dat3.wasm`), which runs under a WASI runtime such as wasmtime or Node.
 - Breaking: `x` and `e` (extract) now fail when a requested file or glob matches nothing in the archive, the way `l` (list) already did. The missing names are printed and nothing is extracted; previously they were ignored silently and the exit code was 0.
 
 ## v0.8.0
