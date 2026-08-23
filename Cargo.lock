@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "fallout-dat3"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "byteorder",

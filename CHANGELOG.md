@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.0
 
 - New: `l --json` prints the listing as a JSON array (`name`, `size`, `packed_size`, `compressed`) instead of aligned columns, for tools that consume dat3's output. Paths always use forward slashes, so the same archive lists identically on every platform.
 - New: releases now ship a static Linux arm64 binary (`dat3-arm64`) and a WebAssembly build (`dat3.wasm`), which runs under a WASI runtime such as wasmtime or Node.
