@@ -38,6 +38,7 @@ cd tests
 # Runs against the demo archive it fetches; put retail Fallout 1 archives into
 # tests/f1 to widen it. The script says which of those it found.
 ./f1.sh
+./broken_pipe.sh
 ./response_file.sh
 ./add_validation.sh
 ./duplicate_paths.sh

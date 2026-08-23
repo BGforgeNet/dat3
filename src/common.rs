@@ -18,10 +18,27 @@ use crate::dat2::Dat2Archive;
 // DAT1 format detection: big-endian header, no signature to key on
 const DAT1_MAX_DIRECTORIES: u32 = 1000;
 
-/// Write to stdout, exiting cleanly on broken pipe (e.g., when piped to `head`)
-fn print_stdout(args: std::fmt::Arguments) {
+/// Set once the reader has closed stdout, silencing every later write.
+static STDOUT_CLOSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Write to stdout, going quiet on a broken pipe (e.g. when piped to `head`).
+///
+/// Every stdout write in the crate goes through this. Rust ignores SIGPIPE, so
+/// an unguarded `println!` fails with `EPIPE` and panics, aborting the process.
+///
+/// Going quiet rather than exiting: for `x`, `a` and `d` stdout carries only
+/// progress chatter while the real output is a file, so quitting on a closed
+/// pipe would abandon a half-written archive - `a` piped to `head` would exit 0
+/// having produced nothing. The pipe closing is a fact about the reporting
+/// channel, not a reason to stop the work.
+pub(crate) fn print_stdout(args: std::fmt::Arguments) {
+    use std::sync::atomic::Ordering;
+
+    if STDOUT_CLOSED.load(Ordering::Relaxed) {
+        return;
+    }
     if writeln!(io::stdout(), "{args}").is_err() {
-        std::process::exit(0);
+        STDOUT_CLOSED.store(true, Ordering::Relaxed);
     }
 }
 
@@ -337,31 +354,36 @@ fn report_missing_patterns(missing_patterns: &[String]) -> Result<()> {
 ///
 /// Shared by all formats' extract paths. Checked before extraction starts, so a
 /// mistyped name leaves no half-populated output directory.
-pub fn filter_files_by_patterns<'a>(
-    all_files: &'a [FileEntry],
+/// Accepts owned entries or borrowed ones, so a format holding its files in
+/// per-directory lists can filter without first cloning them into a flat `Vec`.
+pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
+    all_files: &'a [T],
     patterns: &[String],
 ) -> Result<Vec<&'a FileEntry>> {
     let normalized_patterns = utils::normalize_user_patterns(patterns);
 
     let (filtered, missing_patterns) =
         filter_and_track_patterns(all_files, &normalized_patterns, |file, pattern| {
-            utils::matches_pattern(&file.name, pattern)
+            utils::matches_pattern(&file.as_ref().name, pattern)
         });
 
     report_missing_patterns(&missing_patterns)?;
 
-    Ok(filtered)
+    Ok(filtered.into_iter().map(|file| file.as_ref()).collect())
 }
 
-/// Extract entries stored as raw bytes or zlib streams, in parallel.
+/// Extract entries in parallel, decompressing each compressed one with
+/// `decompress`.
 ///
-/// Shared by the DAT2 and Arcanum formats, which differ in how the entry
-/// table is framed but store file payloads identically.
-pub fn extract_zlib_archive_parallel(
+/// Shared by all three formats. They differ only in that codec: the entry table
+/// is already parsed into `FileEntry` by this point, and every format resolves
+/// its payload bytes through `utils::read_file_slice`.
+pub fn extract_archive_parallel(
     archive_data: &[u8],
     files_to_extract: &[&FileEntry],
     output_dir: &Path,
     mode: ExtractionMode,
+    decompress: impl Fn(&[u8], usize) -> Result<Vec<u8>> + Sync,
 ) -> Result<()> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -369,7 +391,7 @@ pub fn extract_zlib_archive_parallel(
     let total_files = files_to_extract.len();
     let completed = AtomicUsize::new(0);
 
-    println!("Extracting {total_files} files...");
+    print_stdout(format_args!("Extracting {total_files} files..."));
     let start = std::time::Instant::now();
 
     files_to_extract
@@ -382,9 +404,9 @@ pub fn extract_zlib_archive_parallel(
             if count.is_multiple_of(1000) || count == total_files {
                 let elapsed = start.elapsed().as_millis();
                 let files_per_sec = count as f64 / elapsed as f64 * 1000.0;
-                println!(
+                print_stdout(format_args!(
                     "Progress: {count}/{total_files} files extracted ({files_per_sec:.1} files/sec)"
-                );
+                ));
             }
 
             let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
@@ -392,9 +414,10 @@ pub fn extract_zlib_archive_parallel(
             utils::ensure_dir_exists(&output_path)?;
 
             // Read and optionally decompress
-            let file_data = utils::read_file_slice(archive_data, file)?;
+            let file_data = utils::read_file_slice(archive_data, file)
+                .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
             let final_data = if file.compressed {
-                decompress_zlib(&file_data, file.size as usize)
+                decompress(&file_data, file.size as usize)
                     .with_context(|| format!("Failed to decompress {}", file.name))?
             } else {
                 file_data
@@ -407,7 +430,10 @@ pub fn extract_zlib_archive_parallel(
         })?;
 
     let total_time = start.elapsed();
-    println!("Extraction completed in {:.2}s", total_time.as_secs_f64());
+    print_stdout(format_args!(
+        "Extraction completed in {:.2}s",
+        total_time.as_secs_f64()
+    ));
     Ok(())
 }
 
@@ -474,7 +500,7 @@ fn process_single_file_for_adding(
     let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
     let archive_path = utils::calculate_archive_path(file, base_path, target_dir, source_root)?;
     let display_path = utils::normalize_path_for_display(&archive_path);
-    println!("Adding: {display_path}");
+    print_stdout(format_args!("Adding: {display_path}"));
 
     if compression.level() > 0 {
         let compressed_data = compress_zlib(&data, compression.level())?;
@@ -528,7 +554,7 @@ pub fn delete_file_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> Res
 
     if let Some(pos) = files.iter().position(|f| f.name == normalized_name) {
         let display_name = utils::normalize_path_for_display(&normalized_name);
-        println!("Deleting: {display_name}");
+        print_stdout(format_args!("Deleting: {display_name}"));
         files.remove(pos);
         Ok(())
     } else {

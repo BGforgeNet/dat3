@@ -14,12 +14,9 @@ LZSS compression for writing is not implemented - files are stored uncompressed.
 
 use anyhow::{Context, Result, bail};
 use deku::prelude::*;
-use rayon::prelude::*;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
 
 use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, utils};
 use crate::lzss;
@@ -179,14 +176,6 @@ impl Dat1Archive {
         self.directories.iter().flat_map(|dir| &dir.files).collect()
     }
 
-    /// Collect all files as a flat owned list (for filter_files_by_patterns)
-    fn all_files_flat(&self) -> Vec<FileEntry> {
-        self.directories
-            .iter()
-            .flat_map(|dir| dir.files.clone())
-            .collect()
-    }
-
     /// List files in the archive (all or filtered by patterns)
     pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
         let all_files = self.all_files();
@@ -196,56 +185,15 @@ impl Dat1Archive {
     /// Extract files from the archive in parallel, mirroring the DAT2 path
     /// (per-file LZSS decompression and disk writes are independent).
     pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
-        let all_flat = self.all_files_flat();
-        let files_to_extract = common::filter_files_by_patterns(&all_flat, files)?;
-        let total_files = files_to_extract.len();
-        let completed = AtomicUsize::new(0);
-
-        println!("Extracting {total_files} files...");
-        let start = Instant::now();
-
-        files_to_extract
-            .par_iter()
-            .try_for_each(|file| -> Result<()> {
-                utils::validate_archive_path(&file.name)?;
-
-                // Progress reporting every 1000 files
-                let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                if count.is_multiple_of(1000) || count == total_files {
-                    let elapsed = start.elapsed().as_millis();
-                    let files_per_sec = count as f64 / elapsed as f64 * 1000.0;
-                    println!(
-                        "Progress: {count}/{total_files} files extracted ({files_per_sec:.1} files/sec)"
-                    );
-                }
-
-                let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
-
-                utils::ensure_dir_exists(&output_path)?;
-
-                let file_data = self
-                    .read_file_data(file)
-                    .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
-
-                // Decompress LZSS if needed
-                let final_data = if file.compressed {
-                    lzss::decompress(&file_data, file.size as usize)
-                        .with_context(|| format!("Failed to decompress {}", file.name))?
-                } else {
-                    file_data
-                };
-
-                fs::write(&output_path, final_data)
-                    .with_context(|| format!("Failed to write {}", output_path.display()))?;
-
-                Ok(())
-            })?;
-
-        println!(
-            "Extraction completed in {:.2}s",
-            start.elapsed().as_secs_f64()
-        );
-        Ok(())
+        let all_files = self.all_files();
+        let files_to_extract = common::filter_files_by_patterns(&all_files, files)?;
+        common::extract_archive_parallel(
+            &self.data,
+            &files_to_extract,
+            output_dir,
+            mode,
+            lzss::decompress,
+        )
     }
 
     /// Read file data from the raw archive bytes
@@ -279,7 +227,7 @@ impl Dat1Archive {
 
             let size = data.len() as u32;
             let display_path = utils::normalize_path_for_display(&archive_path);
-            println!("Adding: {display_path}");
+            common::print_stdout(format_args!("Adding: {display_path}"));
 
             // Find or create target directory
             let dir_name = utils::get_dirname_from_dat_path(&archive_path);
@@ -316,7 +264,7 @@ impl Dat1Archive {
         for dir in &mut self.directories {
             if let Some(pos) = dir.files.iter().position(|f| f.name == normalized_name) {
                 let display_name = utils::normalize_path_for_display(&normalized_name);
-                println!("Deleting: {display_name}");
+                common::print_stdout(format_args!("Deleting: {display_name}"));
                 dir.files.remove(pos);
                 return Ok(());
             }

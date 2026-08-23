@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed: `x`, `e`, `a` and `d` crashed with a core dump when their output was piped to a program that exits early, such as `head`. They now stop printing and finish the operation; previously only `l` handled this.
 - Fixed: extracting an archive whose entry name is an absolute path (`\tmp\x.txt`, `C:\x.txt`) wrote the file outside the `-o` directory. Such entries are now rejected, completing the path traversal protection added in v0.6.1, which covered only `..`.
 
 - Fixed: extracting a Fallout 1 archive could abort partway through with a "Truncated LZSS stream" error. `master.dat` now extracts all 19,784 of its files instead of stopping after 11,295.
