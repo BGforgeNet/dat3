@@ -21,7 +21,7 @@ interface ListingEntry {
 }
 
 /** The archive formats dat3 can create, all of which share one listing path. */
-const FORMATS = ["dat2", "dat1", "arcanum"] as const;
+const FORMATS = ["dat2", "dat1", "arcanum", "toee"] as const;
 type Format = (typeof FORMATS)[number];
 
 const TESTS_DIR = import.meta.dirname;
@@ -171,6 +171,7 @@ for (const format of FORMATS) {
 for (const [format, expected] of [
 	["dat2", true],
 	["arcanum", true],
+	["toee", true],
 	["dat1", false],
 ] as const) {
 	test(`${format}: reports compression as ${expected}`, () => {

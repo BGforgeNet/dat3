@@ -59,7 +59,9 @@ fn parse_default_format(text: &str) -> Result<Option<ArchiveFormat>, String> {
         yaml_rust2::Yaml::String(s) => <ArchiveFormat as clap::ValueEnum>::from_str(s, false)
             .map(Some)
             .map_err(|_| {
-                format!("unsupported dat3.default_format {s:?} (expected dat1, dat2, or arcanum)")
+                format!(
+                    "unsupported dat3.default_format {s:?} (expected dat1, dat2, arcanum, or toee)"
+                )
             }),
         other => Err(format!(
             "dat3.default_format must be a string, got {other:?}"
@@ -77,6 +79,7 @@ mod tests {
             ("dat1", ArchiveFormat::Dat1),
             ("dat2", ArchiveFormat::Dat2),
             ("arcanum", ArchiveFormat::Arcanum),
+            ("toee", ArchiveFormat::Toee),
         ] {
             let text = format!("dat3:\n  default_format: {name}\n");
             assert_eq!(parse_default_format(&text), Ok(Some(expected)));

@@ -1,7 +1,7 @@
 /*!
 # Common Types and Utilities
 
-Shared code for the DAT1, DAT2, and Arcanum formats. Provides a unified
+Shared code for the DAT1, DAT2, Arcanum, and ToEE formats. Provides a unified
 `DatArchive` enum so callers don't need to know which format they're working with.
 */
 
@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use crate::arcanum::ArcanumArchive;
 use crate::dat1::Dat1Archive;
 use crate::dat2::Dat2Archive;
+use crate::toee::ToeeArchive;
 
 // DAT1 format detection: big-endian header, no signature to key on
 const DAT1_MAX_DIRECTORIES: u32 = 1000;
@@ -149,7 +150,7 @@ pub enum ListFormat {
 
 // ── DatArchive enum ────────────────────────────────────────────────
 
-/// Unified interface for DAT1, DAT2, and Arcanum archives.
+/// Unified interface for DAT1, DAT2, Arcanum, and ToEE archives.
 ///
 /// Uses an enum instead of trait objects because the set of known formats
 /// is small and fixed - this gives us static dispatch, exhaustive matching,
@@ -164,6 +165,7 @@ pub enum ListFormat {
 /// let dat1 = DatArchive::new_dat1();               // create new DAT1
 /// let dat2 = DatArchive::new_dat2();               // create new DAT2
 /// let arc = DatArchive::new_arcanum();             // create new Arcanum
+/// let toee = DatArchive::new_toee();                // create new ToEE
 /// ```
 pub enum DatArchive {
     /// Fallout 1 format (big-endian, hierarchical dirs, LZSS compression)
@@ -172,6 +174,8 @@ pub enum DatArchive {
     Dat2(Dat2Archive),
     /// Arcanum format (little-endian, flat entry table, zlib compression)
     Arcanum(ArcanumArchive),
+    /// ToEE format (little-endian, hierarchical entry table, zlib compression)
+    Toee(ToeeArchive),
 }
 
 impl DatArchive {
@@ -180,10 +184,12 @@ impl DatArchive {
         let data = fs::read(&path)
             .with_context(|| format!("Failed to read DAT file: {}", path.as_ref().display()))?;
 
-        // Arcanum is the only format with a real magic, so its check is
-        // authoritative and goes first; DAT1 is a header heuristic and DAT2
-        // (which has no signature at all) is the fallback.
-        if crate::arcanum::is_arcanum_format(&data) {
+        // Troika formats share a real magic and go first. ToEE's hierarchical
+        // entry-table size distinguishes it from Arcanum's flat table. DAT1 is
+        // a header heuristic and DAT2 (no signature at all) is the fallback.
+        if crate::toee::is_toee_format(&data) {
+            Ok(Self::Toee(ToeeArchive::from_bytes(data)?))
+        } else if crate::arcanum::is_arcanum_format(&data) {
             Ok(Self::Arcanum(ArcanumArchive::from_bytes(data)?))
         } else if Self::is_dat1_format(&data) {
             Ok(Self::Dat1(Dat1Archive::from_bytes(data)?))
@@ -207,6 +213,11 @@ impl DatArchive {
         Self::Arcanum(ArcanumArchive::new())
     }
 
+    /// Create a new empty ToEE archive
+    pub fn new_toee() -> Self {
+        Self::Toee(ToeeArchive::new())
+    }
+
     /// Check if this is a DAT1 archive
     pub fn is_dat1(&self) -> bool {
         matches!(self, Self::Dat1(_))
@@ -218,6 +229,7 @@ impl DatArchive {
             Self::Dat1(_) => "DAT1",
             Self::Dat2(_) => "DAT2",
             Self::Arcanum(_) => "Arcanum",
+            Self::Toee(_) => "ToEE",
         }
     }
 
@@ -253,6 +265,7 @@ impl DatArchive {
             Self::Dat1(a) => a.list(files, format),
             Self::Dat2(a) => a.list(files, format),
             Self::Arcanum(a) => a.list(files, format),
+            Self::Toee(a) => a.list(files, format),
         }
     }
 
@@ -267,6 +280,7 @@ impl DatArchive {
             Self::Dat1(a) => a.extract(output_dir.as_ref(), files, mode),
             Self::Dat2(a) => a.extract(output_dir.as_ref(), files, mode),
             Self::Arcanum(a) => a.extract(output_dir.as_ref(), files, mode),
+            Self::Toee(a) => a.extract(output_dir.as_ref(), files, mode),
         }
     }
 
@@ -284,6 +298,7 @@ impl DatArchive {
             Self::Arcanum(a) => {
                 a.add_file(file_path.as_ref(), compression, target_dir, source_root)
             }
+            Self::Toee(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
         }
     }
 
@@ -293,6 +308,7 @@ impl DatArchive {
             Self::Dat1(a) => a.delete_file(file_name),
             Self::Dat2(a) => a.delete_file(file_name),
             Self::Arcanum(a) => a.delete_file(file_name),
+            Self::Toee(a) => a.delete_file(file_name),
         }
     }
 
@@ -302,6 +318,7 @@ impl DatArchive {
             Self::Dat1(a) => a.save(path.as_ref()),
             Self::Dat2(a) => a.save(path.as_ref()),
             Self::Arcanum(a) => a.save(path.as_ref()),
+            Self::Toee(a) => a.save(path.as_ref()),
         }
     }
 }
@@ -375,7 +392,7 @@ pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
 /// Extract entries in parallel, decompressing each compressed one with
 /// `decompress`.
 ///
-/// Shared by all three formats. They differ only in that codec: the entry table
+/// Shared by all four formats. They differ only in that codec: the entry table
 /// is already parsed into `FileEntry` by this point, and every format resolves
 /// its payload bytes through `utils::read_file_slice`.
 pub fn extract_archive_parallel(
@@ -441,7 +458,7 @@ pub fn extract_archive_parallel(
 /// space, replace same-named entries, dedupe the batch, and keep the list
 /// sorted case-insensitively as the zlib-based formats require.
 ///
-/// Shared by the DAT2 and Arcanum add paths.
+/// Shared by the DAT2, Arcanum, and ToEE add paths.
 pub fn add_files_zlib(
     entries: &mut Vec<FileEntry>,
     file_path: &Path,
