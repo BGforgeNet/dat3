@@ -73,6 +73,30 @@ fetch_arcanum_demo() {
 	echo "$ARCANUM_DEMO_MD5  $ARCANUM_DEMO_DAT" | md5sum -c
 }
 
+# TemplePlus' 3.7 MB ToEE archive (1,211 files plus 58 directory entries).
+# The release ZIP is only a transport container: keep the DAT for the CI cache
+# and discard the much larger ZIP after extracting it.
+TEMPLEPLUS_VERSION="1.0.98"
+TEMPLEPLUS_DAT="tpgamefiles.dat"
+TEMPLEPLUS_DAT_SHA256="17bb15b4de3b0c551deb845ff6b8218c25b805f62a7791b153a3c34ab869a21a"
+TEMPLEPLUS_ZIP_SHA256="45015817afeb29529f13ec8a62ff8f9d300e23ad1634ec7d2567b6a9b1ad5c97"
+
+fetch_templeplus_dat() {
+	local zip="TemplePlus-${TEMPLEPLUS_VERSION}.zip"
+	if [ ! -f "$TEMPLEPLUS_DAT" ]; then
+		if [ ! -f "$zip" ]; then
+			wget -nv -O "$zip" \
+				"https://github.com/GrognardsFromHell/TemplePlus/releases/download/v${TEMPLEPLUS_VERSION}/$zip"
+		fi
+		echo "$TEMPLEPLUS_ZIP_SHA256  $zip" | sha256sum -c
+		# Info-ZIP returns 1 after successfully extracting a member whose ZIP
+		# path uses backslashes, so accept that warning only if the DAT exists.
+		unzip -j -o "$zip" 'tpdata\\tpgamefiles.dat' || [ -f "$TEMPLEPLUS_DAT" ]
+		rm -f "$zip"
+	fi
+	echo "$TEMPLEPLUS_DAT_SHA256  $TEMPLEPLUS_DAT" | sha256sum -c
+}
+
 # Fallout 1 demo's 22 MB DAT1 archive (4.4k files). The retail Fallout 1
 # archives cannot be redistributed, so this is the only real DAT1 the suite can
 # fetch: 29 directories with files at the archive root as well as nested, and

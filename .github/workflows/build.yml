@@ -82,19 +82,31 @@ jobs:
         run: ./install-tools.sh
 
       - name: Cache test fixtures
+        id: test-fixtures
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             tests/rpu_v2.4.33.zip
             tests/ArcanumDemo.dat
             tests/FalloutDemo.dat
-          key: test-fixtures-rpu-v2.4.33-arcanum-demo-fallout-demo-v1
+            tests/tpgamefiles.dat
+            tests/toee-demo
+          key: test-fixtures-rpu-v2.4.33-arcanum-demo-fallout-demo-templeplus-v1.0.98-toee-demo-v1
+
+      - name: Install ToEE demo extractor
+        if: steps.test-fixtures.outputs.cache-hit != 'true'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: sudo apt-get install -y --no-install-recommends unshield
 
       - name: Build binaries
         run: ./build.sh
 
       - name: Test
         run: ./test.sh
+
+      - name: Test ToEE demo archives
+        run: ./tests/toee-demo.sh
 
       - name: Prepare release assets
         run: |

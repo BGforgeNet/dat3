@@ -35,6 +35,7 @@ cd tests
 ./non-ascii.sh
 ./rpu.sh
 ./arcanum.sh
+./toee.sh
 # Runs against the demo archive it fetches; put retail Fallout 1 archives into
 # tests/f1 to widen it. The script says which of those it found.
 ./f1.sh

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- New: support for The Temple of Elemental Evil DAT archives, including automatic detection, listing, extraction, adding, deleting, and creation with `a --format toee`.
+
 ## v0.9.1
 
 - New: releases now ship a `SHA256SUMS` file, so downloads can be verified.

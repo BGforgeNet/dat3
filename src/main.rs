@@ -1,8 +1,7 @@
 /*!
 # DAT3 - Fallout Archive Tool
 
-A cross-platform tool for managing Fallout 1 and 2 DAT archive files.
-Supports both DAT1 (Fallout 1) and DAT2 (Fallout 2) formats.
+A cross-platform tool for managing Fallout and Troika DAT archive files.
 */
 
 use anyhow::{Context, Result, bail};
@@ -20,6 +19,7 @@ mod config; // Optional .bgforge.yml defaults
 mod dat1; // Fallout 1 DAT format implementation
 mod dat2; // Fallout 2 DAT format implementation
 mod lzss; // LZSS decompression for DAT1 files
+mod toee; // The Temple of Elemental Evil (Troika) DAT format implementation
 
 #[cfg(test)]
 mod common_tests;
@@ -33,7 +33,7 @@ use common::{CompressionLevel, DatArchive, ExtractionMode, ListFormat, utils};
 #[derive(Parser)]
 #[command(name = "dat3")]
 #[command(author = "DAT Tool Rewrite")]
-#[command(about = "Fallout .dat management cli")]
+#[command(about = "Fallout and Troika .dat management CLI")]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -110,6 +110,8 @@ enum ArchiveFormat {
     Dat2,
     /// Arcanum (little-endian, zlib)
     Arcanum,
+    /// The Temple of Elemental Evil (hierarchical Troika DAT, zlib)
+    Toee,
 }
 
 impl ArchiveFormat {
@@ -119,6 +121,7 @@ impl ArchiveFormat {
             Self::Dat1 => "dat1",
             Self::Dat2 => "dat2",
             Self::Arcanum => "arcanum",
+            Self::Toee => "toee",
         }
     }
 }
@@ -221,6 +224,7 @@ fn main() -> Result<()> {
                         DatArchive::Dat1(_) => ArchiveFormat::Dat1,
                         DatArchive::Dat2(_) => ArchiveFormat::Dat2,
                         DatArchive::Arcanum(_) => ArchiveFormat::Arcanum,
+                        DatArchive::Toee(_) => ArchiveFormat::Toee,
                     };
                     if requested != actual {
                         bail!(
@@ -241,6 +245,7 @@ fn main() -> Result<()> {
                     ArchiveFormat::Dat1 => DatArchive::new_dat1(),
                     ArchiveFormat::Dat2 => DatArchive::new_dat2(),
                     ArchiveFormat::Arcanum => DatArchive::new_arcanum(),
+                    ArchiveFormat::Toee => DatArchive::new_toee(),
                 }
             };
 

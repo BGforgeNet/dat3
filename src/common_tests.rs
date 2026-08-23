@@ -306,7 +306,7 @@ mod tests {
 
         #[test]
         fn accepts_each_archive_format() {
-            for format in ["dat1", "dat2", "arcanum"] {
+            for format in ["dat1", "dat2", "arcanum", "toee"] {
                 let result = crate::Cli::try_parse_from([
                     "dat3", "a", "test.dat", "--format", format, "file",
                 ]);
