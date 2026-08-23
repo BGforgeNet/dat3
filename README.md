@@ -8,6 +8,7 @@ Also supports Arcanum .dat archives.
 
 - [Usage](#usage)
 - [Differences from DAT2](#differences-from-dat2)
+- [Verifying a release](#verifying-a-release)
 - [Building](#building)
 
 ## Usage
@@ -20,11 +21,11 @@ Fallout .dat management cli
 Usage: dat3 <COMMAND>
 
 Commands:
-  l     List files in a DAT archive (command: l)
-  x     Extract files from a DAT archive with directory structure (command: x)
-  e     Extract files without creating directories - all files go to one folder (command: e)
-  a     Add files to a DAT archive (command: a)
-  d     Delete files from a DAT archive (command: d)
+  l     List files in a DAT archive
+  x     Extract files preserving directory structure
+  e     Extract files flat (no subdirectories)
+  a     Add files to a DAT archive
+  d     Delete files from a DAT archive
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -192,6 +193,18 @@ dat3 d master.dat @files_to_delete.txt
 - Flat extraction is a separate command, `e`.
 - DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.
 - Glob patterns (`*`, `?`, `[...]`) supported for list/extract/delete.
+
+## Verifying a release
+
+Every release ships a `SHA256SUMS` file covering its binaries. Download it
+alongside the assets and check them:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+Only the files you downloaded need to be present; `sha256sum` reports the rest
+as missing.
 
 ## Building
 

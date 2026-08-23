@@ -73,24 +73,20 @@ function parseListing(json: string): ListingEntry[] {
 			`unexpected field set: ${JSON.stringify(entry)}`,
 		);
 		const { name, size, packed_size, compressed } = entry;
-		assert.equal(typeof name, "string", `name must be a string: ${JSON.stringify(entry)}`);
-		assert.equal(typeof size, "number", `size must be a number: ${JSON.stringify(entry)}`);
-		assert.equal(
-			typeof packed_size,
-			"number",
+		// assert.ok carries an assertion signature, so each check narrows the
+		// value for the return below; assert.equal does not, which is what the
+		// casts here used to work around.
+		assert.ok(typeof name === "string", `name must be a string: ${JSON.stringify(entry)}`);
+		assert.ok(typeof size === "number", `size must be a number: ${JSON.stringify(entry)}`);
+		assert.ok(
+			typeof packed_size === "number",
 			`packed_size must be a number: ${JSON.stringify(entry)}`,
 		);
-		assert.equal(
-			typeof compressed,
-			"boolean",
+		assert.ok(
+			typeof compressed === "boolean",
 			`compressed must be a boolean: ${JSON.stringify(entry)}`,
 		);
-		return {
-			name: name as string,
-			size: size as number,
-			packed_size: packed_size as number,
-			compressed: compressed as boolean,
-		};
+		return { name, size, packed_size, compressed };
 	});
 }
 

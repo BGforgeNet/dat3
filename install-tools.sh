@@ -13,13 +13,21 @@ set -xeu -o pipefail
 
 BIN_DIR="$HOME/.cargo/bin"
 
-ALL_TOOLS=(cargo-audit cargo-deny cargo-machete cargo-zigbuild wasmtime zig)
+ALL_TOOLS=(actionlint cargo-audit cargo-deny cargo-machete cargo-zigbuild wasmtime zig zizmor)
 
 # zig lives as a whole tree; only a symlink to it goes in BIN_DIR
 ZIG_DIR="$HOME/.local/share/zig"
 
 # Digests are of the immutable release assets; refresh them when bumping a
-# version. Each one the vendor also publishes as a .sha256 matches it.
+# version. Where the vendor publishes its own checksum file the two agree; zizmor
+# publishes none, so its digest is computed from the downloaded asset.
+ACTIONLINT_VERSION="1.7.12"
+ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+
+# Only a gnu target is published; the CI runner and the gate hosts have glibc.
+ZIZMOR_VERSION="1.29.0"
+ZIZMOR_SHA256="dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839"
+
 AUDIT_VERSION="0.22.2"
 AUDIT_SHA256="7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428"
 
@@ -43,6 +51,18 @@ ZIG_SHA256="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 # Prints "version|url|sha256|path-of-the-binary-inside-the-archive" for a tool
 tool_spec() {
 	case "$1" in
+	actionlint)
+		printf '%s|%s|%s|%s' "$ACTIONLINT_VERSION" \
+			"https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+			"$ACTIONLINT_SHA256" \
+			"actionlint"
+		;;
+	zizmor)
+		printf '%s|%s|%s|%s' "$ZIZMOR_VERSION" \
+			"https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
+			"$ZIZMOR_SHA256" \
+			"zizmor"
+		;;
 	cargo-audit)
 		# The release tag contains a slash, hence the %2F
 		printf '%s|%s|%s|%s' "$AUDIT_VERSION" \
