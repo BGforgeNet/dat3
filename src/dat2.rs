@@ -105,7 +105,7 @@ impl Dat2Archive {
         // Parse file entries using deku. No preallocation from file_count:
         // it is untrusted input and a crafted value could reserve gigabytes.
         let mut files = Vec::new();
-        let tree_data = &data[tree_start + 4..data.len() - 8];
+        let tree_data = &data[tree_start + 4..data.len() - FOOTER_SIZE];
         let mut current_offset = 0;
 
         for i in 0..file_count {
@@ -231,8 +231,8 @@ impl Dat2Archive {
                 tree_size += entry_bytes.len() as u64;
             }
 
-            // Step 3: Write 8-byte footer
-            let total_size = tree_start + tree_size + 8;
+            // Step 3: Write the footer
+            let total_size = tree_start + tree_size + FOOTER_SIZE as u64;
 
             let footer = Dat2Footer {
                 tree_size: tree_size as u32,

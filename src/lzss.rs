@@ -3,7 +3,7 @@
 
 Implements the sliding-window dictionary compression used by DAT1 archives.
 
-Only decompression is implemented. Compression is stubbed for future work.
+Only decompression is implemented; DAT1 archives are written uncompressed.
 */
 
 use anyhow::Result;
@@ -177,15 +177,6 @@ pub fn decompress(compressed_data: &[u8], expected_size: usize) -> Result<Vec<u8
     }
 
     Ok(output)
-}
-
-/// LZSS compression for DAT1 files (not yet implemented).
-///
-/// Currently DAT1 archives are created with uncompressed files.
-/// This stub exists for future implementation.
-#[allow(dead_code)] // Stub for future LZSS compression support
-pub fn compress(_data: &[u8]) -> Result<Vec<u8>> {
-    todo!("LZSS compression not implemented - DAT1 files are stored uncompressed")
 }
 
 #[cfg(test)]
