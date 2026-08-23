@@ -142,7 +142,13 @@ impl Dat2Archive {
     /// Extract files from the archive using parallel processing
     pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
         let files_to_extract = common::filter_files_by_patterns(&self.files, files)?;
-        common::extract_zlib_archive_parallel(&self.data, &files_to_extract, output_dir, mode)
+        common::extract_archive_parallel(
+            &self.data,
+            &files_to_extract,
+            output_dir,
+            mode,
+            common::decompress_zlib,
+        )
     }
 
     /// Read file data from the archive's own data buffer
