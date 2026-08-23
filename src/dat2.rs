@@ -9,13 +9,13 @@ Little-endian, flat file list, zlib compression, parallel extraction via rayon.
 3. Footer (8 bytes): tree_size + dat_size
 */
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use deku::prelude::*;
 use std::io::{Cursor, Write};
 use std::path::Path;
 
-use crate::common::{self, utils, CompressionLevel, ExtractionMode, FileEntry};
+use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, utils};
 
 /// 8-byte footer at the end of every DAT2 file.
 /// Points to the directory tree and validates the total file size.

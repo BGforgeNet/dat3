@@ -1,7 +1,7 @@
 [package]
 name = "fallout-dat3"
 version = "0.8.0"
-edition = "2021"
+edition = "2024"
 # Floor set by u32::is_multiple_of (stabilized 1.87); 1.85 fails to compile, 1.87 verified clean.
 rust-version = "1.87"
 authors = ["BGforge"]

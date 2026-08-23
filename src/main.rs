@@ -5,7 +5,7 @@ A cross-platform tool for managing Fallout 1 and 2 DAT archive files.
 Supports both DAT1 (Fallout 1) and DAT2 (Fallout 2) formats.
 */
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 
@@ -24,7 +24,7 @@ mod lzss; // LZSS decompression for DAT1 files
 #[cfg(test)]
 mod common_tests;
 
-use common::{utils, CompressionLevel, DatArchive, ExtractionMode};
+use common::{CompressionLevel, DatArchive, ExtractionMode, utils};
 
 /// Command-line interface definition.
 /// The `clap` crate uses these derive macros to automatically parse arguments.
@@ -209,7 +209,12 @@ fn main() -> Result<()> {
                         DatArchive::Arcanum(_) => ArchiveFormat::Arcanum,
                     };
                     if requested != actual {
-                        bail!("{}: archive format is {}, but --format {} was specified. Cannot change the format of an existing archive.", dat_file.display(), archive.format_name(), requested.arg_name());
+                        bail!(
+                            "{}: archive format is {}, but --format {} was specified. Cannot change the format of an existing archive.",
+                            dat_file.display(),
+                            archive.format_name(),
+                            requested.arg_name()
+                        );
                     }
                 }
                 archive
@@ -226,7 +231,9 @@ fn main() -> Result<()> {
             };
 
             if archive.is_dat1() && compression_explicitly_set && compression > 0 {
-                eprintln!("Warning: DAT1 format does not support compression, files will be stored uncompressed");
+                eprintln!(
+                    "Warning: DAT1 format does not support compression, files will be stored uncompressed"
+                );
             }
 
             for file_path in expanded {

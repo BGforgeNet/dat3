@@ -12,7 +12,7 @@ Big-endian, hierarchical directory structure, LZSS compression.
 LZSS compression for writing is not implemented - files are stored uncompressed.
 */
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use deku::prelude::*;
 use rayon::prelude::*;
 use std::fs;
@@ -21,7 +21,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use crate::common::{self, utils, CompressionLevel, ExtractionMode, FileEntry};
+use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, utils};
 use crate::lzss;
 
 // DAT1 format constants
