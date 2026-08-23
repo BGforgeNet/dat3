@@ -1021,20 +1021,65 @@ pub mod utils {
         Ok(paths)
     }
 
-    /// Reject archive paths containing ".." (path traversal protection).
+    /// True for a Windows drive prefix such as `C:`.
     ///
-    /// A malicious archive could contain entries like "../../../etc/passwd"
-    /// which would write outside the output directory during extraction.
-    pub fn validate_archive_path(path: &str) -> Result<()> {
-        let normalized = path.replace('\\', "/");
-        for component in normalized.split('/') {
-            if component == ".." {
-                bail!(
-                    "Path traversal detected in archive entry: {}",
-                    normalize_path_for_display(path)
-                );
+    /// Checked by hand because `Component::Prefix` is produced only by the
+    /// Windows implementation of `Path`: on a Unix build `C:\x.txt` parses as
+    /// one ordinary component, so the same archive that stays inside the output
+    /// directory here escapes it on Windows. An archive is portable, so the
+    /// shape is rejected on every host.
+    fn is_drive_prefix(component: &str) -> bool {
+        let bytes = component.as_bytes();
+        bytes.len() == 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
+    }
+
+    /// Split an archive path into its safe components, rejecting every shape
+    /// that would let it escape the directory it is resolved against: `..`,
+    /// an absolute root, and a drive prefix. `.` components are dropped.
+    ///
+    /// Shared by both directions - entries read out of an archive and paths
+    /// being written into one - so the two cannot drift apart again. The extract
+    /// side is the security-critical caller: its input is attacker-supplied, and
+    /// `Path::join` silently replaces the base when handed an absolute path.
+    fn archive_path_parts(path: &str) -> Result<Vec<String>> {
+        let normalized = normalize_path_separators(path);
+        let mut parts: Vec<String> = Vec::new();
+
+        for component in Path::new(&normalized).components() {
+            match component {
+                std::path::Component::Normal(s) => {
+                    let part = s.to_str().unwrap_or_default();
+                    if is_drive_prefix(part) {
+                        bail!("drive prefix '{part}'");
+                    }
+                    parts.push(part.to_string());
+                }
+                std::path::Component::CurDir => {
+                    // silently skip '.' components
+                }
+                std::path::Component::ParentDir => bail!("'..' component"),
+                std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                    bail!("absolute path")
+                }
             }
         }
+
+        Ok(parts)
+    }
+
+    /// Reject an archive entry name that would extract outside the output
+    /// directory - `..`, an absolute root, or a drive prefix.
+    ///
+    /// A malicious archive could store an entry as `../../../etc/passwd` or as
+    /// `\tmp\x.txt`; the second is the more dangerous shape, because `Path::join`
+    /// discards the output directory rather than nesting under it.
+    pub fn validate_archive_path(path: &str) -> Result<()> {
+        archive_path_parts(path).map_err(|e| {
+            anyhow::anyhow!(
+                "Path traversal detected in archive entry ({e}): {}",
+                normalize_path_for_display(path)
+            )
+        })?;
         Ok(())
     }
 
@@ -1050,25 +1095,12 @@ pub mod utils {
             bail!("Invalid archive path: path is empty");
         }
 
-        // Walk components: filter out CurDir ('.'), reject everything that is
-        // not Normal (RootDir, Prefix, ParentDir all indicate unsafe paths).
-        let mut parts: Vec<&str> = Vec::new();
-        for component in Path::new(&normalized).components() {
-            match component {
-                std::path::Component::Normal(s) => {
-                    parts.push(s.to_str().unwrap_or_default());
-                }
-                std::path::Component::CurDir => {
-                    // silently skip '.' components
-                }
-                _ => {
-                    bail!(
-                        "Invalid archive path for add operation: {}",
-                        normalize_path_for_display(path)
-                    );
-                }
-            }
-        }
+        let parts = archive_path_parts(path).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid archive path for add operation ({e}): {}",
+                normalize_path_for_display(path)
+            )
+        })?;
 
         let result = parts.join("/");
         if result.is_empty() {
