@@ -4,7 +4,7 @@
 Big-endian, hierarchical directory structure, LZSS compression.
 
 ## File layout:
-1. Header (16 bytes): directory count + 3 unknown fields
+1. Header (16 bytes): directory count, its allocation hint, reserved, timestamp
 2. Directory names: length byte + name for each directory
 3. Directory contents: header + file entries per directory
 4. File data: raw content, stored in order
@@ -27,8 +27,9 @@ use crate::lzss;
 // DAT1 format constants
 const DAT1_COMPRESSED_FLAG: u32 = 0x40;
 const DAT1_UNCOMPRESSED_FLAG: u32 = 0x20;
-const DAT1_FORMAT_ID: u32 = 0x0A;
-const DAT1_DIRECTORY_UNKNOWN5: u32 = 0x10;
+/// Bytes of fixed metadata per file entry: the four u32 fields that follow the
+/// length-prefixed name. Written into every directory's content header.
+const DAT1_ENTRY_METADATA_SIZE: u32 = 0x10;
 
 /// Serialized sizes of the fixed-layout headers, derived from their structs
 const HEADER_SIZE: u32 = Dat1Header::SIZE_BYTES.unwrap() as u32;
@@ -39,9 +40,12 @@ const DIR_HEADER_SIZE: u32 = Dat1DirHeader::SIZE_BYTES.unwrap() as u32;
 #[deku(endian = "big")]
 struct Dat1Header {
     dir_count: u32,
-    format_id: u32, // format identifier seen in original files
-    unknown2: u32,  // always zero in practice
-    unknown3: u32,  // always zero in practice
+    /// Engine allocation hint for the directory list; never below `dir_count`.
+    /// Reads like a format identifier in the shipped archives (`critter.dat`
+    /// carries 10, `master.dat` 94) but is not one - see `is_dat1_format`.
+    folder_allocation_hint: u32,
+    reserved: u32,  // always zero in practice
+    timestamp: u32, // creation time in shipped archives; not read back
 }
 
 /// Length-prefixed name, used for directory names
@@ -58,9 +62,11 @@ struct Dat1Name {
 #[deku(endian = "big")]
 struct Dat1DirHeader {
     file_count: u32,
-    unknown4: u32,
-    unknown5: u32,
-    unknown6: u32,
+    /// Allocation hint for this directory's file list; never below `file_count`.
+    file_allocation_hint: u32,
+    /// Fixed metadata bytes per entry - `DAT1_ENTRY_METADATA_SIZE` in practice.
+    fixed_metadata_size: u32,
+    timestamp: u32, // directory time in shipped archives; not read back
 }
 
 /// File entry as stored in a directory's content block
@@ -355,9 +361,13 @@ impl Dat1Archive {
             output.write_all(
                 &Dat1Header {
                     dir_count: self.directories.len() as u32,
-                    format_id: DAT1_FORMAT_ID,
-                    unknown2: 0,
-                    unknown3: 0,
+                    // The hint must cover the count, and the reader keys on that
+                    // to recognise the header; the count itself always satisfies it.
+                    folder_allocation_hint: self.directories.len() as u32,
+                    reserved: 0,
+                    // Zero rather than the clock: nothing reads it back, and a
+                    // constant keeps repacking the same tree byte-reproducible.
+                    timestamp: 0,
                 }
                 .to_bytes()?,
             )?;
@@ -380,9 +390,9 @@ impl Dat1Archive {
                 output.write_all(
                     &Dat1DirHeader {
                         file_count: dir.files.len() as u32,
-                        unknown4: DAT1_FORMAT_ID,
-                        unknown5: DAT1_DIRECTORY_UNKNOWN5,
-                        unknown6: 0,
+                        file_allocation_hint: dir.files.len() as u32,
+                        fixed_metadata_size: DAT1_ENTRY_METADATA_SIZE,
+                        timestamp: 0,
                     }
                     .to_bytes()?,
                 )?;
@@ -546,6 +556,76 @@ mod tests {
         );
         assert!(!out.join("PLAIN.TXT").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An archive with more directories than the old constant hint allowed for.
+    fn wide_archive(dirs: u32) -> Dat1Archive {
+        let mut archive = Dat1Archive::new();
+        for i in 0..dirs {
+            let mut entry =
+                FileEntry::with_data(format!("DIR{i:02}\\F.TXT"), b"data".to_vec(), false);
+            entry.size = 4;
+            archive.directories.push(Directory {
+                name: format!("DIR{i:02}"),
+                files: vec![entry],
+            });
+        }
+        archive
+    }
+
+    /// The allocation hints are what the reader keys on to recognise a DAT1
+    /// header, so writing a constant into them caps how wide an archive dat3
+    /// can reopen. Retail `critter.dat` carries 6142 for its 5459 files.
+    #[test]
+    fn writes_allocation_hints_that_cover_the_counts() {
+        let archive = wide_archive(12);
+        let path = std::env::temp_dir().join(format!("dat3_hints_{}.dat", std::process::id()));
+        archive.save(&path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        let dir_count = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
+        let folder_hint = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
+        assert_eq!(dir_count, 13, "12 directories plus the root");
+        assert!(
+            folder_hint >= dir_count,
+            "folder hint {folder_hint} below directory count {dir_count}"
+        );
+
+        // Walk the name block, then check each directory's own hint.
+        let mut off = 16usize;
+        for _ in 0..dir_count {
+            let len = bytes[off] as usize;
+            off += 1 + len;
+        }
+        for _ in 0..dir_count {
+            let file_count = u32::from_be_bytes(bytes[off..off + 4].try_into().unwrap());
+            let file_hint = u32::from_be_bytes(bytes[off + 4..off + 8].try_into().unwrap());
+            assert!(
+                file_hint >= file_count,
+                "file hint {file_hint} below file count {file_count}"
+            );
+            off += 16;
+            for _ in 0..file_count {
+                let len = bytes[off] as usize;
+                off += 1 + len + 16;
+            }
+        }
+    }
+
+    /// dat3 must be able to reopen what it writes, past the ten directories the
+    /// old constant hint allowed for.
+    #[test]
+    fn reopens_its_own_output_past_ten_directories() {
+        let archive = wide_archive(12);
+        let path = std::env::temp_dir().join(format!("dat3_wide_{}.dat", std::process::id()));
+        archive.save(&path).unwrap();
+        let reopened = crate::common::DatArchive::open(&path);
+        std::fs::remove_file(&path).ok();
+        assert!(
+            matches!(reopened.unwrap(), crate::common::DatArchive::Dat1(_)),
+            "a 13-directory archive dat3 wrote was not detected as DAT1"
+        );
     }
 
     #[test]

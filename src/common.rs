@@ -15,9 +15,7 @@ use crate::arcanum::ArcanumArchive;
 use crate::dat1::Dat1Archive;
 use crate::dat2::Dat2Archive;
 
-// DAT1 format detection: big-endian header with known format IDs
-const DAT1_FORMAT_ID_1: u32 = 0x0A;
-const DAT1_FORMAT_ID_2: u32 = 0x5E;
+// DAT1 format detection: big-endian header, no signature to key on
 const DAT1_MAX_DIRECTORIES: u32 = 1000;
 
 /// Write to stdout, exiting cleanly on broken pipe (e.g., when piped to `head`)
@@ -207,26 +205,29 @@ impl DatArchive {
     }
 
     /// Detect DAT1 format by examining the big-endian header.
-    /// DAT1 has a directory count and a known format identifier (0x0A or 0x5E).
+    ///
+    /// The header opens with a directory count and the engine's allocation hint
+    /// for that directory list, which is never below the count. Both are checked:
+    /// DAT2 carries no signature at all and is the fallback, so this heuristic is
+    /// what keeps a DAT2 archive from being parsed as DAT1.
+    ///
+    /// The second field is NOT a format identifier, despite reading like one in
+    /// the shipped archives - `critter.dat` carries 10 and `master.dat` 94, which
+    /// are simply their own hints. Matching those two values exactly rejects every
+    /// other real DAT1 archive, including the Fallout 1 demo's (hint 46).
     fn is_dat1_format(data: &[u8]) -> bool {
-        if data.len() < 16 {
+        let Some(header) = data.get(..16) else {
             return false;
-        }
+        };
+        let field =
+            |i: usize| u32::from_be_bytes([header[i], header[i + 1], header[i + 2], header[i + 3]]);
+        let dir_count = field(0);
+        let allocation_hint = field(4);
 
-        use byteorder::{BigEndian, ReadBytesExt};
-        let mut cursor = std::io::Cursor::new(data);
-
-        if let Ok(dir_count) = cursor.read_u32::<BigEndian>() {
-            if let Ok(format_id) = cursor.read_u32::<BigEndian>() {
-                // DAT1 has reasonable directory counts (typically 1-50)
-                // and specific format identifiers
-                return dir_count > 0
-                    && dir_count < DAT1_MAX_DIRECTORIES
-                    && (format_id == DAT1_FORMAT_ID_1 || format_id == DAT1_FORMAT_ID_2);
-            }
-        }
-
-        false
+        dir_count > 0
+            && dir_count < DAT1_MAX_DIRECTORIES
+            && allocation_hint >= dir_count
+            && allocation_hint < DAT1_MAX_DIRECTORIES
     }
 
     /// List files in the archive (all or filtered by patterns)

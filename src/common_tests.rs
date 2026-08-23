@@ -201,6 +201,94 @@ mod tests {
         }
     }
 
+    // ── DAT1 format detection ──────────────────────────────────────
+
+    mod dat1_detection {
+        use crate::common::{DatArchive, ExtractionMode};
+
+        /// Minimal DAT1 archive: header, one directory name, its content
+        /// header, one file entry, then the file data. `folder_hint` and
+        /// `file_hint` are the two allocation hints under test.
+        fn dat1_bytes(folder_hint: u32, file_hint: u32) -> Vec<u8> {
+            let mut v = Vec::new();
+            v.extend_from_slice(&1u32.to_be_bytes()); // directory_count
+            v.extend_from_slice(&folder_hint.to_be_bytes());
+            v.extend_from_slice(&0u32.to_be_bytes()); // reserved
+            v.extend_from_slice(&0u32.to_be_bytes()); // timestamp
+            v.push(1);
+            v.push(b'.'); // the root directory name
+            v.extend_from_slice(&1u32.to_be_bytes()); // file_count
+            v.extend_from_slice(&file_hint.to_be_bytes());
+            v.extend_from_slice(&16u32.to_be_bytes()); // fixed_metadata_size
+            v.extend_from_slice(&0u32.to_be_bytes()); // timestamp
+            v.push(5);
+            v.extend_from_slice(b"A.TXT");
+            v.extend_from_slice(&0x20u32.to_be_bytes()); // attributes: stored
+            // The payload starts after this entry's remaining three u32 fields.
+            let data_offset = (v.len() + 12) as u32;
+            v.extend_from_slice(&data_offset.to_be_bytes());
+            v.extend_from_slice(&2u32.to_be_bytes()); // size
+            v.extend_from_slice(&0u32.to_be_bytes()); // packed_size
+            v.extend_from_slice(b"hi");
+            v
+        }
+
+        /// Opens `bytes` and reports whether the format detector chose DAT1.
+        /// A blob the detector rejects fails to open at all - nothing else in
+        /// the fallback chain can parse it - so an error counts as "not DAT1".
+        fn detects_dat1(bytes: &[u8]) -> bool {
+            // Every case here produces a blob of the same length, so the name
+            // needs a counter: tests in one binary run concurrently.
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("dat3_detect_{}_{seq}.dat", std::process::id()));
+            std::fs::write(&path, bytes).unwrap();
+            let opened = DatArchive::open(&path);
+            std::fs::remove_file(&path).ok();
+            matches!(opened, Ok(DatArchive::Dat1(_)))
+        }
+
+        /// The retail archives happen to carry 10 and 94 here, and those two
+        /// values used to be the whole test - which rejected every other real
+        /// archive, the Fallout 1 demo among them (its hint is 46).
+        #[test]
+        fn accepts_any_allocation_hint_at_or_above_the_directory_count() {
+            for hint in [1u32, 10, 46, 94, 200] {
+                assert!(
+                    detects_dat1(&dat1_bytes(hint, 1)),
+                    "hint {hint} was not detected as DAT1"
+                );
+            }
+        }
+
+        /// The hint is an allocation size for the directory list, so a value
+        /// below the count is not a DAT1 header - it keeps the heuristic from
+        /// swallowing DAT2 archives, which carry no signature at all.
+        #[test]
+        fn rejects_an_allocation_hint_below_the_directory_count() {
+            assert!(!detects_dat1(&dat1_bytes(0, 1)));
+        }
+
+        #[test]
+        fn round_trips_a_detected_archive() {
+            let bytes = dat1_bytes(46, 1);
+            let path =
+                std::env::temp_dir().join(format!("dat3_detect_rt_{}.dat", std::process::id()));
+            std::fs::write(&path, &bytes).unwrap();
+            let archive = DatArchive::open(&path).unwrap();
+            std::fs::remove_file(&path).ok();
+            let dir = std::env::temp_dir().join(format!("dat3_detect_x_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            archive
+                .extract(&dir, &[], ExtractionMode::PreserveStructure)
+                .unwrap();
+            let got = std::fs::read(dir.join("A.TXT")).unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            assert_eq!(got, b"hi");
+        }
+    }
+
     // ── CLI argument parsing ───────────────────────────────────────
 
     mod cli_args {

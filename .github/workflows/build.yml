@@ -79,7 +79,8 @@ jobs:
           path: |
             tests/rpu_v2.4.33.zip
             tests/ArcanumDemo.dat
-          key: test-fixtures-rpu-v2.4.33-arcanum-demo-v1
+            tests/FalloutDemo.dat
+          key: test-fixtures-rpu-v2.4.33-arcanum-demo-fallout-demo-v1
 
       - name: Build binaries
         run: ./build.sh
