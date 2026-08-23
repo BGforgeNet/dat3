@@ -1,8 +1,10 @@
 # DAT3 - Fallout DAT Tool
 
-Fallout and Troika .dat management CLI.
+Fallout .dat management cli.
 
-Crossplatform, static Rust re-implementation of DAT2, with minor differences. Also supports Arcanum and The Temple of Elemental Evil .dat archives.
+Crossplatform, static Rust re-implementation of DAT2, with minor differences.
+
+Also supports Arcanum .dat archives.
 
 - [Usage](#usage)
 - [Differences from DAT2](#differences-from-dat2)
@@ -14,7 +16,7 @@ Crossplatform, static Rust re-implementation of DAT2, with minor differences. Al
 ```bash
 dat3
 
-Fallout and Troika .dat management CLI
+Fallout .dat management cli
 
 Usage: dat3 <COMMAND>
 
@@ -128,10 +130,9 @@ dat3 a master.dat largefile.txt -c 9
 # Add to specific directory in archive
 dat3 a master.dat myfile.txt -t "art/graphics"
 
-# Choose the format for a new archive (dat1, dat2, arcanum, toee; default dat2)
+# Choose the format for a new archive (dat1, dat2, arcanum; default dat2)
 dat3 a newarchive.dat myfiles/ --format dat1
 dat3 a newarchive.dat myfiles/ --format arcanum
-dat3 a newarchive.dat myfiles/ --format toee
 
 # Add files from response file
 dat3 a master.dat @files_to_add.txt
@@ -167,7 +168,7 @@ dat3:
   default_format: arcanum
 ```
 
-Supported values: `dat1`, `dat2`, `arcanum`, `toee`. An unrecognized value prints a warning and `dat2` is used. An explicit `--format` always wins, and existing archives always keep their format.
+Supported values: `dat1`, `dat2`, `arcanum`. An unrecognized value prints a warning and `dat2` is used. An explicit `--format` always wins, and existing archives always keep their format.
 
 ### Delete files from archive
 
