@@ -12,8 +12,9 @@ npm run typecheck
 # Format check
 cargo fmt --all -- --check
 
-# Clippy lints
-cargo clippy -- -D warnings
+# Clippy lints, test targets included - without --all-targets the #[cfg(test)]
+# modules are never compiled under clippy
+cargo clippy --all-targets -- -D warnings
 
 # Compilation check
 cargo check

@@ -203,35 +203,36 @@ mod tests {
 
     // ── DAT1 format detection ──────────────────────────────────────
 
-    mod dat1_detection {
-        use crate::common::{DatArchive, ExtractionMode};
+    /// Minimal DAT1 archive: header, one directory name, its content header,
+    /// one file entry named `entry`, then that entry's two bytes of data.
+    /// `folder_hint` and `file_hint` are the two allocation hints.
+    fn dat1_bytes(folder_hint: u32, file_hint: u32, entry: &str) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&1u32.to_be_bytes()); // directory_count
+        v.extend_from_slice(&folder_hint.to_be_bytes());
+        v.extend_from_slice(&0u32.to_be_bytes()); // reserved
+        v.extend_from_slice(&0u32.to_be_bytes()); // timestamp
+        v.push(1);
+        v.push(b'.'); // the root directory name
+        v.extend_from_slice(&1u32.to_be_bytes()); // file_count
+        v.extend_from_slice(&file_hint.to_be_bytes());
+        v.extend_from_slice(&16u32.to_be_bytes()); // fixed_metadata_size
+        v.extend_from_slice(&0u32.to_be_bytes()); // timestamp
+        v.push(entry.len() as u8);
+        v.extend_from_slice(entry.as_bytes());
+        v.extend_from_slice(&0x20u32.to_be_bytes()); // attributes: stored
+        // The payload starts after this entry's remaining three u32 fields.
+        let data_offset = (v.len() + 12) as u32;
+        v.extend_from_slice(&data_offset.to_be_bytes());
+        v.extend_from_slice(&2u32.to_be_bytes()); // size
+        v.extend_from_slice(&0u32.to_be_bytes()); // packed_size
+        v.extend_from_slice(b"hi");
+        v
+    }
 
-        /// Minimal DAT1 archive: header, one directory name, its content
-        /// header, one file entry, then the file data. `folder_hint` and
-        /// `file_hint` are the two allocation hints under test.
-        fn dat1_bytes(folder_hint: u32, file_hint: u32) -> Vec<u8> {
-            let mut v = Vec::new();
-            v.extend_from_slice(&1u32.to_be_bytes()); // directory_count
-            v.extend_from_slice(&folder_hint.to_be_bytes());
-            v.extend_from_slice(&0u32.to_be_bytes()); // reserved
-            v.extend_from_slice(&0u32.to_be_bytes()); // timestamp
-            v.push(1);
-            v.push(b'.'); // the root directory name
-            v.extend_from_slice(&1u32.to_be_bytes()); // file_count
-            v.extend_from_slice(&file_hint.to_be_bytes());
-            v.extend_from_slice(&16u32.to_be_bytes()); // fixed_metadata_size
-            v.extend_from_slice(&0u32.to_be_bytes()); // timestamp
-            v.push(5);
-            v.extend_from_slice(b"A.TXT");
-            v.extend_from_slice(&0x20u32.to_be_bytes()); // attributes: stored
-            // The payload starts after this entry's remaining three u32 fields.
-            let data_offset = (v.len() + 12) as u32;
-            v.extend_from_slice(&data_offset.to_be_bytes());
-            v.extend_from_slice(&2u32.to_be_bytes()); // size
-            v.extend_from_slice(&0u32.to_be_bytes()); // packed_size
-            v.extend_from_slice(b"hi");
-            v
-        }
+    mod dat1_detection {
+        use super::dat1_bytes;
+        use crate::common::{DatArchive, ExtractionMode};
 
         /// Opens `bytes` and reports whether the format detector chose DAT1.
         /// A blob the detector rejects fails to open at all - nothing else in
@@ -256,7 +257,7 @@ mod tests {
         fn accepts_any_allocation_hint_at_or_above_the_directory_count() {
             for hint in [1u32, 10, 46, 94, 200] {
                 assert!(
-                    detects_dat1(&dat1_bytes(hint, 1)),
+                    detects_dat1(&dat1_bytes(hint, 1, "A.TXT")),
                     "hint {hint} was not detected as DAT1"
                 );
             }
@@ -267,12 +268,12 @@ mod tests {
         /// swallowing DAT2 archives, which carry no signature at all.
         #[test]
         fn rejects_an_allocation_hint_below_the_directory_count() {
-            assert!(!detects_dat1(&dat1_bytes(0, 1)));
+            assert!(!detects_dat1(&dat1_bytes(0, 1, "A.TXT")));
         }
 
         #[test]
         fn round_trips_a_detected_archive() {
-            let bytes = dat1_bytes(46, 1);
+            let bytes = dat1_bytes(46, 1, "A.TXT");
             let path =
                 std::env::temp_dir().join(format!("dat3_detect_rt_{}.dat", std::process::id()));
             std::fs::write(&path, &bytes).unwrap();
@@ -790,6 +791,68 @@ mod tests {
         #[test]
         fn rejects_dot_dot_only() {
             assert!(utils::validate_archive_path("..").is_err());
+        }
+
+        /// `Path::join` replaces the base when its argument is absolute, so an
+        /// entry stored with a leading separator escapes `-o` entirely.
+        #[test]
+        fn rejects_an_absolute_entry_on_extraction() {
+            assert!(utils::validate_archive_path("\\tmp\\x.txt").is_err());
+            assert!(utils::validate_archive_path("/tmp/x.txt").is_err());
+        }
+
+        /// Rejected on every host, not only Windows: `Component::Prefix` is
+        /// parsed only by the Windows implementation, so a drive-prefixed entry
+        /// reaches a Linux extractor as an ordinary component and would then
+        /// escape when the same archive is extracted on Windows.
+        #[test]
+        fn rejects_a_drive_prefixed_entry_on_extraction() {
+            assert!(utils::validate_archive_path("C:\\x.txt").is_err());
+            assert!(utils::validate_archive_path("c:/x.txt").is_err());
+        }
+
+        /// The add path shares the extract path's walk, so it shares this too.
+        #[test]
+        fn rejects_a_drive_prefixed_path_on_add() {
+            assert!(utils::validate_add_archive_path("C:\\x.txt").is_err());
+        }
+
+        /// A colon inside a name is not a drive prefix.
+        #[test]
+        fn accepts_a_colon_inside_a_component() {
+            assert!(utils::validate_archive_path("art/od:d.frm").is_ok());
+            assert!(utils::validate_archive_path("CC:/x.txt").is_ok());
+        }
+
+        /// The consumer-level guard for the same defect: extracting an archive
+        /// whose entry is stored absolute must fail loudly and leave nothing at
+        /// the path the entry names. Asserting the validator alone would not
+        /// prove the extract path calls it.
+        #[test]
+        fn extraction_writes_nothing_outside_the_output_directory() {
+            let pid = std::process::id();
+            let escape = std::env::temp_dir().join(format!("dat3_escape_{pid}.txt"));
+            std::fs::remove_file(&escape).ok();
+            assert!(!escape.exists(), "stale probe file from an earlier run");
+
+            // Stored the way a hostile archive would: a leading separator, which
+            // is what makes Path::join discard the output directory.
+            let entry = format!("\\tmp\\dat3_escape_{pid}.txt");
+            let archive_path = std::env::temp_dir().join(format!("dat3_escape_src_{pid}.dat"));
+            std::fs::write(&archive_path, super::dat1_bytes(46, 1, &entry)).unwrap();
+
+            let out = std::env::temp_dir().join(format!("dat3_escape_out_{pid}"));
+            let _ = std::fs::remove_dir_all(&out);
+            let archive = DatArchive::open(&archive_path).unwrap();
+            let result = archive.extract(&out, &[], ExtractionMode::PreserveStructure);
+
+            let escaped = escape.exists();
+            std::fs::remove_file(&archive_path).ok();
+            std::fs::remove_file(&escape).ok();
+            let _ = std::fs::remove_dir_all(&out);
+
+            assert!(!escaped, "extraction wrote outside the output directory");
+            assert!(result.is_err(), "extraction of a hostile entry should fail");
         }
 
         #[test]
