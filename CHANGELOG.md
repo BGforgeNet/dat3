@@ -1,13 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.9.1
 
 - New: releases now ship a `SHA256SUMS` file covering every binary, so downloads can be verified with `sha256sum -c SHA256SUMS`.
 - Adding files to a Fallout 1 archive is now linear rather than quadratic in the number of entries: 793 ms to 346 ms for 12,000 files, and the gap widens with archive size.
 - Fixed: creating a Fallout 1 archive whose files all sit in subdirectories added an empty root directory the original archives do not have, so repacking changed the directory count.
 - Fixed: `x`, `e`, `a` and `d` crashed with a core dump when their output was piped to a program that exits early, such as `head`. They now stop printing and finish the operation; previously only `l` handled this.
 - Fixed: extracting an archive whose entry name is an absolute path (`\tmp\x.txt`, `C:\x.txt`) wrote the file outside the `-o` directory. Such entries are now rejected, completing the path traversal protection added in v0.6.1, which covered only `..`.
-
 - Fixed: extracting a Fallout 1 archive could abort partway through with a "Truncated LZSS stream" error. `master.dat` now extracts all 19,784 of its files instead of stopping after 11,295.
 - Fixed: many Fallout 1 archives were not recognised as DAT1 at all and failed to open, among them the Fallout 1 demo's `Falldemo.dat`.
 
