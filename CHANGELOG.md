@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New: releases now ship a `SHA256SUMS` file covering every binary, so downloads can be verified with `sha256sum -c SHA256SUMS`.
 - Adding files to a Fallout 1 archive is now linear rather than quadratic in the number of entries: 793 ms to 346 ms for 12,000 files, and the gap widens with archive size.
 - Fixed: creating a Fallout 1 archive whose files all sit in subdirectories added an empty root directory the original archives do not have, so repacking changed the directory count.
 - Fixed: `x`, `e`, `a` and `d` crashed with a core dump when their output was piped to a program that exits early, such as `head`. They now stop printing and finish the operation; previously only `l` handled this.

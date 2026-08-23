@@ -3,7 +3,13 @@
 set -xeu -o pipefail
 
 # Install the pinned gate tools when missing or out of date
-./install-tools.sh cargo-audit cargo-deny cargo-machete
+./install-tools.sh actionlint cargo-audit cargo-deny cargo-machete zizmor
+
+# Workflow YAML lint. zizmor gates at "low" and above; the one finding below
+# that is a style note preferring `gh release` over the pinned release action,
+# which the project keeps for its fail_on_unmatched_files check.
+actionlint
+zizmor --min-severity low .github/workflows/
 
 # Typecheck the TypeScript integration test (tests/json_listing.ts)
 npm ci

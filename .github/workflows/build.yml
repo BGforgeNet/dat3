@@ -4,9 +4,10 @@ on:
   push:
   pull_request:
 
-# The release step needs contents:write; everything else in the token stays off.
+# Read-only by default; only the tag-gated release job elevates to
+# contents:write, so ordinary push and PR runs carry no write-scoped token.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,8 +22,15 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
+      # persist-credentials: false - nothing here pushes, and leaving the token
+      # in .git/config exposes it to every later step and to any artifact that
+      # happens to include the checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
@@ -48,7 +56,7 @@ jobs:
       # a build step, so the Node version is what decides whether it runs at
       # all. Pinned so the runner image's default cannot change that silently.
       - name: Install Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.19.0"
           cache: npm
@@ -105,8 +113,10 @@ jobs:
           cp target/i686-pc-windows-gnu/debug/dat3.exe dat3-win32-debug.exe
           cp target/wasm32-wasip1/debug/dat3.wasm dat3-debug.wasm
 
+      # Always uploaded, tags included: the release job downloads these rather
+      # than rebuilding, which is what lets it run without a checkout or a
+      # toolchain and hold contents:write for nothing else.
       - name: Upload release artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dat3
@@ -131,18 +141,41 @@ jobs:
             dat3-debug.wasm
           if-no-files-found: error
 
+  # Separate job so contents:write exists only on a tag run, and only for the
+  # step that publishes. It builds nothing: the binaries come from the build
+  # job's artifact.
+  release:
+    name: release
+    needs: ci
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dat3
+          path: assets
+
+      # The project verifies every tool it downloads by sha256; releases carry
+      # the same so consumers can do likewise.
+      - name: Checksum the assets
+        run: cd assets && sha256sum -- * > SHA256SUMS
+
       - name: Release with assets
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ github.ref }}
           name: ${{ github.ref_name }}
           files: |
-            dat3
-            dat3-arm64
-            dat3.exe
-            dat3-win32.exe
-            dat3.wasm
+            assets/dat3
+            assets/dat3-arm64
+            assets/dat3.exe
+            assets/dat3-win32.exe
+            assets/dat3.wasm
+            assets/SHA256SUMS
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
