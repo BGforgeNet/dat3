@@ -253,6 +253,7 @@ impl Dat2Archive {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::ScratchPath;
     use proptest::prelude::*;
 
     /// The derived size is part of the on-disk format: a field added to
@@ -276,11 +277,9 @@ mod tests {
                 archive.files.push(entry);
             }
 
-            let target = std::env::temp_dir()
-                .join(format!("dat3_prop_dat2_{}.dat", std::process::id()));
+            let target = ScratchPath::new("prop_dat2");
             archive.save(&target).unwrap();
             let bytes = std::fs::read(&target).unwrap();
-            std::fs::remove_file(&target).ok();
 
             let reparsed = Dat2Archive::from_bytes(bytes).unwrap();
             prop_assert_eq!(reparsed.files.len(), payloads.len());
@@ -306,8 +305,7 @@ mod tests {
         entry.size = 4;
         archive.files.push(entry);
 
-        let dir =
-            std::env::temp_dir().join(format!("dat3_dat2_extract_missing_{}", std::process::id()));
+        let dir = ScratchPath::new("dat2_extract_missing");
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("t.dat");
         archive.save(&target).unwrap();
@@ -326,7 +324,6 @@ mod tests {
         // Missing patterns are rejected before anything is written, so a typo never
         // leaves a half-populated output directory.
         assert!(!out.join("A.TXT").exists());
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -339,11 +336,9 @@ mod tests {
             false,
         ));
 
-        let target =
-            std::env::temp_dir().join(format!("dat3_dat2_empty_{}.dat", std::process::id()));
+        let target = ScratchPath::new("dat2_empty");
         archive.save(&target).unwrap();
         let bytes = std::fs::read(&target).unwrap();
-        std::fs::remove_file(&target).ok();
 
         let reparsed = Dat2Archive::from_bytes(bytes).unwrap();
         assert_eq!(reparsed.files.len(), 1);
@@ -375,7 +370,7 @@ mod tests {
             files: vec![huge_entry("A.TXT"), huge_entry("B.TXT")],
             data: Vec::new(),
         };
-        let target = std::env::temp_dir().join("dat3_dat2_overflow_test.dat");
+        let target = ScratchPath::new("dat2_overflow");
         assert!(archive.save(&target).is_err());
     }
 }

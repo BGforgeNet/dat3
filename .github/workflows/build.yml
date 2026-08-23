@@ -141,6 +141,35 @@ jobs:
             dat3-debug.wasm
           if-no-files-found: error
 
+  # The declared rust-version is a promise to users, and nothing checked it: the
+  # build job pins a toolchain many releases newer, so code using a feature
+  # stabilised after 1.87 would compile there and fail for anyone honouring the
+  # README. The version is read from Cargo.toml rather than repeated here.
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the declared MSRV
+        id: msrv
+        run: sed -n 's/^rust-version = "\(.*\)"/version=\1/p' Cargo.toml >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      # --locked so the committed lockfile is what gets checked, and --all-targets
+      # so the test code is covered too.
+      - name: Check against the declared MSRV
+        run: cargo check --all-targets --locked
+
   # Separate job so contents:write exists only on a tag run, and only for the
   # step that publishes. It builds nothing: the binaries come from the build
   # job's artifact.

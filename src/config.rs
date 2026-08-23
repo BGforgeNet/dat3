@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn missing_file_is_silent_none() {
-        let dir = std::env::temp_dir().join(format!("dat3_cfg_{}", std::process::id()));
+        let dir = crate::test_support::ScratchPath::new("cfg");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(default_format(&dir), None);
