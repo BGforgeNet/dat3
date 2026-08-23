@@ -22,8 +22,8 @@ use std::path::Path;
 
 use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, utils};
 
-/// Size of the trailing footer in bytes
-const FOOTER_SIZE: usize = 28;
+/// Size of the trailing footer in bytes, derived from `ArcanumFooter`
+const FOOTER_SIZE: usize = ArcanumFooter::SIZE_BYTES.unwrap();
 
 /// On-disk magic, at 12 bytes before end of file ("DAT1" read as a
 /// little-endian u32)
@@ -38,7 +38,7 @@ const FLAG_ZLIB: u32 = 0x2;
 const FLAG_DIR: u32 = 0x400;
 
 /// 28-byte footer at the end of every Arcanum DAT file
-#[derive(Debug, DekuRead, DekuWrite)]
+#[derive(Debug, DekuRead, DekuWrite, DekuSize)]
 #[deku(endian = "little")]
 struct ArcanumFooter {
     /// Written as a random GUID by the original tools; not known to be read
@@ -332,6 +332,13 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
     use std::io::Write;
+
+    /// The derived size is part of the on-disk format: a field added to
+    /// `ArcanumFooter` would silently move every offset in the archive.
+    #[test]
+    fn footer_size_matches_the_on_disk_format() {
+        assert_eq!(FOOTER_SIZE, 28);
+    }
 
     /// One entry-table record: name_len (incl. NUL), name, NUL, unknown,
     /// flags, real_size, packed_size, offset - all u32 little-endian.
