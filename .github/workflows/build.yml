@@ -57,15 +57,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools p7zip-full qemu-user-static
 
-      # mimalloc is C and apt has no aarch64-musl compiler; zig supplies one.
-      - name: Install Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.16.0
-
-      # cargo-zigbuild for the aarch64 cross-build, wasmtime to run the
-      # WebAssembly build in tests/wasm.sh. Versions and digests live in the script;
-      # ci.sh has already installed the gate tools it shares with this step.
+      # zig, because mimalloc is C and apt has no aarch64-musl compiler, plus
+      # cargo-zigbuild for that cross-build and wasmtime for tests/wasm.sh.
+      # Versions and digests live in the script; ci.sh has already installed the
+      # gate tools it shares with this step.
       - name: Install build tools
         run: ./install-tools.sh
 
