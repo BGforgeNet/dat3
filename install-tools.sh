@@ -13,7 +13,10 @@ set -xeu -o pipefail
 
 BIN_DIR="$HOME/.cargo/bin"
 
-ALL_TOOLS=(cargo-audit cargo-deny cargo-machete cargo-zigbuild wasmtime)
+ALL_TOOLS=(cargo-audit cargo-deny cargo-machete cargo-zigbuild wasmtime zig)
+
+# zig lives as a whole tree; only a symlink to it goes in BIN_DIR
+ZIG_DIR="$HOME/.local/share/zig"
 
 # Digests are of the immutable release assets; refresh them when bumping a
 # version. Each one the vendor also publishes as a .sha256 matches it.
@@ -32,6 +35,10 @@ ZIGBUILD_SHA256="f0aa9cc8220a84788c6e4a9b6d80422f041659227b680fdef982d5a8ddffddb
 # 47.0.4 rather than the older 47.0.3: it fixes a sandbox escape (GHSA-vqjp-4c8c-hfgg).
 WASMTIME_VERSION="47.0.4"
 WASMTIME_SHA256="446e8641ba372333670ba0373d5d3083e5cf0dd001b66088afbb3983db0f768f"
+
+# Digest as published in ziglang.org's download index
+ZIG_VERSION="0.16.0"
+ZIG_SHA256="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 
 # Prints "version|url|sha256|path-of-the-binary-inside-the-archive" for a tool
 tool_spec() {
@@ -77,20 +84,26 @@ tool_spec() {
 # True when the pinned version is already on PATH, so a restored cache is reused
 # and a stale one is replaced.
 has_version() {
-	local cmd="$1" want="$2" reported
+	local cmd="$1" want="$2" version_arg="$3" reported
 	command -v "$cmd" >/dev/null || return 1
 	# stderr is captured, not discarded: a binary that is present but broken
 	# reports its error in the trace and then gets reinstalled.
-	reported="$("$cmd" --version 2>&1 || true)"
+	reported="$("$cmd" "$version_arg" 2>&1 || true)"
 	[[ "$reported" == *"$want"* ]]
 }
 
-# Fetches an archive, verifies its digest, and puts one binary in BIN_DIR
+# Downloads to $3 and checks its digest
+fetch_archive() {
+	local url="$1" sha256="$2" dest="$3"
+	curl -sfL -o "$dest" "$url"
+	echo "$sha256  $dest" | sha256sum -c -
+}
+
+# Fetches an archive and puts one binary from it in BIN_DIR
 install_tool() {
 	local name="$1" url="$2" sha256="$3" path_in_archive="$4" tmp
 	tmp="$(mktemp -d)"
-	curl -sfL -o "$tmp/archive" "$url"
-	echo "$sha256  $tmp/archive" | sha256sum -c -
+	fetch_archive "$url" "$sha256" "$tmp/archive"
 	# --no-same-owner: extracting as root would otherwise try to restore the
 	# archive's uid/gid, which fails outside a full-privileged container.
 	tar --no-same-owner -xf "$tmp/archive" -C "$tmp" "$path_in_archive"
@@ -98,15 +111,42 @@ install_tool() {
 	rm -rf "$tmp"
 }
 
+# zig ships a lib/ tree that has to sit beside the binary, so the tree is kept
+# under ZIG_DIR and only a symlink goes on PATH; zig resolves the link to find
+# lib/. Relinking an already-extracted tree costs nothing, which is what makes
+# this safe to rerun.
+install_zig() {
+	local dir="$ZIG_DIR/$ZIG_VERSION" unpacked="zig-x86_64-linux-${ZIG_VERSION}" tmp
+	if [ ! -x "$dir/zig" ]; then
+		tmp="$(mktemp -d)"
+		fetch_archive "https://ziglang.org/download/${ZIG_VERSION}/${unpacked}.tar.xz" \
+			"$ZIG_SHA256" "$tmp/archive"
+		tar --no-same-owner -xf "$tmp/archive" -C "$tmp"
+		mkdir -p "$ZIG_DIR"
+		rm -rf "${ZIG_DIR:?}/$ZIG_VERSION"
+		mv "$tmp/$unpacked" "$dir"
+		rm -rf "$tmp"
+	fi
+	ln -sfn "$dir/zig" "$BIN_DIR/zig"
+}
+
 ensure_tool() {
 	local name="$1" spec version url sha256 path_in_archive
+	# zig is the one tool that is a tree rather than a lone binary, and it
+	# reports its version through a subcommand instead of a flag.
+	if [ "$name" = zig ]; then
+		if ! has_version zig "$ZIG_VERSION" version; then
+			install_zig
+		fi
+		return 0
+	fi
 	# Assigned on its own line: tool_spec runs in a subshell, so its exit status
 	# for an unknown name only propagates through the assignment. Inlined into
 	# the here-string below it would be lost, and the install would run with an
 	# empty URL.
 	spec="$(tool_spec "$name")"
 	IFS='|' read -r version url sha256 path_in_archive <<<"$spec"
-	if has_version "$name" "$version"; then
+	if has_version "$name" "$version" --version; then
 		return 0
 	fi
 	install_tool "$name" "$url" "$sha256" "$path_in_archive"
