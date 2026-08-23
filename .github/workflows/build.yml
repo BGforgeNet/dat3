@@ -35,6 +35,9 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-directories: ~/.cargo/bin
+          # The cache is only written on a key miss, so without this it would
+          # keep serving a target/ dir built before build.sh's target list grew.
+          key: ${{ hashFiles('build.sh') }}
 
       - name: Shellcheck
         uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
@@ -60,19 +63,11 @@ jobs:
         with:
           version: 0.16.0
 
-      - name: Install cargo-zigbuild
-        run: |
-          if ! command -v cargo-zigbuild &>/dev/null; then
-            cargo binstall -y cargo-zigbuild@0.23.0
-          fi
-
-      # Runs the WebAssembly build in tests/wasm.sh. 47.0.4 rather than the
-      # older 47.0.3: it fixes a sandbox escape (GHSA-vqjp-4c8c-hfgg).
-      - name: Install wasmtime
-        run: |
-          if ! command -v wasmtime &>/dev/null; then
-            cargo binstall -y wasmtime-cli@47.0.4
-          fi
+      # cargo-zigbuild for the aarch64 cross-build, wasmtime to run the
+      # WebAssembly build in tests/wasm.sh. Versions and digests live in the script;
+      # ci.sh has already installed the gate tools it shares with this step.
+      - name: Install build tools
+        run: ./install-tools.sh
 
       - name: Cache test fixtures
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

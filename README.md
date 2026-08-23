@@ -182,8 +182,8 @@ dat3 d master.dat @files_to_delete.txt
 
 - Rust 1.87 or newer
 - Target-specific toolchains (install as needed)
-- [Zig](https://ziglang.org/) and `cargo-zigbuild` for the aarch64 target: mimalloc is C, and no
-  aarch64-musl C compiler is packaged for common distros
+- [Zig](https://ziglang.org/) for the aarch64 target: mimalloc is C, and no aarch64-musl C compiler is
+  packaged for common distros. `./install-tools.sh` fetches the rest of the pinned tooling.
 
 ### Build
 
