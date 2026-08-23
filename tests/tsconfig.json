@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+
+    // Node runs these files by stripping types rather than compiling them, so
+    // syntax that needs codegen (enum, namespace, parameter properties) would
+    // fail at runtime. This rejects it at typecheck time instead.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"]
+}

@@ -20,7 +20,7 @@ use deku::prelude::*;
 use std::io::{Cursor, Write};
 use std::path::Path;
 
-use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, utils};
+use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, utils};
 
 /// Size of the trailing footer in bytes, derived from `ArcanumFooter`
 const FOOTER_SIZE: usize = ArcanumFooter::SIZE_BYTES.unwrap();
@@ -163,9 +163,9 @@ impl ArcanumArchive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(&self, files: &[String]) -> Result<()> {
+    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
         let all_files: Vec<&FileEntry> = self.files.iter().collect();
-        common::list_files_filtered(&all_files, files)
+        common::list_files_filtered(&all_files, files, format)
     }
 
     /// Extract files from the archive using parallel processing

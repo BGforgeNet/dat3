@@ -75,7 +75,24 @@ dat3 l master.dat 'art/critters/*.frm'
 
 # List files from response file
 dat3 l master.dat @files_to_list.txt
+
+# List as JSON, for another program to parse
+dat3 l master.dat --json
 ```
+
+`--json` prints one entry object per line, and always uses forward slashes so the
+output is identical on every platform:
+
+```json
+[
+  {"name": "art/critters/vault.frm", "size": 4096, "packed_size": 1180, "compressed": true},
+  {"name": "text/english/quotes.txt", "size": 84, "packed_size": 84, "compressed": false}
+]
+```
+
+The names it prints are the names `x`, `e`, and `d` accept back. A pattern that
+matches nothing is still an error: the array on stdout is empty, the unmatched
+name goes to stderr, and the exit status is non-zero.
 
 ### Response file support
 
@@ -184,6 +201,8 @@ dat3 d master.dat @files_to_delete.txt
 - Target-specific toolchains (install as needed)
 - `./install-tools.sh` for the pinned tooling, including [Zig](https://ziglang.org/), which the aarch64
   target needs: mimalloc is C, and no aarch64-musl C compiler is packaged for common distros
+- Node 24 or newer, to run the integration suite (`./test.sh`): `tests/json_listing.ts` is TypeScript, run by
+  Node's own type stripping. `npm ci && npm run typecheck` typechecks it. Neither is needed to build dat3
 
 ### Build
 

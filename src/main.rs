@@ -24,7 +24,7 @@ mod lzss; // LZSS decompression for DAT1 files
 #[cfg(test)]
 mod common_tests;
 
-use common::{CompressionLevel, DatArchive, ExtractionMode, utils};
+use common::{CompressionLevel, DatArchive, ExtractionMode, ListFormat, utils};
 
 /// Command-line interface definition.
 /// The `clap` crate uses these derive macros to automatically parse arguments.
@@ -47,6 +47,9 @@ enum Commands {
         dat_file: PathBuf,
         /// Specific files to list (if empty, lists all)
         files: Vec<String>,
+        /// Print the listing as JSON instead of aligned columns
+        #[arg(long)]
+        json: bool,
     },
 
     /// Extract files preserving directory structure
@@ -122,10 +125,19 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::List { dat_file, files } => {
+        Commands::List {
+            dat_file,
+            files,
+            json,
+        } => {
             let archive = DatArchive::open(&dat_file)?;
             let patterns = utils::expand_response_files_for_archive(&files)?;
-            archive.list(&patterns)?;
+            let format = if json {
+                ListFormat::Json
+            } else {
+                ListFormat::Text
+            };
+            archive.list(&patterns, format)?;
         }
 
         Commands::Extract {

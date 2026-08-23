@@ -5,6 +5,10 @@ set -xeu -o pipefail
 # Install the pinned gate tools when missing or out of date
 ./install-tools.sh cargo-audit cargo-deny cargo-machete
 
+# Typecheck the TypeScript integration test (tests/json_listing.ts)
+npm ci
+npm run typecheck
+
 # Format check
 cargo fmt --all -- --check
 

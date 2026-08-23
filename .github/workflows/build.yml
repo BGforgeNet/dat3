@@ -44,6 +44,15 @@ jobs:
         with:
           scandir: "."
 
+      # tests/json_listing.ts runs through Node's own type stripping rather than
+      # a build step, so the Node version is what decides whether it runs at
+      # all. Pinned so the runner image's default cannot change that silently.
+      - name: Install Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.19.0"
+          cache: npm
+
       - name: Pre-test
         run: ./ci.sh
 
