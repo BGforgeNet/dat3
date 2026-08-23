@@ -19,12 +19,15 @@ use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, utils};
 
 /// 8-byte footer at the end of every DAT2 file.
 /// Points to the directory tree and validates the total file size.
-#[derive(Debug, DekuRead, DekuWrite)]
+#[derive(Debug, DekuRead, DekuWrite, DekuSize)]
 #[deku(endian = "little")]
 struct Dat2Footer {
     tree_size: u32,
     dat_size: u32,
 }
+
+/// Size of the trailing footer in bytes, derived from `Dat2Footer`
+const FOOTER_SIZE: usize = Dat2Footer::SIZE_BYTES.unwrap();
 
 /// File entry as stored in the DAT2 directory tree
 #[derive(Debug, DekuRead, DekuWrite)]
@@ -58,7 +61,7 @@ impl Dat2Archive {
 
     /// Parse an existing DAT2 archive from raw bytes
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
-        if data.len() < 8 {
+        if data.len() < FOOTER_SIZE {
             bail!("DAT2 file too small");
         }
 
@@ -67,8 +70,8 @@ impl Dat2Archive {
     }
 
     fn parse_directory_tree(data: &[u8]) -> Result<Vec<FileEntry>> {
-        // Parse 8-byte footer at end of file
-        let footer_bytes = &data[data.len() - 8..];
+        // Parse the footer at end of file
+        let footer_bytes = &data[data.len() - FOOTER_SIZE..];
         let (_, footer) = Dat2Footer::from_bytes((footer_bytes, 0))
             .map_err(|e| anyhow::anyhow!("Failed to parse DAT2 footer: {}", e))?;
 
@@ -80,12 +83,12 @@ impl Dat2Archive {
             );
         }
 
-        // Directory tree position: dat_size - tree_size - 8 (footer).
+        // Directory tree position: dat_size - tree_size - footer.
         // tree_size is untrusted archive input; checked math turns a hostile
         // value into a clean error instead of an underflow.
         let tree_start = (footer.dat_size as usize)
             .checked_sub(footer.tree_size as usize)
-            .and_then(|v| v.checked_sub(8))
+            .and_then(|v| v.checked_sub(FOOTER_SIZE))
             .context("Invalid DAT2 footer: tree size exceeds file size")?;
         // The tree must at least hold its own 4-byte file count. tree_start itself may
         // legitimately be 0: an archive whose files are all empty has no data section.
@@ -245,6 +248,13 @@ impl Dat2Archive {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    /// The derived size is part of the on-disk format: a field added to
+    /// `Dat2Footer` would silently move the directory tree.
+    #[test]
+    fn footer_size_matches_the_on_disk_format() {
+        assert_eq!(FOOTER_SIZE, 8);
+    }
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(32))]

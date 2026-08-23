@@ -30,8 +30,12 @@ const DAT1_UNCOMPRESSED_FLAG: u32 = 0x20;
 const DAT1_FORMAT_ID: u32 = 0x0A;
 const DAT1_DIRECTORY_UNKNOWN5: u32 = 0x10;
 
+/// Serialized sizes of the fixed-layout headers, derived from their structs
+const HEADER_SIZE: u32 = Dat1Header::SIZE_BYTES.unwrap() as u32;
+const DIR_HEADER_SIZE: u32 = Dat1DirHeader::SIZE_BYTES.unwrap() as u32;
+
 /// 16-byte archive header
-#[derive(Debug, DekuRead, DekuWrite)]
+#[derive(Debug, DekuRead, DekuWrite, DekuSize)]
 #[deku(endian = "big")]
 struct Dat1Header {
     dir_count: u32,
@@ -50,7 +54,7 @@ struct Dat1Name {
 }
 
 /// 16-byte per-directory content header
-#[derive(Debug, DekuRead, DekuWrite)]
+#[derive(Debug, DekuRead, DekuWrite, DekuSize)]
 #[deku(endian = "big")]
 struct Dat1DirHeader {
     file_count: u32,
@@ -323,13 +327,14 @@ impl Dat1Archive {
         // Calculate where file data starts: header, directory names, then
         // directory content blocks. Computed up front so entry offsets are
         // known before anything is written.
-        let mut data_offset: u32 = 16; // Archive header
+        let mut data_offset: u32 = HEADER_SIZE;
         for dir in &self.directories {
             data_offset += 1 + dir.name.len() as u32; // Length-prefixed directory name
         }
         for dir in &self.directories {
-            data_offset += 16; // Directory content header: file_count + 3 unknown fields
+            data_offset += DIR_HEADER_SIZE;
             for file in &dir.files {
+                // Not derivable: the length-prefixed name makes `Dat1FileEntry` variable-size.
                 // name_len byte + stored name + 4 u32 entry fields
                 data_offset += 1 + stored_file_name(&dir.name, &file.name).len() as u32 + 16;
             }
@@ -436,6 +441,14 @@ fn stored_file_name<'a>(dir_name: &str, file_name: &'a str) -> &'a str {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    /// The derived sizes are part of the on-disk format: a field added to
+    /// either header would silently move every file offset.
+    #[test]
+    fn header_sizes_match_the_on_disk_format() {
+        assert_eq!(HEADER_SIZE, 16);
+        assert_eq!(DIR_HEADER_SIZE, 16);
+    }
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(32))]
