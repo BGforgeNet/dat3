@@ -21,7 +21,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, utils};
+use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, utils};
 use crate::lzss;
 
 // DAT1 format constants
@@ -182,9 +182,9 @@ impl Dat1Archive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(&self, files: &[String]) -> Result<()> {
+    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
         let all_files = self.all_files();
-        common::list_files_filtered(&all_files, files)
+        common::list_files_filtered(&all_files, files, format)
     }
 
     /// Extract files from the archive in parallel, mirroring the DAT2 path

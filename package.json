@@ -1,0 +1,14 @@
+{
+  "name": "dat3-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typechecking for the Node-based integration tests. Not part of the Rust build or the shipped binaries.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tests/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  }
+}

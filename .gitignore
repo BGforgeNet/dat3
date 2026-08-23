@@ -11,9 +11,14 @@
 !/tests/
 /tests/*
 !/tests/*.sh
+!/tests/*.ts
+!/tests/tsconfig.json
 !/tests/rpu.md5
 !/tests/dat2.exe
 !/tests/dbmaker.exe
+
+# Node, for the integration tests' typecheck only
+/node_modules/
 
 # IDE
 .vscode/

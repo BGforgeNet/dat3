@@ -123,6 +123,15 @@ pub enum ExtractionMode {
     Flat,
 }
 
+/// Controls how the `l` command renders its listing
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ListFormat {
+    /// Aligned columns for reading
+    Text,
+    /// JSON array for another program to parse
+    Json,
+}
+
 // ── DatArchive enum ────────────────────────────────────────────────
 
 /// Unified interface for DAT1, DAT2, and Arcanum archives.
@@ -221,11 +230,11 @@ impl DatArchive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(&self, files: &[String]) -> Result<()> {
+    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
         match self {
-            Self::Dat1(a) => a.list(files),
-            Self::Dat2(a) => a.list(files),
-            Self::Arcanum(a) => a.list(files),
+            Self::Dat1(a) => a.list(files, format),
+            Self::Dat2(a) => a.list(files, format),
+            Self::Arcanum(a) => a.list(files, format),
         }
     }
 
@@ -285,7 +294,11 @@ impl DatArchive {
 ///
 /// All formats use this same flow:
 /// normalize patterns -> filter entries -> print listing -> report missing.
-pub fn list_files_filtered(all_files: &[&FileEntry], patterns: &[String]) -> Result<()> {
+pub fn list_files_filtered(
+    all_files: &[&FileEntry],
+    patterns: &[String],
+    format: ListFormat,
+) -> Result<()> {
     let normalized_patterns = utils::normalize_user_patterns(patterns);
 
     let (files_to_list, missing_patterns) =
@@ -293,7 +306,10 @@ pub fn list_files_filtered(all_files: &[&FileEntry], patterns: &[String]) -> Res
             utils::matches_pattern(&file.name, pattern)
         });
 
-    utils::print_file_listing(&files_to_list);
+    match format {
+        ListFormat::Text => utils::print_file_listing(&files_to_list),
+        ListFormat::Json => utils::print_file_listing_json(&files_to_list),
+    }
 
     report_missing_patterns(&missing_patterns)
 }
@@ -588,6 +604,64 @@ pub mod utils {
                 file.size, file.packed_size, comp_str, display_name
             ));
         }
+    }
+
+    /// Append `value` to `out` as a quoted JSON string.
+    ///
+    /// Archive names come from a third-party file, so a name holding a quote,
+    /// backslash, or control byte would otherwise emit a document the consumer
+    /// cannot parse. Non-ASCII is passed through: JSON is UTF-8 and `name` is
+    /// already a `String`.
+    fn push_json_string(out: &mut String, value: &str) {
+        out.push('"');
+        for c in value.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                '\u{08}' => out.push_str("\\b"),
+                '\u{0c}' => out.push_str("\\f"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+    }
+
+    /// Render the listing as a JSON array, one entry object per line.
+    ///
+    /// Separators are always forward slashes, unlike the text listing, which
+    /// keeps the platform's own: this output is data for another program, so
+    /// the same archive has to describe itself identically everywhere. The
+    /// names it emits are what the `x`, `e`, and `d` commands accept back.
+    pub fn format_file_listing_json<T: AsRef<FileEntry>>(files: &[T]) -> String {
+        if files.is_empty() {
+            return "[]".to_string();
+        }
+
+        let mut out = String::from("[\n");
+        for (i, file) in files.iter().enumerate() {
+            let file = file.as_ref();
+            out.push_str("  {\"name\": ");
+            push_json_string(&mut out, &file.name.replace('\\', "/"));
+            out.push_str(&format!(
+                ", \"size\": {}, \"packed_size\": {}, \"compressed\": {}}}",
+                file.size, file.packed_size, file.compressed
+            ));
+            if i + 1 != files.len() {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push(']');
+        out
+    }
+
+    /// Print the JSON listing
+    pub fn print_file_listing_json<T: AsRef<FileEntry>>(files: &[T]) {
+        print_stdout(format_args!("{}", format_file_listing_json(files)));
     }
 
     /// Stream archive bytes to a same-directory temp file via the given closure,

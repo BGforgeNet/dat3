@@ -1293,4 +1293,76 @@ mod tests {
             assert!(normalized.is_empty());
         }
     }
+
+    // ── format_file_listing_json ───────────────────────────────────
+
+    mod format_file_listing_json {
+        use super::*;
+
+        fn entry(name: &str, size: u32, packed_size: u32, compressed: bool) -> FileEntry {
+            FileEntry {
+                name: name.to_string(),
+                offset: 0,
+                size,
+                packed_size,
+                compressed,
+                data: None,
+            }
+        }
+
+        #[test]
+        fn empty_listing_is_an_empty_array() {
+            let files: Vec<FileEntry> = vec![];
+            assert_eq!(utils::format_file_listing_json(&files), "[]");
+        }
+
+        #[test]
+        fn renders_one_entry_per_line_with_all_fields() {
+            let files = vec![entry("ART\\SPLASH.RIX", 1024, 512, true)];
+            assert_eq!(
+                utils::format_file_listing_json(&files),
+                "[\n  {\"name\": \"ART/SPLASH.RIX\", \"size\": 1024, \"packed_size\": 512, \
+                 \"compressed\": true}\n]"
+            );
+        }
+
+        #[test]
+        fn separates_entries_with_commas() {
+            let files = vec![
+                entry("a.txt", 1, 1, false),
+                entry("b.txt", 2, 2, false),
+                entry("c.txt", 3, 3, false),
+            ];
+            let json = utils::format_file_listing_json(&files);
+            assert_eq!(json.matches("},\n").count(), 2);
+            assert!(json.ends_with("false}\n]"), "no trailing comma: {json}");
+        }
+
+        /// Backslashes are the archive's own separator, so an unescaped name
+        /// would be the most common way to emit an unparseable document.
+        #[test]
+        fn always_uses_forward_slashes_regardless_of_platform() {
+            let files = vec![entry("ART\\CRITTERS\\HANPWRAA.FRM", 10, 10, false)];
+            let json = utils::format_file_listing_json(&files);
+            assert!(json.contains("\"ART/CRITTERS/HANPWRAA.FRM\""), "{json}");
+            assert!(!json.contains('\\'), "{json}");
+        }
+
+        /// Names come from a third-party archive, so they are not trusted to be
+        /// JSON-safe.
+        #[test]
+        fn escapes_characters_that_would_break_the_document() {
+            let files = vec![entry("say \"hi\"\n\tx\u{01}.txt", 0, 0, false)];
+            let json = utils::format_file_listing_json(&files);
+            assert!(json.contains(r#"\"hi\""#), "{json}");
+            assert!(json.contains("\\n\\tx\\u0001.txt"), "{json}");
+        }
+
+        #[test]
+        fn passes_through_non_ascii_unescaped() {
+            let files = vec![entry("Кириллица.txt", 0, 0, false)];
+            let json = utils::format_file_listing_json(&files);
+            assert!(json.contains("Кириллица.txt"), "{json}");
+        }
+    }
 }

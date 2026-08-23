@@ -47,6 +47,8 @@ fi
 ./path_consistency.sh
 ./glob_handling.sh
 ./extract_missing.sh
+# TypeScript: the assertions are about a parsed document, so a real parser runs them
+node ./json_listing.ts
 
 # The WebAssembly build, run under a WASI runtime, and the arm64 build under
 # qemu. The arm64 binary comes from build.sh, which needs zig to produce it.
