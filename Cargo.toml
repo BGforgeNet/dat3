@@ -18,7 +18,7 @@ anyhow = "1.0"
 
 # Binary data handling
 byteorder = "1.5"          # Read/write integers in different byte orders
-deku = "0.19"              # Declarative binary parsing
+deku = "0.20"              # Declarative binary parsing
 
 # Command-line interface
 # <4.6: clap 4.6 switched to syn 3 while deku's derive macros still use syn 2,
