@@ -73,6 +73,28 @@ fetch_arcanum_demo() {
 	echo "$ARCANUM_DEMO_MD5  $ARCANUM_DEMO_DAT" | md5sum -c
 }
 
+# Fallout 1 demo's 22 MB DAT1 archive (4.4k files). The retail Fallout 1
+# archives cannot be redistributed, so this is the only real DAT1 the suite can
+# fetch: 29 directories with files at the archive root as well as nested, and
+# LZSS streams that end in a short raw block.
+FALLOUT_DEMO_DAT="FalloutDemo.dat"
+FALLOUT_DEMO_MD5="964ac33fe7c5dcd74123c4991f1ccadf"
+FALLOUT_DEMO_ZIP_MD5="2f663c1509dafb6636011c766c39d786"
+
+fetch_fallout_demo() {
+	local zip="falldemo.zip"
+	if [ ! -f "$FALLOUT_DEMO_DAT" ]; then
+		if [ ! -f "$zip" ]; then
+			wget -nv -O "$zip" "https://archive.org/download/FalloutDemo/falldemo.zip"
+		fi
+		echo "$FALLOUT_DEMO_ZIP_MD5  $zip" | md5sum -c
+		unzip -j -o "$zip" "falldemo/Falldemo.dat"
+		mv Falldemo.dat "$FALLOUT_DEMO_DAT"
+		rm -f "$zip"
+	fi
+	echo "$FALLOUT_DEMO_MD5  $FALLOUT_DEMO_DAT" | md5sum -c
+}
+
 # Small deterministic source tree for the Arcanum tests: compressible files, a
 # subdirectory, and a file so small it stores uncompressed (zlib overhead
 # exceeds its size).
@@ -83,6 +105,42 @@ build_arcanum_src_tree() {
 	seq 1 2000 >"$dir/data/numbers.txt"
 	printf 'hi\n' >"$dir/data/sub/tiny.txt"
 	head -c 4096 /dev/zero >"$dir/data/sub/zeros.bin"
+}
+
+# ── Fallout 1 retail archives ─────────────────────────────────────────
+# Game assets that cannot be redistributed, so the f1 tests run over whichever
+# of these the user has dropped into tests/f1. They differ in what they can
+# catch: critter.dat is a single directory of LZSS-compressed art with no raw
+# blocks at all, while master.dat carries every content type the game ships,
+# including the short trailing raw blocks that only appear in some streams.
+F1_ARCHIVES=(critter.dat master.dat)
+
+# Echoes the retail Fallout 1 archives present in tests/f1, one tests-relative
+# path per line.
+present_f1_archives() {
+	local name
+	for name in "${F1_ARCHIVES[@]}"; do
+		if [ -f "$SCRIPT_DIR/f1/$name" ]; then
+			echo "f1/$name"
+		fi
+	done
+}
+
+# Extract a DAT1 archive, repack the result as DAT1, and extract that: the two
+# trees must be identical. $2 prefixes the scratch paths so several archives can
+# round-trip in the same directory. Repacking stores entries uncompressed (dat3
+# decompresses LZSS but does not produce it), so this exercises the reader
+# against real game data and the writer against every shape that data has.
+dat1_round_trip() {
+	local archive="$1" prefix="$2"
+	local src_dir="${prefix}_src" out_dat="${prefix}_repacked.dat" out_dir="${prefix}_out"
+
+	rm -rf "$src_dir" "$out_dir" "$out_dat"
+	"$DAT3" x "$archive" -o "$src_dir"
+	(cd "$src_dir" && "$DAT3" a --format dat1 "../$out_dat" -- *)
+	"$DAT3" x "$out_dat" -o "$out_dir"
+	diff -qr "$src_dir" "$out_dir"
+	rm -rf "$src_dir" "$out_dir" "$out_dat"
 }
 
 # Checksum every file under $1 into the file $2, in a stable order.

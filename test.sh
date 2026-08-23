@@ -35,12 +35,9 @@ cd tests
 ./non-ascii.sh
 ./rpu.sh
 ./arcanum.sh
-
-# Put Fallout 1 critter.dat into tests/f1 to run this
-if [ -f f1/critter.dat ]; then
-	./f1.sh
-fi
-
+# Runs against the demo archive it fetches; put retail Fallout 1 archives into
+# tests/f1 to widen it. The script says which of those it found.
+./f1.sh
 ./response_file.sh
 ./add_validation.sh
 ./duplicate_paths.sh
@@ -56,10 +53,6 @@ run_if_available wasmtime ./wasm.sh
 run_if_available qemu-aarch64-static ./arm64.sh
 
 # Cross-checks against the original Windows tools. These need the
-# cross-compiled dat3.exe from build.sh.
-WINE_TESTS=(./rpu_wine.sh ./arcanum_wine.sh ./glob_handling_wine.sh)
-if [ -f f1/critter.dat ]; then
-	WINE_TESTS+=(./f1_wine.sh)
-fi
-
-run_if_available wine "${WINE_TESTS[@]}"
+# cross-compiled dat3.exe from build.sh. f1_wine.sh needs retail Fallout 1
+# archives in tests/f1 and says so when it finds none.
+run_if_available wine ./rpu_wine.sh ./arcanum_wine.sh ./glob_handling_wine.sh ./f1_wine.sh

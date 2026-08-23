@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: extracting a Fallout 1 archive could abort partway through with a "Truncated LZSS stream" error. `master.dat` now extracts all 19,784 of its files instead of stopping after 11,295.
+- Fixed: many Fallout 1 archives were not recognised as DAT1 at all and failed to open, among them the Fallout 1 demo's `Falldemo.dat`.
+
 ## v0.9.0
 
 - New: `l --json` prints the listing as a JSON array (`name`, `size`, `packed_size`, `compressed`) instead of aligned columns, for tools that consume dat3's output. Paths always use forward slashes, so the same archive lists identically on every platform.
