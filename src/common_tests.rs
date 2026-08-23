@@ -134,10 +134,8 @@ mod tests {
         use std::fs;
         use std::io::Write;
 
-        fn scratch_dir(tag: &str) -> std::path::PathBuf {
-            let dir = std::env::temp_dir().join(format!("dat3_wa_{}_{}", std::process::id(), tag));
-            fs::create_dir_all(&dir).unwrap();
-            dir
+        fn scratch_dir(tag: &str) -> crate::test_support::ScratchPath {
+            crate::test_support::ScratchPath::dir(tag)
         }
 
         #[test]
@@ -146,7 +144,6 @@ mod tests {
             let target = dir.join("out.dat");
             utils::write_atomically(&target, |w| Ok(w.write_all(b"payload")?)).unwrap();
             assert_eq!(fs::read(&target).unwrap(), b"payload");
-            fs::remove_dir_all(&dir).unwrap();
         }
 
         #[test]
@@ -156,7 +153,6 @@ mod tests {
             fs::write(&target, b"old").unwrap();
             utils::write_atomically(&target, |w| Ok(w.write_all(b"new")?)).unwrap();
             assert_eq!(fs::read(&target).unwrap(), b"new");
-            fs::remove_dir_all(&dir).unwrap();
         }
 
         #[test]
@@ -169,7 +165,6 @@ mod tests {
                 .map(|e| e.unwrap().file_name())
                 .collect();
             assert_eq!(names, vec![std::ffi::OsString::from("out.dat")]);
-            fs::remove_dir_all(&dir).unwrap();
         }
 
         #[test]
@@ -197,7 +192,6 @@ mod tests {
                 .map(|e| e.unwrap().file_name())
                 .collect();
             assert_eq!(names, vec![std::ffi::OsString::from("out.dat")]);
-            fs::remove_dir_all(&dir).unwrap();
         }
     }
 
@@ -1037,15 +1031,10 @@ mod tests {
         use super::*;
         use std::fs;
         use std::path::PathBuf;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
         #[test]
         fn rejects_absolute_path_outside_change_dir() {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let parent = std::env::temp_dir().join(format!("dat3-abs-outside-{unique}"));
+            let parent = crate::test_support::ScratchPath::dir("abs-outside");
             let mods = parent.join("mods");
             fs::create_dir_all(&mods).unwrap();
             let outside = parent.join("outside.txt");
@@ -1057,7 +1046,6 @@ mod tests {
                 result.is_err(),
                 "absolute path outside change_dir must be rejected"
             );
-            fs::remove_dir_all(parent).unwrap();
         }
 
         /// RAII guard that restores the original working directory on drop.
@@ -1080,14 +1068,8 @@ mod tests {
             }
         }
 
-        fn make_temp_dir(name: &str) -> std::path::PathBuf {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!("dat3-{name}-{unique}"));
-            fs::create_dir_all(&path).unwrap();
-            path
+        fn make_temp_dir(name: &str) -> crate::test_support::ScratchPath {
+            crate::test_support::ScratchPath::dir(name)
         }
 
         #[test]
@@ -1101,7 +1083,6 @@ mod tests {
                 utils::resolve_add_input_path(Path::new("patch000/file.txt"), Some(&root)).unwrap();
 
             assert_eq!(resolved, fs::canonicalize(file).unwrap());
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[test]
@@ -1114,7 +1095,6 @@ mod tests {
             let resolved = utils::resolve_add_input_path(&file, Some(&root)).unwrap();
 
             assert_eq!(resolved, fs::canonicalize(file).unwrap());
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[test]
@@ -1129,7 +1109,6 @@ mod tests {
                 utils::resolve_add_input_path(Path::new("patch000/file.txt"), None).unwrap();
 
             assert_eq!(resolved, Path::new("patch000/file.txt"));
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[test]
@@ -1143,7 +1122,6 @@ mod tests {
             let result = utils::resolve_add_input_path(Path::new("../outside.txt"), Some(&root));
 
             assert!(result.is_err());
-            fs::remove_dir_all(parent).unwrap();
         }
 
         #[cfg(unix)]
@@ -1160,7 +1138,6 @@ mod tests {
             let result = utils::resolve_add_input_path(Path::new("link.txt"), Some(&root));
 
             assert!(result.is_err());
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[cfg(unix)]
@@ -1177,7 +1154,6 @@ mod tests {
             let result = utils::resolve_add_input_path(Path::new("link_dir"), Some(&root));
 
             assert!(result.is_err());
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[cfg(unix)]
@@ -1199,7 +1175,6 @@ mod tests {
             let result = utils::resolve_add_input_path(&link_in_root, Some(&root));
 
             assert!(result.is_err());
-            fs::remove_dir_all(parent).unwrap();
         }
     }
 
@@ -1208,16 +1183,9 @@ mod tests {
     mod collect_files {
         use super::*;
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        fn make_temp_dir(name: &str) -> std::path::PathBuf {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!("dat3-{name}-{unique}"));
-            fs::create_dir_all(&path).unwrap();
-            path
+        fn make_temp_dir(name: &str) -> crate::test_support::ScratchPath {
+            crate::test_support::ScratchPath::dir(name)
         }
 
         #[cfg(unix)]
@@ -1241,8 +1209,6 @@ mod tests {
             // The dangling symlink must be skipped; only real.txt is collected
             assert_eq!(files.len(), 1);
             assert!(files[0].ends_with("real.txt"));
-
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[test]
@@ -1265,8 +1231,6 @@ mod tests {
                 result.is_err(),
                 "non-ASCII filename in nested subdir must be rejected"
             );
-
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[cfg(unix)]
@@ -1291,7 +1255,6 @@ mod tests {
             let files = utils::collect_files(root.join("patch000")).unwrap();
 
             assert_eq!(files, vec![real_file]);
-            fs::remove_dir_all(root).unwrap();
         }
     }
 
@@ -1300,16 +1263,9 @@ mod tests {
     mod expand_response_files_with_stripping {
         use super::*;
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        fn make_temp_dir(name: &str) -> std::path::PathBuf {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!("dat3-{name}-{unique}"));
-            fs::create_dir_all(&path).unwrap();
-            path
+        fn make_temp_dir(name: &str) -> crate::test_support::ScratchPath {
+            crate::test_support::ScratchPath::dir(name)
         }
 
         #[test]
@@ -1334,7 +1290,6 @@ mod tests {
             .unwrap();
 
             assert_eq!(expanded, vec![file]);
-            fs::remove_dir_all(root).unwrap();
         }
 
         #[test]
@@ -1357,7 +1312,6 @@ mod tests {
             // enforcement happens in resolve_add_input_path
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), vec![outside]);
-            fs::remove_dir_all(parent).unwrap();
         }
 
         #[test]
@@ -1377,7 +1331,6 @@ mod tests {
                 result.unwrap(),
                 vec![std::path::PathBuf::from("/etc/passwd")]
             );
-            fs::remove_dir_all(root).unwrap();
         }
     }
 

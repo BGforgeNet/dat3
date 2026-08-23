@@ -338,6 +338,7 @@ impl ArcanumArchive {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::ScratchPath;
     use proptest::prelude::*;
     use std::io::Write;
 
@@ -483,15 +484,13 @@ mod tests {
         ]);
         let parsed = ArcanumArchive::from_bytes(archive).unwrap();
 
-        let out_dir = std::env::temp_dir().join(format!("dat3_arc_x_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&out_dir);
+        let out_dir = ScratchPath::new("arc_x");
         parsed
             .extract(&out_dir, &[], ExtractionMode::PreserveStructure)
             .unwrap();
 
         let plain = std::fs::read(out_dir.join("DIR").join("PLAIN.TXT")).unwrap();
         let packed = std::fs::read(out_dir.join("DIR").join("PACKED.TXT")).unwrap();
-        std::fs::remove_dir_all(&out_dir).unwrap();
         assert_eq!(plain, b"plain data");
         assert_eq!(packed, b"packed data");
     }
@@ -515,7 +514,7 @@ mod tests {
     #[test]
     fn dat_archive_open_autodetects_arcanum_and_supports_writes() {
         let archive = build_archive(&[("A.TXT", FLAG_RAW, b"hi".to_vec(), 2)]);
-        let path = std::env::temp_dir().join(format!("dat3_arc_open_{}.dat", std::process::id()));
+        let path = ScratchPath::new("arc_open");
         std::fs::write(&path, &archive).unwrap();
         let opened = crate::common::DatArchive::open(&path);
 
@@ -525,7 +524,6 @@ mod tests {
         opened.save(&path).unwrap();
 
         let reopened = crate::common::DatArchive::open(&path);
-        std::fs::remove_file(&path).unwrap();
         assert!(matches!(
             reopened.unwrap(),
             crate::common::DatArchive::Arcanum(_)
@@ -543,10 +541,9 @@ mod tests {
         archive.files.push(f1);
         archive.files.push(f2);
 
-        let path = std::env::temp_dir().join(format!("dat3_arc_layout_{}.dat", std::process::id()));
+        let path = ScratchPath::new("arc_layout");
         archive.save(&path).unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        std::fs::remove_file(&path).unwrap();
 
         // Data section: payloads in table (sorted) order, then the marker
         // holding the entry table's absolute offset
@@ -601,18 +598,16 @@ mod tests {
         archive[guid_pos..guid_pos + 16].copy_from_slice(&guid);
 
         let parsed = ArcanumArchive::from_bytes(archive).unwrap();
-        let path = std::env::temp_dir().join(format!("dat3_arc_guid_{}.dat", std::process::id()));
+        let path = ScratchPath::new("arc_guid");
         parsed.save(&path).unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        std::fs::remove_file(&path).unwrap();
 
         assert_eq!(&bytes[bytes.len() - FOOTER_SIZE..bytes.len() - 12], &guid);
     }
 
     #[test]
     fn add_file_compresses_and_round_trips() {
-        let src_dir = std::env::temp_dir().join(format!("dat3_arc_add_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&src_dir);
+        let src_dir = ScratchPath::new("arc_add");
         std::fs::create_dir_all(src_dir.join("sub")).unwrap();
         let payload = b"compress me please, compress me please".repeat(10);
         std::fs::write(src_dir.join("sub").join("data.txt"), &payload).unwrap();
@@ -626,11 +621,10 @@ mod tests {
                 None,
             )
             .unwrap();
-        let path = std::env::temp_dir().join(format!("dat3_arc_addrt_{}.dat", std::process::id()));
+        let path = ScratchPath::new("arc_addrt");
         archive.save(&path).unwrap();
 
         let reparsed = ArcanumArchive::from_bytes(std::fs::read(&path).unwrap()).unwrap();
-        std::fs::remove_file(&path).unwrap();
         assert_eq!(reparsed.files.len(), 1);
         let entry = &reparsed.files[0];
         assert!(
@@ -644,14 +638,11 @@ mod tests {
         );
         assert_eq!(entry.size as usize, payload.len());
 
-        let out_dir = std::env::temp_dir().join(format!("dat3_arc_addx_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&out_dir);
+        let out_dir = ScratchPath::new("arc_addx");
         reparsed
             .extract(&out_dir, &[], ExtractionMode::Flat)
             .unwrap();
         let extracted = std::fs::read(out_dir.join("data.txt")).unwrap();
-        std::fs::remove_dir_all(&out_dir).unwrap();
-        std::fs::remove_dir_all(&src_dir).unwrap();
         assert_eq!(extracted, payload);
     }
 
@@ -670,7 +661,7 @@ mod tests {
             data: Vec::new(),
             guid: [0; 16],
         };
-        let target = std::env::temp_dir().join("dat3_arc_overflow_test.dat");
+        let target = ScratchPath::new("arc_overflow");
         assert!(archive.save(&target).is_err());
     }
 
@@ -690,11 +681,9 @@ mod tests {
                 archive.files.push(entry);
             }
 
-            let target = std::env::temp_dir()
-                .join(format!("dat3_prop_arc_{}.dat", std::process::id()));
+            let target = ScratchPath::new("prop_arc");
             archive.save(&target).unwrap();
             let bytes = std::fs::read(&target).unwrap();
-            std::fs::remove_file(&target).unwrap();
             prop_assert!(is_arcanum_format(&bytes));
 
             let reparsed = ArcanumArchive::from_bytes(bytes).unwrap();

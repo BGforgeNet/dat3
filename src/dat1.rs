@@ -426,12 +426,12 @@ fn stored_file_name<'a>(dir_name: &str, file_name: &'a str) -> &'a str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::ScratchPath;
     use proptest::prelude::*;
 
     /// Source tree with `count` files under `data/`, for the add-path tests.
-    fn add_source_tree(tag: &str, count: usize) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("dat3_add_{}_{tag}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn add_source_tree(tag: &str, count: usize) -> ScratchPath {
+        let dir = ScratchPath::dir(&format!("add_{tag}"));
         std::fs::create_dir_all(dir.join("data")).unwrap();
         for i in 0..count {
             std::fs::write(dir.join("data").join(format!("F{i}.TXT")), b"payload").unwrap();
@@ -492,12 +492,9 @@ mod tests {
 
     /// Reads the `directory_count` out of a saved archive's header.
     fn saved_dir_count(archive: &Dat1Archive, tag: &str) -> u32 {
-        let path = std::env::temp_dir().join(format!("dat3_dircount_{}_{tag}.dat", {
-            std::process::id()
-        }));
+        let path = ScratchPath::new(&format!("dircount_{tag}"));
         archive.save(&path).unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        std::fs::remove_file(&path).ok();
         u32::from_be_bytes(bytes[0..4].try_into().unwrap())
     }
 
@@ -529,10 +526,9 @@ mod tests {
         let archive = Dat1Archive::new();
         assert_eq!(saved_dir_count(&archive, "all_empty"), 1);
 
-        let path = std::env::temp_dir().join(format!("dat3_emptyre_{}.dat", std::process::id()));
+        let path = ScratchPath::new("emptyre");
         archive.save(&path).unwrap();
         let reopened = crate::common::DatArchive::open(&path);
-        std::fs::remove_file(&path).ok();
         assert!(
             matches!(reopened.unwrap(), crate::common::DatArchive::Dat1(_)),
             "an empty DAT1 archive could not be reopened"
@@ -561,11 +557,9 @@ mod tests {
                 archive.directories[0].files.push(entry);
             }
 
-            let target = std::env::temp_dir()
-                .join(format!("dat3_prop_dat1_{}.dat", std::process::id()));
+            let target = ScratchPath::new("prop_dat1");
             archive.save(&target).unwrap();
             let bytes = std::fs::read(&target).unwrap();
-            std::fs::remove_file(&target).ok();
 
             let reparsed = Dat1Archive::from_bytes(bytes).unwrap();
             prop_assert_eq!(reparsed.directories.len(), 1);
@@ -600,7 +594,7 @@ mod tests {
         packed.size = 5; // decompressed length of "HELLO"
         archive.directories[0].files.push(packed);
 
-        let dir = std::env::temp_dir().join(format!("dat3_dat1_extract_{}", std::process::id()));
+        let dir = ScratchPath::new("dat1_extract");
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("t.dat");
         archive.save(&target).unwrap();
@@ -613,7 +607,6 @@ mod tests {
 
         assert_eq!(std::fs::read(out.join("PLAIN.TXT")).unwrap(), b"plain data");
         assert_eq!(std::fs::read(out.join("PACKED.TXT")).unwrap(), b"HELLO");
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -624,8 +617,7 @@ mod tests {
         plain.size = 10;
         archive.directories[0].files.push(plain);
 
-        let dir =
-            std::env::temp_dir().join(format!("dat3_dat1_extract_missing_{}", std::process::id()));
+        let dir = ScratchPath::new("dat1_extract_missing");
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("t.dat");
         archive.save(&target).unwrap();
@@ -642,7 +634,6 @@ mod tests {
             "unexpected error: {err}"
         );
         assert!(!out.join("PLAIN.TXT").exists());
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// An archive with more directories than the old constant hint allowed for.
@@ -666,10 +657,9 @@ mod tests {
     #[test]
     fn writes_allocation_hints_that_cover_the_counts() {
         let archive = wide_archive(12);
-        let path = std::env::temp_dir().join(format!("dat3_hints_{}.dat", std::process::id()));
+        let path = ScratchPath::new("hints");
         archive.save(&path).unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        std::fs::remove_file(&path).ok();
 
         let dir_count = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
         let folder_hint = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
@@ -706,10 +696,9 @@ mod tests {
     #[test]
     fn reopens_its_own_output_past_ten_directories() {
         let archive = wide_archive(12);
-        let path = std::env::temp_dir().join(format!("dat3_wide_{}.dat", std::process::id()));
+        let path = ScratchPath::new("wide");
         archive.save(&path).unwrap();
         let reopened = crate::common::DatArchive::open(&path);
-        std::fs::remove_file(&path).ok();
         assert!(
             matches!(reopened.unwrap(), crate::common::DatArchive::Dat1(_)),
             "a 13-directory archive dat3 wrote was not detected as DAT1"
@@ -732,7 +721,7 @@ mod tests {
             }],
             data: Vec::new(),
         };
-        let target = std::env::temp_dir().join("dat3_dat1_overflow_test.dat");
+        let target = ScratchPath::new("dat1_overflow");
         assert!(archive.save(&target).is_err());
     }
 }

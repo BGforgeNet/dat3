@@ -23,6 +23,8 @@ mod lzss; // LZSS decompression for DAT1 files
 
 #[cfg(test)]
 mod common_tests;
+#[cfg(test)]
+mod test_support; // Self-cleaning scratch paths for the test modules
 
 use common::{CompressionLevel, DatArchive, ExtractionMode, ListFormat, utils};
 
