@@ -30,3 +30,6 @@ fi
 
 # Glob pattern handling test
 ./glob_handling.sh
+
+# Extract missing-file handling test
+./extract_missing.sh

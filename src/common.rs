@@ -295,33 +295,45 @@ pub fn list_files_filtered(all_files: &[&FileEntry], patterns: &[String]) -> Res
 
     utils::print_file_listing(&files_to_list);
 
-    if !missing_patterns.is_empty() {
-        eprintln!("\nFiles not found:");
-        for pattern in &missing_patterns {
-            let display = utils::normalize_path_for_display(pattern);
-            eprintln!("  {display}");
-        }
-        bail!("Some requested files were not found");
-    }
-
-    Ok(())
+    report_missing_patterns(&missing_patterns)
 }
 
-/// Filter files by patterns and return matched files.
+/// Report patterns that matched no entry and fail.
 ///
-/// Shared by all formats' extract paths.
+/// Shared by the list and extract paths so both reject a mistyped name the
+/// same way.
+fn report_missing_patterns(missing_patterns: &[String]) -> Result<()> {
+    if missing_patterns.is_empty() {
+        return Ok(());
+    }
+
+    eprintln!("\nFiles not found:");
+    for pattern in missing_patterns {
+        let display = utils::normalize_path_for_display(pattern);
+        eprintln!("  {display}");
+    }
+    bail!("Some requested files were not found");
+}
+
+/// Filter files by patterns and return matched files, failing if any pattern
+/// matched nothing.
+///
+/// Shared by all formats' extract paths. Checked before extraction starts, so a
+/// mistyped name leaves no half-populated output directory.
 pub fn filter_files_by_patterns<'a>(
     all_files: &'a [FileEntry],
     patterns: &[String],
-) -> Vec<&'a FileEntry> {
+) -> Result<Vec<&'a FileEntry>> {
     let normalized_patterns = utils::normalize_user_patterns(patterns);
 
-    let (filtered, _) =
+    let (filtered, missing_patterns) =
         filter_and_track_patterns(all_files, &normalized_patterns, |file, pattern| {
             utils::matches_pattern(&file.name, pattern)
         });
 
-    filtered
+    report_missing_patterns(&missing_patterns)?;
+
+    Ok(filtered)
 }
 
 /// Extract entries stored as raw bytes or zlib streams, in parallel.

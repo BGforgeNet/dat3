@@ -170,7 +170,7 @@ impl ArcanumArchive {
 
     /// Extract files from the archive using parallel processing
     pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
-        let files_to_extract = common::filter_files_by_patterns(&self.files, files);
+        let files_to_extract = common::filter_files_by_patterns(&self.files, files)?;
         common::extract_zlib_archive_parallel(&self.data, &files_to_extract, output_dir, mode)
     }
 

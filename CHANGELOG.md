@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Breaking: `x` and `e` (extract) now fail when a requested file or glob matches nothing in the archive, the way `l` (list) already did. The missing names are printed and nothing is extracted; previously they were ignored silently and the exit code was 0.
+
 ## v0.8.0
 
 - Breaking: the `a` command's `--dat1` flag is replaced by `--format dat1|dat2|arcanum` (default `dat2` for new archives).
