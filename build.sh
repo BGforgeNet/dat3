@@ -27,19 +27,39 @@ for target in "${ALL_TARGETS[@]}"; do
 	rustup target add "$target" 2>/dev/null || true
 done
 
-# Build all targets in parallel - both debug and release
+# Build all targets in parallel - both debug and release.
+# pids and labels stay global on purpose: start_build appends to them.
+pids=()
+labels=()
+
+start_build() {
+	local label="$1"
+	shift
+	"$@" &
+	pids+=("$!")
+	labels+=("$label")
+}
+
 echo "Building debug and release targets..."
 for target in "${CARGO_TARGETS[@]}"; do
-	cargo build --target "$target" &
-	cargo build --release --target "$target" &
+	start_build "debug $target" cargo build --target "$target"
+	start_build "release $target" cargo build --release --target "$target"
 done
 for target in "${ZIG_TARGETS[@]}"; do
-	cargo zigbuild --target "$target" &
-	cargo zigbuild --release --target "$target" &
+	start_build "debug $target" cargo zigbuild --target "$target"
+	start_build "release $target" cargo zigbuild --release --target "$target"
 done
 
-# Wait for all builds to complete
-wait
+# Waited per pid, not with a bare `wait`: that reports 0 whatever the jobs did,
+# leaving a failed build to be caught only by the ls below - which a stale
+# binary from a restored target/ cache would satisfy, shipping it as a release
+# asset.
+for i in "${!pids[@]}"; do
+	if ! wait "${pids[$i]}"; then
+		echo "Error: ${labels[$i]} build failed" >&2
+		exit 1
+	fi
+done
 
 # Binary name for a target: Windows appends .exe, wasm produces a module
 binary_name() {
