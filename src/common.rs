@@ -483,8 +483,10 @@ pub fn add_files_zlib(
         }
     }
 
-    // The formats require entries sorted alphabetically (case-insensitive)
-    entries.sort_by_key(|f| f.name.to_lowercase());
+    // The formats require entries sorted alphabetically (case-insensitive).
+    // Cached: the key allocates, and sort_by_key recomputes it per comparison
+    // rather than per element.
+    entries.sort_by_cached_key(|f| f.name.to_lowercase());
 
     Ok(())
 }

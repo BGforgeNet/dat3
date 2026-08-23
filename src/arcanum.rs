@@ -245,7 +245,9 @@ impl ArcanumArchive {
                 .enumerate()
                 .map(|(i, f)| (f.name.as_str(), Some(i))),
         );
-        table.sort_by_key(|(name, _)| name.to_lowercase());
+        // Cached: the key allocates, so per-comparison recomputation is the
+        // dominant cost on a large table.
+        table.sort_by_cached_key(|(name, _)| name.to_lowercase());
 
         utils::write_atomically(path, |out| {
             // Step 1: file data, written in table order like the original tool

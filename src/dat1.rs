@@ -210,6 +210,8 @@ impl Dat1Archive {
         target_dir: Option<&str>,
         source_root: Option<&Path>,
     ) -> Result<()> {
+        use std::collections::HashSet;
+
         let base_path = file_path;
         let files = utils::collect_files(file_path).with_context(|| {
             format!(
@@ -218,6 +220,10 @@ impl Dat1Archive {
             )
         })?;
 
+        // Build every new entry first, then sweep the existing ones once. Doing
+        // the sweep per file made adding O(files * entries); the zlib formats
+        // have always used this shape (`common::add_files_zlib`).
+        let mut new_entries: Vec<FileEntry> = Vec::with_capacity(files.len());
         for file in files {
             let data =
                 fs::read(&file).with_context(|| format!("Failed to read {}", file.display()))?;
@@ -229,8 +235,23 @@ impl Dat1Archive {
             let display_path = utils::normalize_path_for_display(&archive_path);
             common::print_stdout(format_args!("Adding: {display_path}"));
 
-            // Find or create target directory
-            let dir_name = utils::get_dirname_from_dat_path(&archive_path);
+            // DAT1 stores files uncompressed
+            let mut file_entry = FileEntry::with_data(archive_path, data, false);
+            file_entry.size = size;
+            new_entries.push(file_entry);
+        }
+
+        // Every directory is swept, not just the ones the new entries land in:
+        // an archive read from disk can hold an entry whose name does not match
+        // the bucket it sits in, and both copies would then be written out.
+        let new_names: HashSet<&str> = new_entries.iter().map(|e| e.name.as_str()).collect();
+        for dir in &mut self.directories {
+            dir.files
+                .retain(|existing| !new_names.contains(existing.name.as_str()));
+        }
+
+        for entry in new_entries {
+            let dir_name = utils::get_dirname_from_dat_path(&entry.name);
             let dir_index =
                 if let Some(index) = self.directories.iter().position(|d| d.name == dir_name) {
                     index
@@ -241,17 +262,7 @@ impl Dat1Archive {
                     });
                     self.directories.len() - 1
                 };
-
-            // Remove any existing file with the same name from all directories
-            for dir in &mut self.directories {
-                dir.files
-                    .retain(|existing_file| existing_file.name != archive_path);
-            }
-
-            // DAT1 stores files uncompressed
-            let mut file_entry = FileEntry::with_data(archive_path, data, false);
-            file_entry.size = size;
-            self.directories[dir_index].files.push(file_entry);
+            self.directories[dir_index].files.push(entry);
         }
 
         Ok(())
@@ -281,11 +292,28 @@ impl Dat1Archive {
         // Calculate where file data starts: header, directory names, then
         // directory content blocks. Computed up front so entry offsets are
         // known before anything is written.
+        // `new()` seeds a "." root that stays empty when every file lands in a
+        // subdirectory; writing it out would give a repacked archive a directory
+        // the original does not have. One directory is always kept, because the
+        // format detector needs a non-zero count to recognise the header.
+        let dirs_to_write: Vec<&Directory> = {
+            let populated: Vec<&Directory> = self
+                .directories
+                .iter()
+                .filter(|dir| !dir.files.is_empty())
+                .collect();
+            if populated.is_empty() {
+                self.directories.iter().take(1).collect()
+            } else {
+                populated
+            }
+        };
+
         let mut data_offset: u32 = HEADER_SIZE;
-        for dir in &self.directories {
+        for dir in &dirs_to_write {
             data_offset += 1 + dir.name.len() as u32; // Length-prefixed directory name
         }
-        for dir in &self.directories {
+        for dir in &dirs_to_write {
             data_offset += DIR_HEADER_SIZE;
             for file in &dir.files {
                 // Not derivable: the length-prefixed name makes `Dat1FileEntry` variable-size.
@@ -308,10 +336,10 @@ impl Dat1Archive {
         utils::write_atomically(path, |output| {
             output.write_all(
                 &Dat1Header {
-                    dir_count: self.directories.len() as u32,
+                    dir_count: dirs_to_write.len() as u32,
                     // The hint must cover the count, and the reader keys on that
                     // to recognise the header; the count itself always satisfies it.
-                    folder_allocation_hint: self.directories.len() as u32,
+                    folder_allocation_hint: dirs_to_write.len() as u32,
                     reserved: 0,
                     // Zero rather than the clock: nothing reads it back, and a
                     // constant keeps repacking the same tree byte-reproducible.
@@ -321,7 +349,7 @@ impl Dat1Archive {
             )?;
 
             // Write directory names
-            for dir in &self.directories {
+            for dir in &dirs_to_write {
                 output.write_all(
                     &Dat1Name {
                         len: dir.name.len() as u8,
@@ -334,7 +362,7 @@ impl Dat1Archive {
             let mut current_offset = data_offset;
 
             // Write directory content headers and file entries
-            for dir in &self.directories {
+            for dir in &dirs_to_write {
                 output.write_all(
                     &Dat1DirHeader {
                         file_count: dir.files.len() as u32,
@@ -366,7 +394,7 @@ impl Dat1Archive {
             }
 
             // Write file data, borrowing in-memory entries instead of cloning
-            for dir in &self.directories {
+            for dir in &dirs_to_write {
                 for file in &dir.files {
                     match file.data {
                         Some(ref file_data) => output.write_all(file_data)?,
@@ -399,6 +427,117 @@ fn stored_file_name<'a>(dir_name: &str, file_name: &'a str) -> &'a str {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    /// Source tree with `count` files under `data/`, for the add-path tests.
+    fn add_source_tree(tag: &str, count: usize) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("dat3_add_{}_{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+        for i in 0..count {
+            std::fs::write(dir.join("data").join(format!("F{i}.TXT")), b"payload").unwrap();
+        }
+        dir
+    }
+
+    fn total_entries(archive: &Dat1Archive) -> usize {
+        archive.directories.iter().map(|d| d.files.len()).sum()
+    }
+
+    /// Re-adding a path must replace the entry, not accumulate a second one.
+    #[test]
+    fn adding_the_same_path_twice_keeps_one_entry() {
+        let src = add_source_tree("twice", 3);
+        let mut archive = Dat1Archive::new();
+        let level = CompressionLevel::new(0).unwrap();
+
+        archive
+            .add_file(&src.join("data"), level, None, Some(&src))
+            .unwrap();
+        archive
+            .add_file(&src.join("data"), level, None, Some(&src))
+            .unwrap();
+        let total = total_entries(&archive);
+        std::fs::remove_dir_all(&src).unwrap();
+
+        assert_eq!(total, 3, "re-adding the same tree duplicated entries");
+    }
+
+    /// The replacement sweep covers every directory, not just the one the new
+    /// entry lands in: an archive read from disk can hold an entry whose name
+    /// does not match the bucket it sits in, and two entries of one name would
+    /// then both be written out.
+    #[test]
+    fn adding_replaces_a_same_named_entry_parked_in_another_directory() {
+        let src = add_source_tree("crossdir", 1);
+        let mut archive = Dat1Archive::new();
+
+        // Park an entry under the root bucket whose name says "data".
+        let mut stale = FileEntry::with_data("data\\F0.TXT".to_string(), b"stale".to_vec(), false);
+        stale.size = 5;
+        archive.directories[0].files.push(stale);
+
+        archive
+            .add_file(
+                &src.join("data"),
+                CompressionLevel::new(0).unwrap(),
+                None,
+                Some(&src),
+            )
+            .unwrap();
+        let total = total_entries(&archive);
+        std::fs::remove_dir_all(&src).unwrap();
+
+        assert_eq!(total, 1, "the stale cross-directory entry survived the add");
+    }
+
+    /// Reads the `directory_count` out of a saved archive's header.
+    fn saved_dir_count(archive: &Dat1Archive, tag: &str) -> u32 {
+        let path = std::env::temp_dir().join(format!("dat3_dircount_{}_{tag}.dat", {
+            std::process::id()
+        }));
+        archive.save(&path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        u32::from_be_bytes(bytes[0..4].try_into().unwrap())
+    }
+
+    /// `new()` seeds a `.` root that stays empty whenever every file lands in a
+    /// subdirectory, and writing it out gives the repacked archive a directory
+    /// the original does not have - repacking retail `critter.dat` took its
+    /// `directory_count` from 1 to 2.
+    #[test]
+    fn save_omits_a_directory_that_holds_no_files() {
+        let mut archive = Dat1Archive::new();
+        let mut entry = FileEntry::with_data("ART\\F.TXT".to_string(), b"data".to_vec(), false);
+        entry.size = 4;
+        archive.directories.push(Directory {
+            name: "ART".to_string(),
+            files: vec![entry],
+        });
+
+        assert_eq!(
+            saved_dir_count(&archive, "empty_root"),
+            1,
+            "the empty root directory was written out"
+        );
+    }
+
+    /// ...but never down to zero: the format detector requires at least one
+    /// directory, so an archive emptied by `d` must still reopen.
+    #[test]
+    fn save_keeps_one_directory_when_the_archive_holds_no_files() {
+        let archive = Dat1Archive::new();
+        assert_eq!(saved_dir_count(&archive, "all_empty"), 1);
+
+        let path = std::env::temp_dir().join(format!("dat3_emptyre_{}.dat", std::process::id()));
+        archive.save(&path).unwrap();
+        let reopened = crate::common::DatArchive::open(&path);
+        std::fs::remove_file(&path).ok();
+        assert!(
+            matches!(reopened.unwrap(), crate::common::DatArchive::Dat1(_)),
+            "an empty DAT1 archive could not be reopened"
+        );
+    }
 
     /// The derived sizes are part of the on-disk format: a field added to
     /// either header would silently move every file offset.
@@ -534,7 +673,8 @@ mod tests {
 
         let dir_count = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
         let folder_hint = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
-        assert_eq!(dir_count, 13, "12 directories plus the root");
+        // The seeded "." root holds no files, so save omits it.
+        assert_eq!(dir_count, 12, "one header entry per populated directory");
         assert!(
             folder_hint >= dir_count,
             "folder hint {folder_hint} below directory count {dir_count}"
