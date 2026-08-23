@@ -14,13 +14,13 @@ little-endian, flat entry table at the end of the file, zlib compression.
    u32 distance from end of file back to the entry table start
 */
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use deku::prelude::*;
 use std::io::{Cursor, Write};
 use std::path::Path;
 
-use crate::common::{self, utils, CompressionLevel, ExtractionMode, FileEntry};
+use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, utils};
 
 /// Size of the trailing footer in bytes
 const FOOTER_SIZE: usize = 28;

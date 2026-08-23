@@ -5,7 +5,7 @@ Shared code for the DAT1, DAT2, and Arcanum formats. Provides a unified
 `DatArchive` enum so callers don't need to know which format they're working with.
 */
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use glob::glob;
 use std::fs;
 use std::io::{self, Write};
