@@ -11,7 +11,7 @@ set -xeu -o pipefail
 actionlint
 zizmor --min-severity low .github/workflows/
 
-# Typecheck the TypeScript integration test (tests/json_listing.ts)
+# Typecheck the TypeScript test helpers under tests/
 npm ci
 npm run typecheck
 

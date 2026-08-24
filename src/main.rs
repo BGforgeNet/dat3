@@ -1,8 +1,7 @@
 /*!
 # DAT3 - Fallout Archive Tool
 
-A cross-platform tool for managing Fallout 1 and 2 DAT archive files.
-Supports both DAT1 (Fallout 1) and DAT2 (Fallout 2) formats.
+A cross-platform tool for managing Fallout and Troika DAT archive files.
 */
 
 use anyhow::{Context, Result, bail};
@@ -34,7 +33,7 @@ use common::{CompressionLevel, DatArchive, ExtractionMode, ListFormat, utils};
 #[derive(Parser)]
 #[command(name = "dat3")]
 #[command(author = "DAT Tool Rewrite")]
-#[command(about = "Fallout .dat management cli")]
+#[command(about = "Fallout and Troika .dat management CLI")]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]

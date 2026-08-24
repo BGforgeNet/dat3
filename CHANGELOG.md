@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.10.0
 
-- New: support for The Temple of Elemental Evil DAT archives, including automatic detection, listing, extraction, adding, deleting, and creation with `a --format toee`.
+- New: support for The Temple of Elemental Evil (Troika) DAT archives - auto-detected on open for listing, extraction, adding, and deleting; `a --format toee` creates a new ToEE archive, and `.bgforge.yml` accepts `dat3.default_format: toee`.
 
 ## v0.9.1
 
