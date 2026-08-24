@@ -1,11 +1,11 @@
 [package]
 name = "fallout-dat3"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2024"
 # Floor set by u32::is_multiple_of (stabilized 1.87); 1.85 fails to compile, 1.87 verified clean.
 rust-version = "1.87"
 authors = ["BGforge"]
-description = "Fallout 1 and 2 .dat management cli."
+description = "Cross-platform CLI for Fallout and Troika DAT archives."
 license = "GPL-3.0-only"
 
 [[bin]]

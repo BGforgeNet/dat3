@@ -165,7 +165,7 @@ pub enum ListFormat {
 /// let dat1 = DatArchive::new_dat1();               // create new DAT1
 /// let dat2 = DatArchive::new_dat2();               // create new DAT2
 /// let arc = DatArchive::new_arcanum();             // create new Arcanum
-/// let toee = DatArchive::new_toee();                // create new ToEE
+/// let toee = DatArchive::new_toee();               // create new ToEE
 /// ```
 pub enum DatArchive {
     /// Fallout 1 format (big-endian, hierarchical dirs, LZSS compression)
