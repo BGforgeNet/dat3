@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- New: `--ignore-missing` for `l`, `x` and `e`. Requested names or globs that are not in the archive are reported as a warning instead of failing the command: whatever matched is listed or extracted, and the exit status stays 0.
+
 ## v0.10.0
 
 - New: support for The Temple of Elemental Evil (Troika) DAT archives - auto-detected on open for listing, extraction, adding, and deleting; `a --format toee` creates a new ToEE archive, and `.bgforge.yml` accepts `dat3.default_format: toee`.

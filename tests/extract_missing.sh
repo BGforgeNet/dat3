@@ -2,7 +2,8 @@
 
 set -xeu -o pipefail
 
-# Test that x and e fail on files that are not in the archive, like l does
+# Test that x and e fail on files that are not in the archive, like l does,
+# and that --ignore-missing downgrades that failure to a warning for l, x and e
 
 # shellcheck source=tests/common.sh
 source "$(dirname "$0")/common.sh"
@@ -68,5 +69,51 @@ verify_file out_glob_ok/b.txt
 "$DAT3" x test.dat -o out_all
 verify_file out_all/a.txt
 verify_file out_all/b.txt
+
+# ── --ignore-missing ──────────────────────────────────────────────────
+
+# Test 9: x --ignore-missing extracts what is there and succeeds
+"$DAT3" x test.dat -o out_tolerant --ignore-missing a.txt nope.txt >out_tolerant.log 2>&1
+verify_file out_tolerant/a.txt
+if ! grep -q "nope.txt" out_tolerant.log; then
+	echo "Error: x --ignore-missing should warn about the missing file"
+	exit 1
+fi
+if ! grep -qi "warning" out_tolerant.log; then
+	echo "Error: x --ignore-missing should label the report as a warning"
+	exit 1
+fi
+
+# Test 10: e --ignore-missing behaves the same
+"$DAT3" e test.dat -o out_tolerant_flat --ignore-missing a.txt nope.txt
+verify_file out_tolerant_flat/a.txt
+
+# Test 11: every requested name missing is still exit 0, with nothing extracted
+"$DAT3" x test.dat -o out_tolerant_none --ignore-missing nope.txt
+if [ -e out_tolerant_none/nope.txt ]; then
+	echo "Error: x --ignore-missing invented a file that is not in the archive"
+	exit 1
+fi
+
+# Test 12: a glob matching nothing is tolerated too
+"$DAT3" x test.dat -o out_tolerant_glob --ignore-missing '*.zzz'
+
+# Test 13: l fails on a missing name but tolerates it with --ignore-missing
+if "$DAT3" l test.dat nope.txt; then
+	echo "Error: l should have failed for a file not in the archive"
+	exit 1
+fi
+"$DAT3" l test.dat --ignore-missing a.txt nope.txt >list_tolerant.log 2>&1
+if ! grep -q "a.txt" list_tolerant.log; then
+	echo "Error: l --ignore-missing should still list the files that are present"
+	exit 1
+fi
+if ! grep -q "nope.txt" list_tolerant.log; then
+	echo "Error: l --ignore-missing should warn about the missing file"
+	exit 1
+fi
+
+# Test 14: --json listing tolerates a missing name as well
+"$DAT3" l test.dat --json --ignore-missing a.txt nope.txt
 
 echo "All extract missing-file tests passed!"

@@ -93,6 +93,22 @@ The names it prints are the names `x`, `e`, and `d` accept back. A pattern that
 matches nothing is still an error: the array on stdout is empty, the unmatched
 name goes to stderr, and the exit status is non-zero.
 
+### Tolerating names that are not in the archive
+
+By default `l`, `x` and `e` fail when a requested name or glob matches nothing,
+and extract nothing. `--ignore-missing` turns that failure into a warning:
+
+```bash
+# Lists and extracts whatever is there, warns about the rest, exits 0
+dat3 l master.dat --ignore-missing art/critters/vault.frm no/such/file.txt
+dat3 x master.dat --ignore-missing -o ./extracted/ @files.txt
+```
+
+The unmatched names still go to stderr, so a script can log them. Useful when
+one file list is run against several archives and only some of them hold each
+file. Every name missing is not an error either - nothing is extracted and the
+exit status is still 0.
+
 ### Response file support
 
 ```bash

@@ -26,7 +26,7 @@ mod common_tests;
 #[cfg(test)]
 mod test_support; // Self-cleaning scratch paths for the test modules
 
-use common::{CompressionLevel, DatArchive, ExtractionMode, ListFormat, utils};
+use common::{CompressionLevel, DatArchive, ExtractionMode, ListFormat, MissingFiles, utils};
 
 /// Command-line interface definition.
 /// The `clap` crate uses these derive macros to automatically parse arguments.
@@ -52,6 +52,9 @@ enum Commands {
         /// Print the listing as JSON instead of aligned columns
         #[arg(long)]
         json: bool,
+        /// Warn about requested files that are not in the archive instead of failing
+        #[arg(long)]
+        ignore_missing: bool,
     },
 
     /// Extract files preserving directory structure
@@ -61,6 +64,9 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
         files: Vec<String>,
+        /// Warn about requested files that are not in the archive instead of failing
+        #[arg(long)]
+        ignore_missing: bool,
     },
 
     /// Extract files flat (no subdirectories)
@@ -70,6 +76,9 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
         files: Vec<String>,
+        /// Warn about requested files that are not in the archive instead of failing
+        #[arg(long)]
+        ignore_missing: bool,
     },
 
     /// Add files to a DAT archive
@@ -126,6 +135,15 @@ impl ArchiveFormat {
     }
 }
 
+/// Map the `--ignore-missing` flag to the policy the archive operations take.
+fn missing_files_policy(ignore_missing: bool) -> MissingFiles {
+    if ignore_missing {
+        MissingFiles::Warn
+    } else {
+        MissingFiles::Fail
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -134,6 +152,7 @@ fn main() -> Result<()> {
             dat_file,
             files,
             json,
+            ignore_missing,
         } => {
             let archive = DatArchive::open(&dat_file)?;
             let patterns = utils::expand_response_files_for_archive(&files)?;
@@ -142,29 +161,41 @@ fn main() -> Result<()> {
             } else {
                 ListFormat::Text
             };
-            archive.list(&patterns, format)?;
+            archive.list(&patterns, format, missing_files_policy(ignore_missing))?;
         }
 
         Commands::Extract {
             dat_file,
             output,
             files,
+            ignore_missing,
         } => {
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // default: current directory
             let patterns = utils::expand_response_files_for_archive(&files)?;
-            archive.extract(&output_dir, &patterns, ExtractionMode::PreserveStructure)?;
+            archive.extract(
+                &output_dir,
+                &patterns,
+                ExtractionMode::PreserveStructure,
+                missing_files_policy(ignore_missing),
+            )?;
         }
 
         Commands::ExtractFlat {
             dat_file,
             output,
             files,
+            ignore_missing,
         } => {
             let archive = DatArchive::open(&dat_file)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // default: current directory
             let patterns = utils::expand_response_files_for_archive(&files)?;
-            archive.extract(&output_dir, &patterns, ExtractionMode::Flat)?;
+            archive.extract(
+                &output_dir,
+                &patterns,
+                ExtractionMode::Flat,
+                missing_files_policy(ignore_missing),
+            )?;
         }
 
         Commands::Add {
