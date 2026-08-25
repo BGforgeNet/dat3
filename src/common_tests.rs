@@ -226,7 +226,7 @@ mod tests {
 
     mod dat1_detection {
         use super::dat1_bytes;
-        use crate::common::{DatArchive, ExtractionMode};
+        use crate::common::{DatArchive, ExtractionMode, MissingFiles};
 
         /// Opens `bytes` and reports whether the format detector chose DAT1.
         /// A blob the detector rejects fails to open at all - nothing else in
@@ -276,7 +276,12 @@ mod tests {
             let dir = std::env::temp_dir().join(format!("dat3_detect_x_{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             archive
-                .extract(&dir, &[], ExtractionMode::PreserveStructure)
+                .extract(
+                    &dir,
+                    &[],
+                    ExtractionMode::PreserveStructure,
+                    MissingFiles::Fail,
+                )
                 .unwrap();
             let got = std::fs::read(dir.join("A.TXT")).unwrap();
             std::fs::remove_dir_all(&dir).unwrap();
@@ -838,7 +843,12 @@ mod tests {
             let out = std::env::temp_dir().join(format!("dat3_escape_out_{pid}"));
             let _ = std::fs::remove_dir_all(&out);
             let archive = DatArchive::open(&archive_path).unwrap();
-            let result = archive.extract(&out, &[], ExtractionMode::PreserveStructure);
+            let result = archive.extract(
+                &out,
+                &[],
+                ExtractionMode::PreserveStructure,
+                MissingFiles::Fail,
+            );
 
             let escaped = escape.exists();
             std::fs::remove_file(&archive_path).ok();
@@ -1395,6 +1405,76 @@ mod tests {
         fn empty_patterns() {
             let normalized = utils::normalize_user_patterns(&[]);
             assert!(normalized.is_empty());
+        }
+    }
+
+    // ── Missing-name policy ────────────────────────────────────────
+
+    mod missing_files {
+        use super::*;
+
+        fn entry(name: &str) -> FileEntry {
+            FileEntry {
+                name: name.to_string(),
+                offset: 0,
+                size: 100,
+                packed_size: 100,
+                compressed: false,
+                data: None,
+            }
+        }
+
+        #[test]
+        fn filtering_fails_on_a_missing_pattern_by_default() {
+            let entries = vec![entry("a.txt")];
+            let patterns = vec!["a.txt".to_string(), "nope.txt".to_string()];
+            let err =
+                filter_files_by_patterns(&entries, &patterns, MissingFiles::Fail).unwrap_err();
+            assert!(
+                err.to_string().contains("not found"),
+                "unexpected error: {err}"
+            );
+        }
+
+        #[test]
+        fn filtering_keeps_the_matched_files_when_misses_are_tolerated() {
+            let entries = vec![entry("a.txt"), entry("b.txt")];
+            let patterns = vec!["a.txt".to_string(), "nope.txt".to_string()];
+            let matched =
+                filter_files_by_patterns(&entries, &patterns, MissingFiles::Warn).unwrap();
+            assert_eq!(matched.len(), 1);
+            assert_eq!(matched[0].name, "a.txt");
+        }
+
+        /// Every requested name missing is still tolerated: the caller asked for
+        /// whatever is there, and nothing is there.
+        #[test]
+        fn filtering_succeeds_with_no_matches_at_all_when_misses_are_tolerated() {
+            let entries = vec![entry("a.txt")];
+            let patterns = vec!["nope.txt".to_string()];
+            let matched =
+                filter_files_by_patterns(&entries, &patterns, MissingFiles::Warn).unwrap();
+            assert!(matched.is_empty());
+        }
+
+        #[test]
+        fn listing_fails_on_a_missing_pattern_by_default() {
+            let entries = [entry("a.txt")];
+            let all: Vec<&FileEntry> = entries.iter().collect();
+            let patterns = vec!["nope.txt".to_string()];
+            assert!(
+                list_files_filtered(&all, &patterns, ListFormat::Text, MissingFiles::Fail).is_err()
+            );
+        }
+
+        #[test]
+        fn listing_succeeds_when_misses_are_tolerated() {
+            let entries = [entry("a.txt")];
+            let all: Vec<&FileEntry> = entries.iter().collect();
+            let patterns = vec!["a.txt".to_string(), "nope.txt".to_string()];
+            assert!(
+                list_files_filtered(&all, &patterns, ListFormat::Text, MissingFiles::Warn).is_ok()
+            );
         }
     }
 

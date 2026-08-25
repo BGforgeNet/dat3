@@ -20,7 +20,9 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
-use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, utils};
+use crate::common::{
+    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+};
 
 const FOOTER_SIZE: usize = 28;
 const MAGIC: [u8; 4] = *b"1TAD";
@@ -434,13 +436,24 @@ impl ToeeArchive {
         Ok(())
     }
 
-    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
+    pub fn list(
+        &self,
+        files: &[String],
+        format: ListFormat,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
         let all_files: Vec<&FileEntry> = self.files.iter().collect();
-        common::list_files_filtered(&all_files, files, format)
+        common::list_files_filtered(&all_files, files, format, on_missing)
     }
 
-    pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
-        let files_to_extract = common::filter_files_by_patterns(&self.files, files)?;
+    pub fn extract(
+        &self,
+        output_dir: &Path,
+        files: &[String],
+        mode: ExtractionMode,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
+        let files_to_extract = common::filter_files_by_patterns(&self.files, files, on_missing)?;
         common::extract_archive_parallel(
             &self.data,
             &files_to_extract,
@@ -788,7 +801,12 @@ mod tests {
 
         let out = ScratchPath::new("toee_extract");
         parsed
-            .extract(&out, &[], ExtractionMode::PreserveStructure)
+            .extract(
+                &out,
+                &[],
+                ExtractionMode::PreserveStructure,
+                MissingFiles::Fail,
+            )
             .unwrap();
         assert_eq!(std::fs::read(out.join("root.txt")).unwrap(), b"root");
         assert_eq!(std::fs::read(out.join("dir/packed.bin")).unwrap(), payload);

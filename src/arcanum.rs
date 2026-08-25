@@ -20,7 +20,9 @@ use deku::prelude::*;
 use std::io::{Cursor, Write};
 use std::path::Path;
 
-use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, utils};
+use crate::common::{
+    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+};
 
 /// Size of the trailing footer in bytes, derived from `ArcanumFooter`
 const FOOTER_SIZE: usize = ArcanumFooter::SIZE_BYTES.unwrap();
@@ -163,14 +165,25 @@ impl ArcanumArchive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
+    pub fn list(
+        &self,
+        files: &[String],
+        format: ListFormat,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
         let all_files: Vec<&FileEntry> = self.files.iter().collect();
-        common::list_files_filtered(&all_files, files, format)
+        common::list_files_filtered(&all_files, files, format, on_missing)
     }
 
     /// Extract files from the archive using parallel processing
-    pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
-        let files_to_extract = common::filter_files_by_patterns(&self.files, files)?;
+    pub fn extract(
+        &self,
+        output_dir: &Path,
+        files: &[String],
+        mode: ExtractionMode,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
+        let files_to_extract = common::filter_files_by_patterns(&self.files, files, on_missing)?;
         common::extract_archive_parallel(
             &self.data,
             &files_to_extract,
@@ -486,7 +499,12 @@ mod tests {
 
         let out_dir = ScratchPath::new("arc_x");
         parsed
-            .extract(&out_dir, &[], ExtractionMode::PreserveStructure)
+            .extract(
+                &out_dir,
+                &[],
+                ExtractionMode::PreserveStructure,
+                MissingFiles::Fail,
+            )
             .unwrap();
 
         let plain = std::fs::read(out_dir.join("DIR").join("PLAIN.TXT")).unwrap();
@@ -640,7 +658,7 @@ mod tests {
 
         let out_dir = ScratchPath::new("arc_addx");
         reparsed
-            .extract(&out_dir, &[], ExtractionMode::Flat)
+            .extract(&out_dir, &[], ExtractionMode::Flat, MissingFiles::Fail)
             .unwrap();
         let extracted = std::fs::read(out_dir.join("data.txt")).unwrap();
         assert_eq!(extracted, payload);

@@ -139,6 +139,15 @@ pub enum ExtractionMode {
     Flat,
 }
 
+/// What to do about a requested name or glob that matches nothing in the archive
+#[derive(Debug, Clone, Copy)]
+pub enum MissingFiles {
+    /// Report the misses and fail without listing or extracting anything
+    Fail,
+    /// Report the misses as a warning and carry on with whatever did match
+    Warn,
+}
+
 /// Controls how the `l` command renders its listing
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ListFormat {
@@ -260,12 +269,17 @@ impl DatArchive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
+    pub fn list(
+        &self,
+        files: &[String],
+        format: ListFormat,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
         match self {
-            Self::Dat1(a) => a.list(files, format),
-            Self::Dat2(a) => a.list(files, format),
-            Self::Arcanum(a) => a.list(files, format),
-            Self::Toee(a) => a.list(files, format),
+            Self::Dat1(a) => a.list(files, format, on_missing),
+            Self::Dat2(a) => a.list(files, format, on_missing),
+            Self::Arcanum(a) => a.list(files, format, on_missing),
+            Self::Toee(a) => a.list(files, format, on_missing),
         }
     }
 
@@ -275,12 +289,13 @@ impl DatArchive {
         output_dir: P,
         files: &[String],
         mode: ExtractionMode,
+        on_missing: MissingFiles,
     ) -> Result<()> {
         match self {
-            Self::Dat1(a) => a.extract(output_dir.as_ref(), files, mode),
-            Self::Dat2(a) => a.extract(output_dir.as_ref(), files, mode),
-            Self::Arcanum(a) => a.extract(output_dir.as_ref(), files, mode),
-            Self::Toee(a) => a.extract(output_dir.as_ref(), files, mode),
+            Self::Dat1(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
+            Self::Dat2(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
+            Self::Arcanum(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
+            Self::Toee(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
         }
     }
 
@@ -333,6 +348,7 @@ pub fn list_files_filtered(
     all_files: &[&FileEntry],
     patterns: &[String],
     format: ListFormat,
+    on_missing: MissingFiles,
 ) -> Result<()> {
     let normalized_patterns = utils::normalize_user_patterns(patterns);
 
@@ -346,28 +362,36 @@ pub fn list_files_filtered(
         ListFormat::Json => utils::print_file_listing_json(&files_to_list),
     }
 
-    report_missing_patterns(&missing_patterns)
+    report_missing_patterns(&missing_patterns, on_missing)
 }
 
-/// Report patterns that matched no entry and fail.
+/// Report patterns that matched no entry, failing unless the caller tolerates
+/// misses.
 ///
-/// Shared by the list and extract paths so both reject a mistyped name the
-/// same way.
-fn report_missing_patterns(missing_patterns: &[String]) -> Result<()> {
+/// Shared by the list and extract paths so both treat a mistyped name the same
+/// way. The names are printed either way; only the exit status differs.
+fn report_missing_patterns(missing_patterns: &[String], on_missing: MissingFiles) -> Result<()> {
     if missing_patterns.is_empty() {
         return Ok(());
     }
 
-    eprintln!("\nFiles not found:");
+    match on_missing {
+        MissingFiles::Fail => eprintln!("\nFiles not found:"),
+        MissingFiles::Warn => eprintln!("\nWarning: files not found:"),
+    }
     for pattern in missing_patterns {
         let display = utils::normalize_path_for_display(pattern);
         eprintln!("  {display}");
     }
-    bail!("Some requested files were not found");
+
+    match on_missing {
+        MissingFiles::Fail => bail!("Some requested files were not found"),
+        MissingFiles::Warn => Ok(()),
+    }
 }
 
 /// Filter files by patterns and return matched files, failing if any pattern
-/// matched nothing.
+/// matched nothing and `on_missing` is `Fail`.
 ///
 /// Shared by all formats' extract paths. Checked before extraction starts, so a
 /// mistyped name leaves no half-populated output directory.
@@ -376,6 +400,7 @@ fn report_missing_patterns(missing_patterns: &[String]) -> Result<()> {
 pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
     all_files: &'a [T],
     patterns: &[String],
+    on_missing: MissingFiles,
 ) -> Result<Vec<&'a FileEntry>> {
     let normalized_patterns = utils::normalize_user_patterns(patterns);
 
@@ -384,7 +409,7 @@ pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
             utils::matches_pattern(&file.as_ref().name, pattern)
         });
 
-    report_missing_patterns(&missing_patterns)?;
+    report_missing_patterns(&missing_patterns, on_missing)?;
 
     Ok(filtered.into_iter().map(|file| file.as_ref()).collect())
 }

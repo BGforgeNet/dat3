@@ -18,7 +18,9 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, utils};
+use crate::common::{
+    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+};
 use crate::lzss;
 
 // DAT1 format constants
@@ -177,16 +179,27 @@ impl Dat1Archive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
+    pub fn list(
+        &self,
+        files: &[String],
+        format: ListFormat,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
         let all_files = self.all_files();
-        common::list_files_filtered(&all_files, files, format)
+        common::list_files_filtered(&all_files, files, format, on_missing)
     }
 
     /// Extract files from the archive in parallel, mirroring the DAT2 path
     /// (per-file LZSS decompression and disk writes are independent).
-    pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
+    pub fn extract(
+        &self,
+        output_dir: &Path,
+        files: &[String],
+        mode: ExtractionMode,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
         let all_files = self.all_files();
-        let files_to_extract = common::filter_files_by_patterns(&all_files, files)?;
+        let files_to_extract = common::filter_files_by_patterns(&all_files, files, on_missing)?;
         common::extract_archive_parallel(
             &self.data,
             &files_to_extract,
@@ -602,7 +615,12 @@ mod tests {
         let reparsed = Dat1Archive::from_bytes(std::fs::read(&target).unwrap()).unwrap();
         let out = dir.join("out");
         reparsed
-            .extract(&out, &[], ExtractionMode::PreserveStructure)
+            .extract(
+                &out,
+                &[],
+                ExtractionMode::PreserveStructure,
+                MissingFiles::Fail,
+            )
             .unwrap();
 
         assert_eq!(std::fs::read(out.join("PLAIN.TXT")).unwrap(), b"plain data");
@@ -626,7 +644,12 @@ mod tests {
         let out = dir.join("out");
         let patterns = vec!["PLAIN.TXT".to_string(), "NOPE.TXT".to_string()];
         let err = reparsed
-            .extract(&out, &patterns, ExtractionMode::PreserveStructure)
+            .extract(
+                &out,
+                &patterns,
+                ExtractionMode::PreserveStructure,
+                MissingFiles::Fail,
+            )
             .unwrap_err();
 
         assert!(

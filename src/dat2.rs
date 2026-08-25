@@ -15,7 +15,9 @@ use deku::prelude::*;
 use std::io::{Cursor, Write};
 use std::path::Path;
 
-use crate::common::{self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, utils};
+use crate::common::{
+    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+};
 
 /// 8-byte footer at the end of every DAT2 file.
 /// Points to the directory tree and validates the total file size.
@@ -134,14 +136,25 @@ impl Dat2Archive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(&self, files: &[String], format: ListFormat) -> Result<()> {
+    pub fn list(
+        &self,
+        files: &[String],
+        format: ListFormat,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
         let all_files: Vec<&FileEntry> = self.files.iter().collect();
-        common::list_files_filtered(&all_files, files, format)
+        common::list_files_filtered(&all_files, files, format, on_missing)
     }
 
     /// Extract files from the archive using parallel processing
-    pub fn extract(&self, output_dir: &Path, files: &[String], mode: ExtractionMode) -> Result<()> {
-        let files_to_extract = common::filter_files_by_patterns(&self.files, files)?;
+    pub fn extract(
+        &self,
+        output_dir: &Path,
+        files: &[String],
+        mode: ExtractionMode,
+        on_missing: MissingFiles,
+    ) -> Result<()> {
+        let files_to_extract = common::filter_files_by_patterns(&self.files, files, on_missing)?;
         common::extract_archive_parallel(
             &self.data,
             &files_to_extract,
@@ -314,7 +327,12 @@ mod tests {
         let out = dir.join("out");
         let patterns = vec!["A.TXT".to_string(), "NOPE.TXT".to_string()];
         let err = reparsed
-            .extract(&out, &patterns, ExtractionMode::PreserveStructure)
+            .extract(
+                &out,
+                &patterns,
+                ExtractionMode::PreserveStructure,
+                MissingFiles::Fail,
+            )
             .unwrap_err();
 
         assert!(
@@ -324,6 +342,33 @@ mod tests {
         // Missing patterns are rejected before anything is written, so a typo never
         // leaves a half-populated output directory.
         assert!(!out.join("A.TXT").exists());
+    }
+
+    #[test]
+    fn extract_ignoring_missing_writes_the_files_that_are_present() {
+        let mut archive = Dat2Archive::new();
+        let mut entry = FileEntry::with_data("A.TXT".to_string(), b"data".to_vec(), false);
+        entry.size = 4;
+        archive.files.push(entry);
+
+        let dir = ScratchPath::new("dat2_extract_ignoring_missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("t.dat");
+        archive.save(&target).unwrap();
+        let reparsed = Dat2Archive::from_bytes(std::fs::read(&target).unwrap()).unwrap();
+
+        let out = dir.join("out");
+        let patterns = vec!["A.TXT".to_string(), "NOPE.TXT".to_string()];
+        reparsed
+            .extract(
+                &out,
+                &patterns,
+                ExtractionMode::PreserveStructure,
+                MissingFiles::Warn,
+            )
+            .unwrap();
+
+        assert!(out.join("A.TXT").exists());
     }
 
     #[test]
