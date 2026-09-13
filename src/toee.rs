@@ -15,7 +15,7 @@ components and every record has parent, first-child, and next-sibling indices.
 */
 
 use anyhow::{Context, Result, bail};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -100,18 +100,20 @@ pub fn is_toee_format(data: &[u8]) -> bool {
         return false;
     }
 
-    let magic: [u8; 4] = trailer[..4].try_into().unwrap();
-    let footer_size = match magic {
-        V0_MAGIC => V0_FOOTER_SIZE,
-        MAGIC => FOOTER_SIZE,
-        _ => return false,
+    let magic = &trailer[..4];
+    let footer_size = if magic == V0_MAGIC {
+        V0_FOOTER_SIZE
+    } else if magic == MAGIC {
+        FOOTER_SIZE
+    } else {
+        return false;
     };
     if data.len() < footer_size + 4 {
         return false;
     }
 
-    let filename_bytes = u32::from_le_bytes(trailer[4..8].try_into().unwrap()) as u64;
-    let table_from_end = u32::from_le_bytes(trailer[8..12].try_into().unwrap()) as usize;
+    let filename_bytes = u64::from(LittleEndian::read_u32(&trailer[4..8]));
+    let table_from_end = LittleEndian::read_u32(&trailer[8..12]) as usize;
     if table_from_end < footer_size + 4 || table_from_end > data.len() {
         return false;
     }
@@ -120,7 +122,7 @@ pub fn is_toee_format(data: &[u8]) -> bool {
     let Some(count_bytes) = data.get(table_start..table_start + 4) else {
         return false;
     };
-    let entry_count = u32::from_le_bytes(count_bytes.try_into().unwrap()) as u64;
+    let entry_count = u64::from(LittleEndian::read_u32(count_bytes));
     if entry_count == 0 && magic == MAGIC {
         // An empty ToEE table is byte-for-byte indistinguishable from an empty
         // Arcanum table, so retain the established Arcanum interpretation. The
@@ -154,11 +156,13 @@ impl ToeeArchive {
         }
 
         let trailer = &data[data.len() - V0_FOOTER_SIZE..];
-        let magic: [u8; 4] = trailer[..4].try_into().unwrap();
-        let version = match magic {
-            V0_MAGIC => ToeeVersion::V0,
-            MAGIC => ToeeVersion::V1,
-            _ => bail!("Not a ToEE DAT archive: missing DAT or DAT1 signature"),
+        let magic = &trailer[..4];
+        let version = if magic == V0_MAGIC {
+            ToeeVersion::V0
+        } else if magic == MAGIC {
+            ToeeVersion::V1
+        } else {
+            bail!("Not a ToEE DAT archive: missing DAT or DAT1 signature");
         };
         let footer_size = match version {
             ToeeVersion::V0 => V0_FOOTER_SIZE,
@@ -174,8 +178,8 @@ impl ToeeArchive {
         if version == ToeeVersion::V1 {
             guid.copy_from_slice(&footer[..16]);
         }
-        let filename_total_bytes = u32::from_le_bytes(trailer[4..8].try_into().unwrap()) as u64;
-        let table_from_end = u32::from_le_bytes(trailer[8..12].try_into().unwrap()) as usize;
+        let filename_total_bytes = u64::from(LittleEndian::read_u32(&trailer[4..8]));
+        let table_from_end = LittleEndian::read_u32(&trailer[8..12]) as usize;
         if table_from_end < footer_size + 4 || table_from_end > data.len() {
             bail!("Invalid ToEE footer: entry table offset out of range");
         }
@@ -185,7 +189,7 @@ impl ToeeArchive {
             bail!("Invalid ToEE archive: truncated entry table marker");
         }
         if table_start >= 4 {
-            let marker = u32::from_le_bytes(data[table_start - 4..table_start].try_into().unwrap());
+            let marker = LittleEndian::read_u32(&data[table_start - 4..table_start]);
             if marker as usize != table_start {
                 bail!("Invalid ToEE archive: entry table marker does not match footer");
             }
@@ -645,17 +649,17 @@ impl ToeeArchive {
             }
 
             out.write_u32::<LittleEndian>(current_offset + 4)?;
-            out.write_u32::<LittleEndian>(u32::try_from(nodes.len()).unwrap())?;
+            out.write_u32::<LittleEndian>(u32::try_from(nodes.len())?)?;
             let mut table_size = 4u64;
             let mut names_len = 0u64;
 
-            let link = |index: Option<usize>| -> i32 {
-                index.map(|i| i32::try_from(i).unwrap()).unwrap_or(-1)
+            let link = |index: Option<usize>| -> Result<i32> {
+                Ok(index.map(i32::try_from).transpose()?.unwrap_or(-1))
             };
             for node in &nodes {
                 let mut name_bytes = node.name.as_bytes().to_vec();
                 name_bytes.push(0);
-                out.write_u32::<LittleEndian>(u32::try_from(name_bytes.len()).unwrap())?;
+                out.write_u32::<LittleEndian>(u32::try_from(name_bytes.len())?)?;
                 out.write_all(&name_bytes)?;
                 out.write_u32::<LittleEndian>(0)?; // original tools wrote an in-memory pointer
 
@@ -675,9 +679,9 @@ impl ToeeArchive {
                     out.write_u32::<LittleEndian>(0)?;
                     out.write_u32::<LittleEndian>(0)?;
                 }
-                out.write_i32::<LittleEndian>(link(node.parent))?;
-                out.write_i32::<LittleEndian>(link(node.first_child))?;
-                out.write_i32::<LittleEndian>(link(node.next_sibling))?;
+                out.write_i32::<LittleEndian>(link(node.parent)?)?;
+                out.write_i32::<LittleEndian>(link(node.first_child)?)?;
+                out.write_i32::<LittleEndian>(link(node.next_sibling)?)?;
 
                 names_len += name_bytes.len() as u64;
                 table_size += ENTRY_FIXED_BYTES + name_bytes.len() as u64;

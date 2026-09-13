@@ -151,7 +151,7 @@ pub enum MissingFiles {
 }
 
 /// Controls how the `l` command renders its listing
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListFormat {
     /// Aligned columns for reading
     Text,
@@ -436,6 +436,8 @@ fn compress_zlib(data: &[u8], level: u8) -> Result<Vec<u8>> {
 /// Word a parse error from a deku-derived record for the user. deku reports a
 /// short read in bits, which says nothing useful about a truncated archive.
 pub fn deku_parse_error(context: impl std::fmt::Display, e: deku::DekuError) -> anyhow::Error {
+    // DekuError is non_exhaustive, so a catch-all arm is required; it keeps deku's own wording.
+    #[expect(clippy::wildcard_enum_match_arm)]
     match e {
         deku::DekuError::Incomplete(need) => anyhow::anyhow!(
             "{context}: archive data ends early ({} more bytes needed)",
@@ -1416,7 +1418,10 @@ pub mod utils {
         for component in path.components() {
             match component {
                 std::path::Component::Normal(_) => {}
-                _ => {
+                std::path::Component::Prefix(_)
+                | std::path::Component::RootDir
+                | std::path::Component::CurDir
+                | std::path::Component::ParentDir => {
                     bail!(
                         "Invalid add path with -C: {}",
                         normalize_path_for_display(&path.display().to_string())
@@ -1467,7 +1472,9 @@ pub mod utils {
                 std::path::Component::Prefix(_) => {}
                 std::path::Component::RootDir => {}
                 std::path::Component::CurDir if normalized_path.as_os_str().is_empty() => {}
-                other => normalized_path.push(other.as_os_str()),
+                other @ (std::path::Component::CurDir
+                | std::path::Component::ParentDir
+                | std::path::Component::Normal(_)) => normalized_path.push(other.as_os_str()),
             }
         }
 

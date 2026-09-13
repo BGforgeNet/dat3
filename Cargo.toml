@@ -47,6 +47,22 @@ yaml-rust2 = { version = "0.12", default-features = false }
 [target.'cfg(target_os = "linux")'.dependencies]
 mimalloc = "0.1"
 
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+# `expect` stays a warning: it is allowed on an invariant that cannot fail, with the message saying why.
+unwrap_used = "deny"
+expect_used = "warn"
+unwrap_in_result = "warn"
+undocumented_unsafe_blocks = "deny"
+ptr_arg = "warn"
+needless_range_loop = "warn"
+wildcard_enum_match_arm = "warn"
+from_over_into = "warn"
+derive_partial_eq_without_eq = "warn"
+
 [profile.release]
 lto = true
 codegen-units = 1

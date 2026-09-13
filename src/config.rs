@@ -63,7 +63,13 @@ fn parse_default_format(text: &str) -> Result<Option<ArchiveFormat>, String> {
                     "unsupported dat3.default_format {s:?} (expected dat1, dat2, arcanum, or toee)"
                 )
             }),
-        other => Err(format!(
+        other @ (yaml_rust2::Yaml::Real(_)
+        | yaml_rust2::Yaml::Integer(_)
+        | yaml_rust2::Yaml::Boolean(_)
+        | yaml_rust2::Yaml::Array(_)
+        | yaml_rust2::Yaml::Hash(_)
+        | yaml_rust2::Yaml::Alias(_)
+        | yaml_rust2::Yaml::Null) => Err(format!(
             "dat3.default_format must be a string, got {other:?}"
         )),
     }

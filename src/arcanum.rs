@@ -15,7 +15,7 @@ little-endian, flat entry table at the end of the file, zlib compression.
 */
 
 use anyhow::{Context, Result, bail};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use deku::prelude::*;
 use std::io::{Cursor, Write};
 use std::path::Path;
@@ -128,7 +128,7 @@ impl ArcanumArchive {
         // agree, so a mismatch means the footer points somewhere else.
         let marker = table_start
             .checked_sub(4)
-            .map(|at| <LittleEndian as byteorder::ByteOrder>::read_u32(&data[at..table_start]));
+            .map(|at| LittleEndian::read_u32(&data[at..table_start]));
         if marker != Some(table_start as u32) {
             bail!("Invalid Arcanum archive: entry table marker does not match footer");
         }
