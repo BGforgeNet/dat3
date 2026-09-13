@@ -14,7 +14,6 @@ LZSS compression for writing is not implemented - files are stored uncompressed.
 
 use anyhow::{Context, Result, bail};
 use deku::prelude::*;
-use std::fs;
 use std::io::Write;
 use std::path::Path;
 
@@ -245,8 +244,7 @@ impl Dat1Archive {
         // have always used this shape (`common::add_files_zlib`).
         let mut new_entries: Vec<FileEntry> = Vec::with_capacity(files.len());
         for file in files {
-            let data =
-                fs::read(&file).with_context(|| format!("Failed to read {}", file.display()))?;
+            let data = utils::read_entry_data(&file)?;
 
             let archive_path =
                 utils::calculate_archive_path(&file, base_path, target_dir, source_root)?;
@@ -331,14 +329,16 @@ impl Dat1Archive {
 
         let mut data_offset: u32 = HEADER_SIZE;
         for dir in &dirs_to_write {
-            data_offset += 1 + dir.name.len() as u32; // Length-prefixed directory name
+            // Length-prefixed directory name
+            data_offset += 1 + u32::from(name_len_u8("directory name", &dir.name)?);
         }
         for dir in &dirs_to_write {
             data_offset += DIR_HEADER_SIZE;
             for file in &dir.files {
                 // Not derivable: the length-prefixed name makes `Dat1FileEntry` variable-size.
                 // name_len byte + stored name + 4 u32 entry fields
-                data_offset += 1 + stored_file_name(&dir.name, &file.name).len() as u32 + 16;
+                let name_len = name_len_u8("file name", stored_file_name(&dir.name, &file.name))?;
+                data_offset += 1 + u32::from(name_len) + 16;
             }
         }
 
@@ -372,7 +372,7 @@ impl Dat1Archive {
             for dir in &dirs_to_write {
                 output.write_all(
                     &Dat1Name {
-                        len: dir.name.len() as u8,
+                        len: name_len_u8("directory name", &dir.name)?,
                         bytes: dir.name.as_bytes().to_vec(),
                     }
                     .to_bytes()?,
@@ -396,7 +396,7 @@ impl Dat1Archive {
                 for file in &dir.files {
                     let stored_name = stored_file_name(&dir.name, &file.name);
                     let entry = Dat1FileEntry {
-                        name_len: stored_name.len() as u8,
+                        name_len: name_len_u8("file name", stored_name)?,
                         name_bytes: stored_name.as_bytes().to_vec(),
                         attributes: if file.compressed {
                             DAT1_COMPRESSED_FLAG
@@ -433,6 +433,16 @@ impl Dat1Archive {
 
 /// Name as stored in a directory's content block: the directory prefix is
 /// stripped for real directories; root (".") entries are stored as-is.
+/// DAT1 prefixes names with a one-byte length, so a longer name cannot be stored.
+fn name_len_u8(kind: &str, name: &str) -> Result<u8> {
+    u8::try_from(name.len()).map_err(|_| {
+        anyhow::anyhow!(
+            "DAT1 {kind} is longer than 255 bytes: {}",
+            utils::normalize_path_for_display(name)
+        )
+    })
+}
+
 fn stored_file_name<'a>(dir_name: &str, file_name: &'a str) -> &'a str {
     if dir_name == "." {
         return file_name;
@@ -508,6 +518,49 @@ mod tests {
         std::fs::remove_dir_all(&src).unwrap();
 
         assert_eq!(total, 1, "the stale cross-directory entry survived the add");
+    }
+
+    /// DAT1 stores name lengths in one byte. A longer name used to be written with
+    /// a truncated length, producing an archive that could not be reopened.
+    #[test]
+    fn save_rejects_a_directory_name_over_255_bytes_and_keeps_the_old_archive() {
+        let mut archive = Dat1Archive::new();
+        let long_dir = "D".repeat(256);
+        let mut entry = FileEntry::with_data(format!("{long_dir}\\F.TXT"), b"data".to_vec(), false);
+        entry.size = 4;
+        archive.directories.push(Directory {
+            name: long_dir,
+            files: vec![entry],
+        });
+
+        let path = ScratchPath::new("dat1_long_dir");
+        std::fs::write(&path, b"previous archive").unwrap();
+        let err = archive.save(&path).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("directory name is longer than 255 bytes"),
+            "unexpected error: {err:#}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"previous archive");
+    }
+
+    #[test]
+    fn save_rejects_a_file_name_over_255_bytes() {
+        let mut archive = Dat1Archive::new();
+        let long_name = format!("{}.TXT", "F".repeat(252));
+        let mut entry = FileEntry::with_data(format!("ART\\{long_name}"), b"data".to_vec(), false);
+        entry.size = 4;
+        archive.directories.push(Directory {
+            name: "ART".to_string(),
+            files: vec![entry],
+        });
+
+        let err = archive
+            .save(&ScratchPath::new("dat1_long_file"))
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("file name is longer than 255 bytes"),
+            "unexpected error: {err:#}"
+        );
     }
 
     /// Reads the `directory_count` out of a saved archive's header.

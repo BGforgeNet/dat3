@@ -591,60 +591,59 @@ mod tests {
     mod matches_pattern {
         use super::*;
 
+        fn matches(file_name: &str, pattern: &str) -> bool {
+            utils::NamePattern::new(pattern).unwrap().matches(file_name)
+        }
+
+        #[test]
+        fn rejects_an_invalid_glob_instead_of_matching_it_as_text() {
+            let err = utils::NamePattern::new("ART\\[CRIT").err().unwrap();
+            let expected = format!(
+                "Invalid glob pattern: {}",
+                utils::normalize_path_for_display("ART\\[CRIT")
+            );
+            assert_eq!(err.to_string(), expected);
+        }
+
         #[test]
         fn substring_match() {
-            assert!(utils::matches_pattern(
-                "ART\\CRITTERS\\FILE.FRM",
-                "FILE.FRM"
-            ));
+            assert!(matches("ART\\CRITTERS\\FILE.FRM", "FILE.FRM"));
         }
 
         #[test]
         fn substring_no_match() {
-            assert!(!utils::matches_pattern(
-                "ART\\CRITTERS\\FILE.FRM",
-                "MISSING.TXT"
-            ));
+            assert!(!matches("ART\\CRITTERS\\FILE.FRM", "MISSING.TXT"));
         }
 
         #[test]
         fn glob_star_matches_extension() {
-            assert!(utils::matches_pattern("ART\\CRITTERS\\FILE.FRM", "*.FRM"));
+            assert!(matches("ART\\CRITTERS\\FILE.FRM", "*.FRM"));
         }
 
         #[test]
         fn glob_star_no_match_wrong_extension() {
-            assert!(!utils::matches_pattern("ART\\CRITTERS\\FILE.FRM", "*.TXT"));
+            assert!(!matches("ART\\CRITTERS\\FILE.FRM", "*.TXT"));
         }
 
         #[test]
         fn glob_question_mark() {
-            assert!(utils::matches_pattern("ART\\CRITTERS\\A.FRM", "?.FRM"));
-            assert!(!utils::matches_pattern("ART\\CRITTERS\\AB.FRM", "?.FRM"));
+            assert!(matches("ART\\CRITTERS\\A.FRM", "?.FRM"));
+            assert!(!matches("ART\\CRITTERS\\AB.FRM", "?.FRM"));
         }
 
         #[test]
         fn glob_with_path_prefix() {
-            assert!(utils::matches_pattern(
-                "ART\\CRITTERS\\FILE.FRM",
-                "ART/CRITTERS/*.FRM"
-            ));
+            assert!(matches("ART\\CRITTERS\\FILE.FRM", "ART/CRITTERS/*.FRM"));
         }
 
         #[test]
         fn glob_path_no_match_wrong_dir() {
-            assert!(!utils::matches_pattern(
-                "ART\\CRITTERS\\FILE.FRM",
-                "SOUND/*.FRM"
-            ));
+            assert!(!matches("ART\\CRITTERS\\FILE.FRM", "SOUND/*.FRM"));
         }
 
         #[test]
         fn character_range() {
-            assert!(utils::matches_pattern(
-                "ART\\CRITTERS\\FILE1.FRM",
-                "[A-Z]*.FRM"
-            ));
+            assert!(matches("ART\\CRITTERS\\FILE1.FRM", "[A-Z]*.FRM"));
         }
     }
 
@@ -761,9 +760,11 @@ mod tests {
         #[test]
         fn empty_patterns_returns_all() {
             let entries = vec![make_entry("a.txt"), make_entry("b.txt")];
-            let (filtered, missing) = filter_and_track_patterns(&entries, &[], |entry, pattern| {
-                entry.name.contains(pattern)
-            });
+            let no_patterns: &[String] = &[];
+            let (filtered, missing) =
+                filter_and_track_patterns(&entries, no_patterns, |entry, pattern| {
+                    entry.name.contains(pattern)
+                });
             assert_eq!(filtered.len(), 2);
             assert!(missing.is_empty());
         }
@@ -807,6 +808,20 @@ mod tests {
             });
             // Should only appear once (matched by first pattern)
             assert_eq!(filtered.len(), 1);
+        }
+
+        #[test]
+        fn every_pattern_that_matches_counts_as_found() {
+            // `l a.dat '*.TXT' FOO.TXT` must not report FOO.TXT missing just
+            // because the glob already selected it.
+            let entries = vec![make_entry("abc.txt")];
+            let patterns = vec!["abc".to_string(), "txt".to_string()];
+            let (filtered, missing) =
+                filter_and_track_patterns(&entries, &patterns, |entry, pattern| {
+                    entry.name.contains(pattern)
+                });
+            assert_eq!(filtered.len(), 1);
+            assert!(missing.is_empty(), "reported missing: {missing:?}");
         }
     }
 

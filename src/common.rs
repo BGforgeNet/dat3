@@ -99,6 +99,9 @@ impl AsRef<FileEntry> for FileEntry {
 impl FileEntry {
     /// Create a file entry with uncompressed data.
     /// The `offset` is set to 0 and will be computed when saving.
+    ///
+    /// Sizes are narrowed to u32 here: `utils::read_entry_data` refuses larger
+    /// inputs, and compressed data is only kept when it is smaller than its input.
     pub fn with_data(name: String, data: Vec<u8>, compressed: bool) -> Self {
         let packed_size = data.len() as u32;
         Self {
@@ -168,11 +171,11 @@ pub fn list_files_filtered(
     format: ListFormat,
     on_missing: MissingFiles,
 ) -> Result<()> {
-    let normalized_patterns = utils::normalize_user_patterns(patterns);
+    let compiled = utils::compile_patterns(patterns)?;
 
     let (files_to_list, missing_patterns) =
-        filter_and_track_patterns(all_files, &normalized_patterns, |file, pattern| {
-            utils::matches_pattern(&file.name, pattern)
+        filter_and_track_patterns(all_files, &compiled, |file, pattern| {
+            pattern.matches(&file.name)
         });
 
     match format {
@@ -188,7 +191,10 @@ pub fn list_files_filtered(
 ///
 /// Shared by the list and extract paths so both treat a mistyped name the same
 /// way. The names are printed either way; only the exit status differs.
-fn report_missing_patterns(missing_patterns: &[String], on_missing: MissingFiles) -> Result<()> {
+fn report_missing_patterns(
+    missing_patterns: &[&utils::NamePattern],
+    on_missing: MissingFiles,
+) -> Result<()> {
     if missing_patterns.is_empty() {
         return Ok(());
     }
@@ -198,7 +204,7 @@ fn report_missing_patterns(missing_patterns: &[String], on_missing: MissingFiles
         MissingFiles::Warn => eprintln!("\nWarning: files not found:"),
     }
     for pattern in missing_patterns {
-        let display = utils::normalize_path_for_display(pattern);
+        let display = utils::normalize_path_for_display(pattern.source());
         eprintln!("  {display}");
     }
 
@@ -220,11 +226,11 @@ pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
     patterns: &[String],
     on_missing: MissingFiles,
 ) -> Result<Vec<&'a FileEntry>> {
-    let normalized_patterns = utils::normalize_user_patterns(patterns);
+    let compiled = utils::compile_patterns(patterns)?;
 
     let (filtered, missing_patterns) =
-        filter_and_track_patterns(all_files, &normalized_patterns, |file, pattern| {
-            utils::matches_pattern(&file.as_ref().name, pattern)
+        filter_and_track_patterns(all_files, &compiled, |file, pattern| {
+            pattern.matches(&file.as_ref().name)
         });
 
     report_missing_patterns(&missing_patterns, on_missing)?;
@@ -359,7 +365,7 @@ fn process_single_file_for_adding(
     target_dir: Option<&str>,
     source_root: Option<&Path>,
 ) -> Result<FileEntry> {
-    let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
+    let data = utils::read_entry_data(file)?;
     let archive_path = utils::calculate_archive_path(file, base_path, target_dir, source_root)?;
     let display_path = utils::normalize_path_for_display(&archive_path);
     // The readers reject longer names, so writing one would produce an archive
@@ -467,13 +473,13 @@ pub fn delete_file_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> Res
 
 /// Filter items by patterns, tracking which patterns matched.
 ///
-/// Returns (matched_items, unmatched_patterns). Each item is matched at most
-/// once (by the first matching pattern) to avoid duplicates in listings.
-pub fn filter_and_track_patterns<'a, T>(
+/// Returns (matched_items, unmatched_patterns). Each item appears once however
+/// many patterns select it, and every one of those patterns counts as found.
+pub fn filter_and_track_patterns<'a, 'p, T, P>(
     items: &'a [T],
-    patterns: &[String],
-    matcher: impl Fn(&T, &str) -> bool,
-) -> (Vec<&'a T>, Vec<String>) {
+    patterns: &'p [P],
+    matcher: impl Fn(&T, &P) -> bool,
+) -> (Vec<&'a T>, Vec<&'p P>) {
     if patterns.is_empty() {
         return (items.iter().collect(), Vec::new());
     }
@@ -482,25 +488,22 @@ pub fn filter_and_track_patterns<'a, T>(
     let mut filtered_items = Vec::new();
 
     for item in items {
+        let mut selected = false;
         for (idx, pattern) in patterns.iter().enumerate() {
             if matcher(item, pattern) {
                 patterns_found[idx] = true;
-                filtered_items.push(item);
-                break; // Don't add the same item twice if multiple patterns match it
+                selected = true;
             }
+        }
+        if selected {
+            filtered_items.push(item);
         }
     }
 
-    let missing_patterns: Vec<String> = patterns
+    let missing_patterns = patterns
         .iter()
-        .enumerate()
-        .filter_map(|(idx, pattern)| {
-            if !patterns_found[idx] {
-                Some(pattern.clone())
-            } else {
-                None
-            }
-        })
+        .zip(patterns_found)
+        .filter_map(|(pattern, found)| (!found).then_some(pattern))
         .collect();
 
     (filtered_items, missing_patterns)
@@ -782,36 +785,92 @@ pub mod utils {
         pattern.contains('*') || pattern.contains('?') || pattern.contains('[')
     }
 
-    /// Match a file name against a pattern.
+    /// A user-supplied name or glob, compiled once per command and then matched
+    /// against every entry.
     ///
-    /// If the pattern contains glob metacharacters, uses glob matching.
-    /// Otherwise uses substring matching for backward compatibility.
-    /// Patterns without path separators match against just the filename portion.
-    pub fn matches_pattern(file_name: &str, pattern: &str) -> bool {
-        if contains_glob_metacharacters(pattern) {
-            // Normalize both to forward slashes for glob matching
-            let normalized_name = file_name.replace('\\', "/");
-            let normalized_pattern = pattern.replace('\\', "/");
+    /// A pattern with glob metacharacters is a glob; one without a path separator
+    /// matches the file name alone. Any other pattern matches as a substring, for
+    /// backward compatibility.
+    pub struct NamePattern {
+        source: String,
+        kind: PatternKind,
+    }
 
-            // If pattern has no path separator, match against filename only
-            let (name_to_match, pattern_to_use) = if !normalized_pattern.contains('/') {
-                let filename = normalized_name
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(&normalized_name);
-                (filename.to_string(), normalized_pattern)
+    enum PatternKind {
+        Glob {
+            glob: glob::Pattern,
+            whole_path: bool,
+        },
+        Substring,
+    }
+
+    impl NamePattern {
+        /// Compile `pattern`, rejecting a malformed glob rather than quietly
+        /// matching it as text.
+        pub fn new(pattern: &str) -> Result<Self> {
+            let kind = if contains_glob_metacharacters(pattern) {
+                let normalized = pattern.replace('\\', "/");
+                let glob = glob::Pattern::new(&normalized).map_err(|_| {
+                    anyhow::anyhow!(
+                        "Invalid glob pattern: {}",
+                        normalize_path_for_display(pattern)
+                    )
+                })?;
+                PatternKind::Glob {
+                    glob,
+                    whole_path: normalized.contains('/'),
+                }
             } else {
-                (normalized_name, normalized_pattern)
+                PatternKind::Substring
             };
-
-            match glob::Pattern::new(&pattern_to_use) {
-                Ok(glob_pattern) => glob_pattern.matches(&name_to_match),
-                // Invalid glob pattern: fall back to substring matching
-                Err(_) => file_name.contains(pattern),
-            }
-        } else {
-            file_name.contains(pattern)
+            Ok(Self {
+                source: pattern.to_string(),
+                kind,
+            })
         }
+
+        /// The pattern as given, for reporting
+        pub fn source(&self) -> &str {
+            &self.source
+        }
+
+        pub fn matches(&self, file_name: &str) -> bool {
+            match &self.kind {
+                PatternKind::Substring => file_name.contains(self.source.as_str()),
+                PatternKind::Glob { glob, whole_path } => {
+                    let normalized = file_name.replace('\\', "/");
+                    let target = if *whole_path {
+                        normalized.as_str()
+                    } else {
+                        normalized.rsplit('/').next().unwrap_or(&normalized)
+                    };
+                    glob.matches(target)
+                }
+            }
+        }
+    }
+
+    /// Read a file that is being added to an archive. Every format stores entry
+    /// sizes as u32, so a larger file is refused from its metadata before reading.
+    pub fn read_entry_data(file: &Path) -> Result<Vec<u8>> {
+        let len = fs::metadata(file)
+            .with_context(|| format!("Failed to read {}", file.display()))?
+            .len();
+        if len > u64::from(u32::MAX) {
+            bail!(
+                "{} is larger than the 4 GiB a DAT archive entry can hold",
+                file.display()
+            );
+        }
+        fs::read(file).with_context(|| format!("Failed to read {}", file.display()))
+    }
+
+    /// Normalize user patterns and compile each one
+    pub fn compile_patterns(patterns: &[String]) -> Result<Vec<NamePattern>> {
+        normalize_user_patterns(patterns)
+            .iter()
+            .map(|pattern| NamePattern::new(pattern))
+            .collect()
     }
 
     /// Normalize a glob pattern for the `glob` crate (needs forward slashes).

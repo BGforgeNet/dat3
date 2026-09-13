@@ -473,6 +473,27 @@ mod tests {
     }
 
     #[test]
+    fn add_rejects_a_file_too_large_for_u32_sizes_without_reading_it() {
+        // Sparse, so the test costs no disk and the check must come from metadata:
+        // reading it would allocate 4 GiB.
+        let dir = ScratchPath::dir("dat2_huge_file");
+        let file = dir.join("HUGE.BIN");
+        std::fs::File::create(&file)
+            .unwrap()
+            .set_len(u64::from(u32::MAX) + 1)
+            .unwrap();
+
+        let mut archive = Dat2Archive::new();
+        let err = archive
+            .add_file(&file, CompressionLevel::new(0).unwrap(), None, None)
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("larger than the 4 GiB a DAT archive entry can hold"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
     fn add_rejects_a_path_over_the_length_limit() {
         let dir = ScratchPath::dir("dat2_long_path");
         let file = dir.join("F.TXT");
