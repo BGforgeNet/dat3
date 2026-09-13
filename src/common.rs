@@ -180,7 +180,10 @@ pub fn list_files_filtered(
 
     match format {
         ListFormat::Text => utils::print_file_listing(&files_to_list),
-        ListFormat::Json => utils::print_file_listing_json(&files_to_list),
+        ListFormat::Json => print_stdout(format_args!(
+            "{}",
+            utils::format_file_listing_json(&files_to_list)
+        )),
     }
 
     report_missing_patterns(&missing_patterns, on_missing)
@@ -651,11 +654,6 @@ pub mod utils {
         }
         out.push(']');
         out
-    }
-
-    /// Print the JSON listing
-    pub fn print_file_listing_json<T: AsRef<FileEntry>>(files: &[T]) {
-        print_stdout(format_args!("{}", format_file_listing_json(files)));
     }
 
     /// Stream archive bytes to a same-directory temp file via the given closure,

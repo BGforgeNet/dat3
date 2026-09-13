@@ -16,7 +16,7 @@ components and every record has parent, first-child, and next-sibling indices.
 
 use anyhow::{Context, Result, bail};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
@@ -370,13 +370,13 @@ impl ToeeArchive {
         expected_parent: Option<usize>,
         linked: &mut [bool],
     ) -> Result<()> {
-        let mut chain_seen = HashSet::new();
         while let Some(index) = current {
-            if !chain_seen.insert(index) {
-                bail!("Invalid ToEE tree: sibling cycle at entry {index}");
-            }
+            // `linked` is set on every visit, so it catches a chain looping back on
+            // itself as well as an entry reachable from two chains.
             if linked[index] {
-                bail!("Invalid ToEE tree: entry {index} appears in multiple sibling chains");
+                bail!(
+                    "Invalid ToEE tree: entry {index} is linked more than once (a sibling cycle, or two chains)"
+                );
             }
             let actual_parent =
                 Self::link_index(entries[index].parent, entries.len(), "parent", index)?;
@@ -895,6 +895,32 @@ mod tests {
         let first_child = table + 8 + first_name_len + 24;
         bytes[first_child..first_child + 4].copy_from_slice(&9999i32.to_le_bytes());
         assert!(ToeeArchive::from_bytes(bytes).is_err());
+    }
+
+    #[test]
+    fn parser_rejects_a_sibling_cycle() {
+        let mut archive = ToeeArchive::new();
+        archive.files.push(raw_file("A.TXT", b"a"));
+        archive.files.push(raw_file("B.TXT", b"b"));
+        let path = ScratchPath::new("toee_cycle");
+        archive.save(&path).unwrap();
+        let mut bytes = std::fs::read(&path).unwrap();
+        let distance = u32::from_le_bytes(bytes[bytes.len() - 4..].try_into().unwrap()) as usize;
+        let table = bytes.len() - distance;
+        // Point the second root entry's next_sibling back at the first.
+        let first_name_len =
+            u32::from_le_bytes(bytes[table + 4..table + 8].try_into().unwrap()) as usize;
+        let second = table + 4 + 4 + first_name_len + 32;
+        let second_name_len =
+            u32::from_le_bytes(bytes[second..second + 4].try_into().unwrap()) as usize;
+        let next_sibling = second + 4 + second_name_len + 28;
+        bytes[next_sibling..next_sibling + 4].copy_from_slice(&0i32.to_le_bytes());
+
+        let err = ToeeArchive::from_bytes(bytes).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Invalid ToEE tree: entry 0 is linked more than once (a sibling cycle, or two chains)"
+        );
     }
 
     /// A valid archive whose parent chain is `depth` levels deep, laid out so
