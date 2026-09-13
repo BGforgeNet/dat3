@@ -468,7 +468,7 @@ impl ToeeArchive {
         )
     }
 
-    fn read_file_data(&self, file: &FileEntry) -> Result<Vec<u8>> {
+    fn read_file_data<'a>(&'a self, file: &'a FileEntry) -> Result<&'a [u8]> {
         utils::read_file_slice(&self.data, file)
     }
 
@@ -632,14 +632,7 @@ impl ToeeArchive {
                     continue;
                 };
                 let file = &self.files[file_index];
-                let owned;
-                let bytes: &[u8] = match file.data {
-                    Some(ref data) => data,
-                    None => {
-                        owned = self.read_file_data(file)?;
-                        &owned
-                    }
-                };
+                let bytes = self.read_file_data(file)?;
                 if bytes.len() != file.packed_size as usize {
                     bail!("Stored size does not match data for {}", file.name);
                 }

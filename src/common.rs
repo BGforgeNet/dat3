@@ -315,15 +315,14 @@ pub fn extract_archive_parallel(
             // Read and optionally decompress
             let file_data = utils::read_file_slice(archive_data, file)
                 .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
-            let final_data = if file.compressed {
-                decompress(&file_data, file.size as usize)
-                    .with_context(|| format!("Failed to decompress {}", file.name))?
+            let write_result = if file.compressed {
+                let decompressed = decompress(file_data, file.size as usize)
+                    .with_context(|| format!("Failed to decompress {}", file.name))?;
+                fs::write(&output_path, decompressed)
             } else {
-                file_data
+                fs::write(&output_path, file_data)
             };
-
-            fs::write(&output_path, final_data)
-                .with_context(|| format!("Failed to write {}", output_path.display()))?;
+            write_result.with_context(|| format!("Failed to write {}", output_path.display()))?;
 
             // Counted once written, every 1000 files and at the end
             let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
@@ -748,9 +747,9 @@ pub mod utils {
 
     /// Read one entry's raw (possibly still compressed) bytes: in-memory data
     /// for newly added entries, a bounds-checked slice of the archive buffer otherwise.
-    pub fn read_file_slice(archive_data: &[u8], file: &FileEntry) -> Result<Vec<u8>> {
+    pub fn read_file_slice<'a>(archive_data: &'a [u8], file: &'a FileEntry) -> Result<&'a [u8]> {
         if let Some(ref data) = file.data {
-            return Ok(data.clone());
+            return Ok(data);
         }
 
         // Checked math: offset/packed_size come from the archive file and can be
@@ -772,7 +771,7 @@ pub mod utils {
             return Err(out_of_bounds());
         }
 
-        Ok(archive_data[start..end].to_vec())
+        Ok(&archive_data[start..end])
     }
 
     /// Collect all files from a path (file or directory, recursive), reporting each

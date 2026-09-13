@@ -249,8 +249,9 @@ mod tests {
         #[test]
         fn slices_at_offset_and_packed_size() {
             let archive = [0u8, 10, 20, 30, 40];
-            let out = utils::read_file_slice(&archive, &stored_entry(1, 3)).unwrap();
-            assert_eq!(out, vec![10, 20, 30]);
+            let entry = stored_entry(1, 3);
+            let out = utils::read_file_slice(&archive, &entry).unwrap();
+            assert_eq!(out, [10, 20, 30]);
         }
 
         #[test]

@@ -216,7 +216,7 @@ impl Dat1Archive {
     }
 
     /// Read file data from the raw archive bytes
-    fn read_file_data(&self, file: &FileEntry) -> Result<Vec<u8>> {
+    fn read_file_data<'a>(&'a self, file: &'a FileEntry) -> Result<&'a [u8]> {
         utils::read_file_slice(&self.data, file)
     }
 
@@ -413,13 +413,10 @@ impl Dat1Archive {
                 }
             }
 
-            // Write file data, borrowing in-memory entries instead of cloning
+            // Write file data, borrowed from memory or from the original archive
             for dir in &dirs_to_write {
                 for file in &dir.files {
-                    match file.data {
-                        Some(ref file_data) => output.write_all(file_data)?,
-                        None => output.write_all(&self.read_file_data(file)?)?,
-                    }
+                    output.write_all(self.read_file_data(file)?)?;
                 }
             }
 

@@ -212,7 +212,7 @@ impl ArcanumArchive {
     }
 
     /// Read file data from the archive's own data buffer
-    fn read_file_data(&self, file: &FileEntry) -> Result<Vec<u8>> {
+    fn read_file_data<'a>(&'a self, file: &'a FileEntry) -> Result<&'a [u8]> {
         utils::read_file_slice(&self.data, file)
     }
 
@@ -288,14 +288,7 @@ impl ArcanumArchive {
                 if let Some(i) = index {
                     let file = &self.files[*i];
 
-                    let owned;
-                    let data: &[u8] = match file.data {
-                        Some(ref file_data) => file_data,
-                        None => {
-                            owned = self.read_file_data(file)?;
-                            &owned
-                        }
-                    };
+                    let data = self.read_file_data(file)?;
 
                     file_offsets[*i] = current_offset;
                     out.write_all(data)?;

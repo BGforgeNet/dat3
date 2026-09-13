@@ -175,7 +175,7 @@ impl Dat2Archive {
     }
 
     /// Read file data from the archive's own data buffer
-    fn read_file_data(&self, file: &FileEntry) -> Result<Vec<u8>> {
+    fn read_file_data<'a>(&'a self, file: &'a FileEntry) -> Result<&'a [u8]> {
         utils::read_file_slice(&self.data, file)
     }
 
@@ -220,14 +220,8 @@ impl Dat2Archive {
             for file in &self.files {
                 file_offsets.push(current_offset);
 
-                let owned;
-                let data: &[u8] = match file.data {
-                    Some(ref file_data) => file_data, // Already in memory (newly added file)
-                    None => {
-                        owned = self.read_file_data(file)?; // Read from the original archive
-                        &owned
-                    }
-                };
+                // In memory for a newly added file, borrowed from the original archive otherwise
+                let data = self.read_file_data(file)?;
 
                 cursor.write_all(data)?;
                 current_offset += data.len() as u32;
