@@ -24,6 +24,3 @@ allow = [
 multiple-versions = "deny"
 # Highlight both the lowest-versioned and the shortest path to a duplicate.
 highlight = "all"
-skip = [
-    { crate = "hashbrown@0.16.1", reason = "yaml-rust2's hashlink pins hashbrown 0.16 while deku's build-time toml_edit chain uses 0.17; drop once a yaml-rust2 release depends on hashlink >= 0.12, which moves to 0.17" },
-]
