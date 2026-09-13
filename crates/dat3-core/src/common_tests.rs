@@ -350,6 +350,37 @@ mod tests {
             .unwrap();
             assert_eq!(std::fs::read(out.join("SAME.TXT")).unwrap(), b"second");
         }
+
+        /// A link already sitting at an entry's destination is replaced, not
+        /// written through: following it would overwrite its target, outside the
+        /// output directory.
+        #[cfg(unix)]
+        #[test]
+        fn replaces_a_symlink_at_the_destination_instead_of_writing_through_it() {
+            let entries = [entry("SUB\\EVIL.TXT", b"from archive")];
+            let refs: Vec<&FileEntry> = entries.iter().collect();
+            let victim = crate::test_support::ScratchPath::new("link_victim");
+            std::fs::write(&victim, b"original").unwrap();
+            let out = crate::test_support::ScratchPath::dir("link_destination");
+            let destination = out.join("SUB").join("EVIL.TXT");
+            std::fs::create_dir(out.join("SUB")).unwrap();
+            std::os::unix::fs::symlink(victim.path(), &destination).unwrap();
+
+            extract_archive_parallel(
+                &[],
+                &refs,
+                &out,
+                ExtractionMode::PreserveStructure,
+                &NameView::new(CaseMode::Sensitive, []),
+                |d, _| Ok(d.to_vec()),
+            )
+            .unwrap();
+
+            assert_eq!(std::fs::read(&victim).unwrap(), b"original");
+            let metadata = std::fs::symlink_metadata(&destination).unwrap();
+            assert!(metadata.is_file(), "the destination is still a link");
+            assert_eq!(std::fs::read(&destination).unwrap(), b"from archive");
+        }
     }
 
     // ── read_file_slice ────────────────────────────────────────────

@@ -465,6 +465,13 @@ pub fn extract_archive_parallel(
             utils::ensure_dir_exists(&output_path)?;
 
             let contents = entry_contents(archive_data, file, &decompress)?;
+            // Writing through a link left at the destination would overwrite its
+            // target outside the output directory, so the link itself is replaced.
+            if fs::symlink_metadata(&output_path).is_ok_and(|m| m.file_type().is_symlink()) {
+                fs::remove_file(&output_path).with_context(|| {
+                    format!("Failed to replace symlink {}", output_path.display())
+                })?;
+            }
             fs::write(&output_path, contents)
                 .with_context(|| format!("Failed to write {}", output_path.display()))?;
 
