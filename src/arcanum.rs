@@ -123,6 +123,15 @@ impl ArcanumArchive {
             bail!("Invalid Arcanum footer: entry table offset out of range");
         }
         let table_start = data.len() - table_from_end;
+        // The u32 before the table repeats its absolute offset (ToEE checks the
+        // same field); the Arcanum demo archive and every archive `save` writes
+        // agree, so a mismatch means the footer points somewhere else.
+        let marker = table_start
+            .checked_sub(4)
+            .map(|at| <LittleEndian as byteorder::ByteOrder>::read_u32(&data[at..table_start]));
+        if marker != Some(table_start as u32) {
+            bail!("Invalid Arcanum archive: entry table marker does not match footer");
+        }
         let table = &data[table_start..data.len() - FOOTER_SIZE];
 
         let mut cursor = Cursor::new(table);
@@ -560,6 +569,18 @@ mod tests {
         assert!(
             err.to_string().contains("name_len"),
             "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_a_table_marker_that_disagrees_with_the_footer() {
+        let mut archive = build_archive(&[("A.TXT", FLAG_RAW, b"hi".to_vec(), 2)]);
+        // data (2 bytes), then the marker
+        archive[2..6].copy_from_slice(&7u32.to_le_bytes());
+        let err = ArcanumArchive::from_bytes(archive).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Invalid Arcanum archive: entry table marker does not match footer"
         );
     }
 
