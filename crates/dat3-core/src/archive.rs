@@ -7,12 +7,15 @@ format they're working with. Kept out of `common`, which the format modules
 build on, so module dependencies run one way.
 */
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 use crate::arcanum::{self, ArcanumArchive};
-use crate::common::{self, CaseMode, CompressionLevel, ExtractionMode, ListFormat, Selection};
+use crate::common::{
+    self, CaseMode, CompressionLevel, ExtractionMode, ListFormat, Selection, utils,
+};
 use crate::dat1::Dat1Archive;
 use crate::dat2::Dat2Archive;
 use crate::toee::{self, ToeeArchive};
@@ -35,6 +38,16 @@ pub enum ArchiveFormat {
 }
 
 impl ArchiveFormat {
+    /// Every format
+    pub const ALL: [Self; 4] = [Self::Dat1, Self::Dat2, Self::Arcanum, Self::Toee];
+
+    /// The format whose [`arg_name`](Self::arg_name) is `name`
+    pub fn from_arg_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|format| format.arg_name() == name)
+    }
+
     /// The value as typed on the command line, for error messages
     pub fn arg_name(self) -> &'static str {
         match self {
@@ -93,7 +106,11 @@ impl DatArchive {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let data = fs::read(&path)
             .with_context(|| format!("Failed to read DAT file: {}", path.as_ref().display()))?;
+        Self::from_bytes(data)
+    }
 
+    /// Parse an archive held in memory, auto-detecting the format as [`open`](Self::open) does
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         // Troika formats share a real magic and go first. ToEE's hierarchical
         // entry-table size distinguishes it from Arcanum's flat table. DAT1 is
         // a header heuristic and DAT2 (no signature at all) is the fallback.
@@ -222,16 +239,112 @@ impl DatArchive {
 
     /// Names of every file entry, as stored: backslash-separated, in their stored case
     pub fn entry_names(&self) -> Vec<String> {
-        let entries = match self {
+        self.file_entries()
+            .into_iter()
+            .map(|entry| entry.name.clone())
+            .collect()
+    }
+
+    /// Every file entry with its sizes, names as stored (see [`entry_names`](Self::entry_names))
+    pub fn entries(&self) -> Vec<Entry> {
+        self.file_entries()
+            .into_iter()
+            .map(|file| Entry {
+                name: file.name.clone(),
+                size: file.size,
+                packed_size: file.packed_size,
+                compressed: file.compressed,
+            })
+            .collect()
+    }
+
+    fn file_entries(&self) -> Vec<&common::FileEntry> {
+        match self {
             Self::Dat1(a) => a.entries(),
             Self::Dat2(a) => a.entries(),
             Self::Arcanum(a) => a.entries(),
             Self::Toee(a) => a.entries(),
+        }
+    }
+
+    /// The decompressed contents of the entry `name` refers to.
+    ///
+    /// `name` may use `/` or `\`. The entry with exactly that name wins; failing
+    /// that, under [`CaseMode::Insensitive`], the one entry whose name equals it
+    /// ignoring case. Several such entries, or none, is an error.
+    pub fn read(&self, name: &str, case: CaseMode) -> Result<Vec<u8>> {
+        let files = self.file_entries();
+        let index = common::find_stored_index(files.iter().map(|f| f.name.as_str()), name, case)?
+            .with_context(|| {
+            format!(
+                "File not found: {}",
+                utils::normalize_path_for_display(name)
+            )
+        })?;
+        let file = files[index];
+        let contents = match self {
+            Self::Dat1(a) => a.contents(file)?,
+            Self::Dat2(a) => a.contents(file)?,
+            Self::Arcanum(a) => a.contents(file)?,
+            Self::Toee(a) => a.contents(file)?,
         };
-        entries
-            .into_iter()
-            .map(|entry| entry.name.clone())
-            .collect()
+        Ok(contents.into_owned())
+    }
+
+    /// Add `data` as the entry `name` (`/` or `\` separated), in memory.
+    ///
+    /// The name is stored as given, and replaces any entry equal to it as `case`
+    /// compares. A name the archive cannot hold fails (see
+    /// [`utils::stored_name_for_insert`]), as does data over 4 GiB. The zlib
+    /// formats compress at `compression` when that saves space; DAT1 stores it
+    /// uncompressed. Prints nothing.
+    pub fn insert(
+        &mut self,
+        name: &str,
+        data: Vec<u8>,
+        compression: CompressionLevel,
+        case: CaseMode,
+    ) -> Result<()> {
+        let stored = utils::stored_name_for_insert(name)?;
+        if u32::try_from(data.len()).is_err() {
+            bail!(
+                "{} is larger than the 4 GiB a DAT archive entry can hold",
+                utils::normalize_path_for_display(&stored)
+            );
+        }
+        match self {
+            Self::Dat1(a) => {
+                let mut entry = common::FileEntry::with_data(stored, data, false);
+                entry.size = entry.packed_size;
+                a.insert_entry(entry, case);
+            }
+            Self::Dat2(a) => a.insert_entry(common::zlib_entry(stored, data, compression)?, case),
+            Self::Arcanum(a) => {
+                a.insert_entry(common::zlib_entry(stored, data, compression)?, case)
+            }
+            Self::Toee(a) => a.insert_entry(common::zlib_entry(stored, data, compression)?, case),
+        }
+        Ok(())
+    }
+
+    /// Remove the entry `name` refers to, found as [`read`](Self::read) finds it,
+    /// in memory. Returns whether an entry was removed. Prints nothing.
+    pub fn remove(&mut self, name: &str, case: CaseMode) -> Result<bool> {
+        let names = self.entry_names();
+        let Some(index) = common::find_stored_index(names.iter().map(String::as_str), name, case)?
+        else {
+            return Ok(false);
+        };
+        Ok(self.remove_entry(&names[index]))
+    }
+
+    fn remove_entry(&mut self, stored_name: &str) -> bool {
+        match self {
+            Self::Dat1(a) => a.remove_entry(stored_name),
+            Self::Dat2(a) => a.remove_entry(stored_name),
+            Self::Arcanum(a) => a.remove_entry(stored_name),
+            Self::Toee(a) => a.remove_entry(stored_name),
+        }
     }
 
     /// Delete every entry `patterns` select, in memory.
@@ -252,12 +365,18 @@ impl DatArchive {
     /// Delete the entry named exactly `file_name` (`/` or `\` separated), in memory.
     /// Prints the deleted name to stdout.
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        match self {
-            Self::Dat1(a) => a.delete_file(file_name),
-            Self::Dat2(a) => a.delete_file(file_name),
-            Self::Arcanum(a) => a.delete_file(file_name),
-            Self::Toee(a) => a.delete_file(file_name),
+        if !self.remove_entry(file_name) {
+            bail!(
+                "File not found: {}",
+                utils::normalize_path_for_display(file_name)
+            );
         }
+        let normalized = utils::normalize_user_path(file_name);
+        common::print_stdout(format_args!(
+            "Deleting: {}",
+            utils::normalize_path_for_display(&normalized)
+        ));
+        Ok(())
     }
 
     /// Write the archive to `path`, replacing any file there only once the new one
@@ -270,6 +389,37 @@ impl DatArchive {
             Self::Toee(a) => a.save(path.as_ref()),
         }
     }
+
+    /// Write the archive to `out`, byte for byte what [`save`](Self::save) writes
+    pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
+        match self {
+            Self::Dat1(a) => a.write_to(out),
+            Self::Dat2(a) => a.write_to(out),
+            Self::Arcanum(a) => a.write_to(out),
+            Self::Toee(a) => a.write_to(out),
+        }
+    }
+
+    /// The archive as it would be saved
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        self.write_to(&mut out)?;
+        Ok(out)
+    }
+}
+
+/// One file entry's name and sizes, as [`DatArchive::entries`] reports it
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Entry {
+    /// Name as stored: backslash-separated, in its stored case
+    pub name: String,
+    /// Size of the contents in bytes
+    pub size: u32,
+    /// Size as stored in the archive, compressed or not
+    pub packed_size: u32,
+    /// Whether the stored data is compressed
+    pub compressed: bool,
 }
 
 #[cfg(test)]
@@ -277,12 +427,19 @@ mod tests {
     use super::*;
     use crate::test_support::ScratchPath;
 
-    const ALL_FORMATS: [ArchiveFormat; 4] = [
-        ArchiveFormat::Dat1,
-        ArchiveFormat::Dat2,
-        ArchiveFormat::Arcanum,
-        ArchiveFormat::Toee,
-    ];
+    const ALL_FORMATS: [ArchiveFormat; 4] = ArchiveFormat::ALL;
+
+    #[test]
+    fn from_arg_name_names_every_format_and_nothing_else() {
+        for format in ALL_FORMATS {
+            assert_eq!(
+                ArchiveFormat::from_arg_name(format.arg_name()),
+                Some(format)
+            );
+        }
+        assert_eq!(ArchiveFormat::from_arg_name("zip"), None);
+        assert_eq!(ArchiveFormat::from_arg_name("DAT2"), None);
+    }
 
     /// A new archive holding one small file per name (`/`-separated), stored in
     /// exactly the case given
@@ -505,5 +662,240 @@ mod tests {
                 "{format:?}"
             );
         }
+    }
+
+    // -- In-memory API --
+
+    fn level(n: u8) -> CompressionLevel {
+        CompressionLevel::new(n).unwrap()
+    }
+
+    /// Serialize and parse again, without touching the filesystem
+    fn through_bytes(archive: &DatArchive) -> DatArchive {
+        DatArchive::from_bytes(archive.to_bytes().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn inserted_entries_survive_to_bytes_and_from_bytes() {
+        let compressible = b"frame ".repeat(500);
+        for format in ALL_FORMATS {
+            let mut archive = DatArchive::new(format);
+            archive
+                .insert(
+                    "art/Hero.FRM",
+                    compressible.clone(),
+                    level(9),
+                    CaseMode::Insensitive,
+                )
+                .unwrap();
+            archive
+                .insert(
+                    "README.TXT",
+                    b"hi".to_vec(),
+                    level(0),
+                    CaseMode::Insensitive,
+                )
+                .unwrap();
+
+            let parsed = through_bytes(&archive);
+            assert_eq!(parsed.format(), format);
+            assert_eq!(
+                sorted_names(&parsed),
+                ["README.TXT", "art\\Hero.FRM"],
+                "{format:?}"
+            );
+            for opened in [&archive, &parsed] {
+                assert_eq!(
+                    opened.read("art/Hero.FRM", CaseMode::Insensitive).unwrap(),
+                    compressible,
+                    "{format:?}"
+                );
+                assert_eq!(
+                    opened.read("README.TXT", CaseMode::Insensitive).unwrap(),
+                    b"hi"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn to_bytes_matches_what_save_writes() {
+        for format in ALL_FORMATS {
+            let archive = archive_with(format, &["ART/HERO.FRM", "TEXT/A.TXT"]);
+            let path = ScratchPath::new("archive_to_bytes");
+            archive.save(&path).unwrap();
+            assert_eq!(
+                archive.to_bytes().unwrap(),
+                std::fs::read(&path).unwrap(),
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn entries_report_sizes_and_compression() {
+        let compressible = b"frame ".repeat(500);
+        for format in ALL_FORMATS {
+            let mut archive = DatArchive::new(format);
+            archive
+                .insert(
+                    "a.frm",
+                    compressible.clone(),
+                    level(9),
+                    CaseMode::Insensitive,
+                )
+                .unwrap();
+            let entries = through_bytes(&archive).entries();
+            assert_eq!(entries.len(), 1, "{format:?}");
+            let entry = &entries[0];
+            assert_eq!(entry.name, "a.frm");
+            assert_eq!(entry.size as usize, compressible.len(), "{format:?}");
+            // DAT1 writing is uncompressed; the zlib formats keep compression that saves space
+            match format {
+                ArchiveFormat::Dat1 => {
+                    assert!(!entry.compressed);
+                    assert_eq!(entry.packed_size, entry.size);
+                }
+                ArchiveFormat::Dat2 | ArchiveFormat::Arcanum | ArchiveFormat::Toee => {
+                    assert!(entry.compressed, "{format:?}");
+                    assert!(entry.packed_size < entry.size, "{format:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn insert_replaces_a_name_as_case_compares_and_stores_the_name_as_given() {
+        for format in ALL_FORMATS {
+            let mut archive = DatArchive::new(format);
+            archive
+                .insert(
+                    "Data/A.txt",
+                    b"old".to_vec(),
+                    level(0),
+                    CaseMode::Insensitive,
+                )
+                .unwrap();
+            archive
+                .insert(
+                    "data\\A.TXT",
+                    b"new".to_vec(),
+                    level(0),
+                    CaseMode::Insensitive,
+                )
+                .unwrap();
+            let parsed = through_bytes(&archive);
+            assert_eq!(parsed.entry_names().len(), 1, "{format:?}");
+            assert_eq!(
+                parsed.read("DATA/A.TXT", CaseMode::Insensitive).unwrap(),
+                b"new"
+            );
+
+            archive
+                .insert(
+                    "data/a.txt",
+                    b"twin".to_vec(),
+                    level(0),
+                    CaseMode::Sensitive,
+                )
+                .unwrap();
+            assert_eq!(archive.entry_names().len(), 2, "{format:?}");
+        }
+    }
+
+    #[test]
+    fn insert_refuses_names_an_archive_cannot_hold() {
+        let too_long = "a".repeat(common::MAX_PATH_BYTES + 1);
+        for format in ALL_FORMATS {
+            let mut archive = DatArchive::new(format);
+            for name in [
+                "",
+                "../escape.txt",
+                "/abs.txt",
+                "dir/con.txt",
+                "a:b.txt",
+                too_long.as_str(),
+            ] {
+                assert!(
+                    archive
+                        .insert(name, b"x".to_vec(), level(0), CaseMode::Insensitive)
+                        .is_err(),
+                    "{format:?} accepted {name:?}"
+                );
+            }
+            assert!(archive.entry_names().is_empty(), "{format:?}");
+        }
+    }
+
+    #[test]
+    fn read_takes_the_exact_name_first_then_any_case() {
+        for format in [ArchiveFormat::Dat2, ArchiveFormat::Arcanum] {
+            let mut archive = DatArchive::new(format);
+            archive
+                .insert(
+                    "README.TXT",
+                    b"upper".to_vec(),
+                    level(0),
+                    CaseMode::Sensitive,
+                )
+                .unwrap();
+            archive
+                .insert(
+                    "readme.txt",
+                    b"lower".to_vec(),
+                    level(0),
+                    CaseMode::Sensitive,
+                )
+                .unwrap();
+            archive
+                .insert(
+                    "Other.txt",
+                    b"other".to_vec(),
+                    level(0),
+                    CaseMode::Sensitive,
+                )
+                .unwrap();
+            let archive = through_bytes(&archive);
+            let case = CaseMode::Insensitive;
+
+            assert_eq!(archive.read("README.TXT", case).unwrap(), b"upper");
+            assert_eq!(archive.read("readme.txt", case).unwrap(), b"lower");
+            assert_eq!(archive.read("OTHER.TXT", case).unwrap(), b"other");
+            let ambiguous = archive.read("Readme.txt", case).unwrap_err().to_string();
+            assert!(ambiguous.contains("README.TXT"), "{format:?}: {ambiguous}");
+            let missing = archive.read("missing.txt", case).unwrap_err().to_string();
+            assert!(missing.contains("not found"), "{format:?}: {missing}");
+            assert!(archive.read("OTHER.TXT", CaseMode::Sensitive).is_err());
+        }
+    }
+
+    #[test]
+    fn remove_reports_whether_an_entry_was_removed() {
+        for format in ALL_FORMATS {
+            let mut archive =
+                through_bytes(&archive_with(format, &["ART/HERO.FRM", "ART/OTHER.FRM"]));
+            assert!(
+                archive
+                    .remove("art/hero.frm", CaseMode::Insensitive)
+                    .unwrap(),
+                "{format:?}"
+            );
+            assert!(
+                !archive
+                    .remove("art/hero.frm", CaseMode::Insensitive)
+                    .unwrap(),
+                "{format:?}"
+            );
+            assert_eq!(
+                sorted_names(&through_bytes(&archive)),
+                ["ART\\OTHER.FRM"],
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_bytes_rejects_data_that_is_no_archive() {
+        assert!(DatArchive::from_bytes(b"not an archive".to_vec()).is_err());
     }
 }

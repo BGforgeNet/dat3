@@ -16,6 +16,7 @@ components and every record has parent, first-child, and next-sibling indices.
 
 use anyhow::{Context, Result, bail};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -489,8 +490,19 @@ impl ToeeArchive {
         )
     }
 
-    pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        common::delete_file_from_list(&mut self.files, file_name)
+    /// An entry's contents, decompressed
+    pub fn contents<'a>(&'a self, file: &'a FileEntry) -> Result<Cow<'a, [u8]>> {
+        common::entry_contents(&self.data, file, common::decompress_zlib)
+    }
+
+    /// Add a prepared entry, replacing the entries of its name as `case` compares
+    pub fn insert_entry(&mut self, entry: FileEntry, case: CaseMode) {
+        common::merge_entries(&mut self.files, vec![entry], case);
+    }
+
+    /// Remove the entry named exactly `file_name`, reporting whether there was one
+    pub fn remove_entry(&mut self, file_name: &str) -> bool {
+        common::remove_from_list(&mut self.files, file_name)
     }
 
     /// Add `raw` and each of its ancestors to the node set.
@@ -614,7 +626,21 @@ impl ToeeArchive {
         Ok(nodes)
     }
 
+    /// Save the archive to a ToEE DAT file
     pub fn save(&self, path: &Path) -> Result<()> {
+        let nodes = self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(&nodes, out)).context(WRITE_CONTEXT)
+    }
+
+    /// Write the archive as a ToEE DAT file to `out`
+    pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
+        let nodes = self.prepare_save()?;
+        self.write_prepared(&nodes, out).context(WRITE_CONTEXT)
+    }
+
+    /// Checks and the entry tree, built before any output exists so a refused
+    /// save leaves no temp file
+    fn prepare_save(&self) -> Result<Vec<SaveNode>> {
         let total_payload: u64 = self.files.iter().map(|f| f.packed_size as u64).sum();
         if total_payload > u32::MAX as u64 - 4 {
             bail!("ToEE archive would exceed the format's 4 GiB offset limit");
@@ -624,88 +650,84 @@ impl ToeeArchive {
         if nodes.len() > i32::MAX as usize {
             bail!("ToEE archive has too many entries for signed tree indices");
         }
+        Ok(nodes)
+    }
 
-        utils::write_atomically(path, |out| {
-            let mut file_offsets = vec![0u32; self.files.len()];
-            let mut current_offset = 0u32;
-            for node in &nodes {
-                let Some(file_index) = node.file_index else {
-                    continue;
-                };
+    fn write_prepared(&self, nodes: &[SaveNode], out: &mut dyn Write) -> Result<()> {
+        let mut file_offsets = vec![0u32; self.files.len()];
+        let mut current_offset = 0u32;
+        for node in nodes {
+            let Some(file_index) = node.file_index else {
+                continue;
+            };
+            let file = &self.files[file_index];
+            let bytes = self.read_file_data(file)?;
+            if bytes.len() != file.packed_size as usize {
+                bail!("Stored size does not match data for {}", file.name);
+            }
+            file_offsets[file_index] = current_offset;
+            out.write_all(bytes)?;
+            current_offset += file.packed_size;
+        }
+
+        out.write_u32::<LittleEndian>(current_offset + 4)?;
+        out.write_u32::<LittleEndian>(u32::try_from(nodes.len())?)?;
+        let mut table_size = 4u64;
+        let mut names_len = 0u64;
+
+        let link = |index: Option<usize>| -> Result<i32> {
+            Ok(index.map(i32::try_from).transpose()?.unwrap_or(-1))
+        };
+        for node in nodes {
+            let mut name_bytes = node.name.as_bytes().to_vec();
+            name_bytes.push(0);
+            out.write_u32::<LittleEndian>(u32::try_from(name_bytes.len())?)?;
+            out.write_all(&name_bytes)?;
+            out.write_u32::<LittleEndian>(0)?; // original tools wrote an in-memory pointer
+
+            if let Some(file_index) = node.file_index {
                 let file = &self.files[file_index];
-                let bytes = self.read_file_data(file)?;
-                if bytes.len() != file.packed_size as usize {
-                    bail!("Stored size does not match data for {}", file.name);
-                }
-                file_offsets[file_index] = current_offset;
-                out.write_all(bytes)?;
-                current_offset += file.packed_size;
+                out.write_u32::<LittleEndian>(if file.compressed { FLAG_ZLIB } else { FLAG_RAW })?;
+                out.write_u32::<LittleEndian>(file.size)?;
+                out.write_u32::<LittleEndian>(file.packed_size)?;
+                out.write_u32::<LittleEndian>(file_offsets[file_index])?;
+            } else {
+                out.write_u32::<LittleEndian>(FLAG_DIR)?;
+                out.write_u32::<LittleEndian>(0)?;
+                out.write_u32::<LittleEndian>(0)?;
+                out.write_u32::<LittleEndian>(0)?;
             }
+            out.write_i32::<LittleEndian>(link(node.parent)?)?;
+            out.write_i32::<LittleEndian>(link(node.first_child)?)?;
+            out.write_i32::<LittleEndian>(link(node.next_sibling)?)?;
 
-            out.write_u32::<LittleEndian>(current_offset + 4)?;
-            out.write_u32::<LittleEndian>(u32::try_from(nodes.len())?)?;
-            let mut table_size = 4u64;
-            let mut names_len = 0u64;
+            names_len += name_bytes.len() as u64;
+            table_size += ENTRY_FIXED_BYTES + name_bytes.len() as u64;
+        }
 
-            let link = |index: Option<usize>| -> Result<i32> {
-                Ok(index.map(i32::try_from).transpose()?.unwrap_or(-1))
-            };
-            for node in &nodes {
-                let mut name_bytes = node.name.as_bytes().to_vec();
-                name_bytes.push(0);
-                out.write_u32::<LittleEndian>(u32::try_from(name_bytes.len())?)?;
-                out.write_all(&name_bytes)?;
-                out.write_u32::<LittleEndian>(0)?; // original tools wrote an in-memory pointer
-
-                if let Some(file_index) = node.file_index {
-                    let file = &self.files[file_index];
-                    out.write_u32::<LittleEndian>(if file.compressed {
-                        FLAG_ZLIB
-                    } else {
-                        FLAG_RAW
-                    })?;
-                    out.write_u32::<LittleEndian>(file.size)?;
-                    out.write_u32::<LittleEndian>(file.packed_size)?;
-                    out.write_u32::<LittleEndian>(file_offsets[file_index])?;
-                } else {
-                    out.write_u32::<LittleEndian>(FLAG_DIR)?;
-                    out.write_u32::<LittleEndian>(0)?;
-                    out.write_u32::<LittleEndian>(0)?;
-                    out.write_u32::<LittleEndian>(0)?;
-                }
-                out.write_i32::<LittleEndian>(link(node.parent)?)?;
-                out.write_i32::<LittleEndian>(link(node.first_child)?)?;
-                out.write_i32::<LittleEndian>(link(node.next_sibling)?)?;
-
-                names_len += name_bytes.len() as u64;
-                table_size += ENTRY_FIXED_BYTES + name_bytes.len() as u64;
+        let footer_size = match self.version {
+            ToeeVersion::V0 => {
+                out.write_all(&V0_MAGIC)?;
+                V0_FOOTER_SIZE
             }
-
-            let footer_size = match self.version {
-                ToeeVersion::V0 => {
-                    out.write_all(&V0_MAGIC)?;
-                    V0_FOOTER_SIZE
-                }
-                ToeeVersion::V1 => {
-                    out.write_all(&self.guid)?;
-                    out.write_all(&MAGIC)?;
-                    FOOTER_SIZE
-                }
-            };
-            out.write_u32::<LittleEndian>(
-                u32::try_from(names_len).context("ToEE archive filenames exceed the u32 limit")?,
-            )?;
-            out.write_u32::<LittleEndian>(
-                u32::try_from(table_size + footer_size as u64)
-                    .context("ToEE entry table exceeds the u32 limit")?,
-            )?;
-            Ok(())
-        })
-        .context("Failed to write ToEE DAT file")?;
-
+            ToeeVersion::V1 => {
+                out.write_all(&self.guid)?;
+                out.write_all(&MAGIC)?;
+                FOOTER_SIZE
+            }
+        };
+        out.write_u32::<LittleEndian>(
+            u32::try_from(names_len).context("ToEE archive filenames exceed the u32 limit")?,
+        )?;
+        out.write_u32::<LittleEndian>(
+            u32::try_from(table_size + footer_size as u64)
+                .context("ToEE entry table exceeds the u32 limit")?,
+        )?;
         Ok(())
     }
 }
+
+const WRITE_CONTEXT: &str = "Failed to write ToEE DAT file";
 
 #[cfg(test)]
 mod tests {
@@ -998,7 +1020,7 @@ mod tests {
         let mut parsed = ToeeArchive::from_bytes(std::fs::read(&first).unwrap()).unwrap();
         assert_eq!(parsed.dirs, vec!["gone".to_string(), "keep".to_string()]);
 
-        parsed.delete_file("gone\\b.txt").unwrap();
+        assert!(parsed.remove_entry("gone\\b.txt"));
         let second = ScratchPath::new("toee_dirs2");
         parsed.save(&second).unwrap();
 

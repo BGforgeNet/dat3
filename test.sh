@@ -51,6 +51,10 @@ cd tests
 # TypeScript: the assertions are about a parsed document, so a real parser runs them
 node ./json_listing.ts
 
+# The npm package for Node and Electron, installed as an application would and
+# checked against the native build on the fixtures fetched above
+run_if_available wasm-bindgen ./wasm_library.sh
+
 # The WebAssembly build, run under a WASI runtime, and the arm64 build under
 # qemu. The arm64 binary comes from build.sh, which needs zig to produce it.
 run_if_available wasmtime ./wasm.sh

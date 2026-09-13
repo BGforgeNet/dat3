@@ -248,6 +248,36 @@ Its API may still change between releases. The optional `clap` feature derives `
 `ArchiveFormat`. The API documentation, with an example, builds with `cargo doc --no-deps --package dat3-core --open`
 in a checkout, or with `cargo doc --open` in a project that depends on it.
 
+### From Node.js and Electron
+
+Releases also ship `dat3-wasm.tgz`, an npm package of the same library compiled to WebAssembly. It runs in Node and in
+Electron's main process and workers on every platform, with TypeScript types included. Install it from the release:
+
+```bash
+npm install https://github.com/BGforgeNet/dat3/releases/download/<release tag>/dat3-wasm.tgz
+```
+
+It works on bytes, so the application reads and writes the files:
+
+```js
+const { readFileSync, writeFileSync } = require("node:fs");
+const { Archive } = require("dat3-wasm");
+
+const archive = Archive.fromBytes(readFileSync("patch000.dat"));
+for (const entry of archive.entries()) {
+  console.log(entry.name, entry.size); // names use "/"
+}
+const frm = archive.read("art/critters/haenroaa.frm"); // Uint8Array; any letter case
+archive.insert("text/english/game/new.msg", readFileSync("new.msg"), 9); // compression 0-9
+archive.remove("data/old.txt");
+writeFileSync("patch000.dat", archive.toBytes());
+archive.free(); // releases the archive's memory now rather than at garbage collection
+```
+
+`new Archive("dat2")` starts an empty archive (`"dat1"`, `"dat2"`, `"arcanum"` or `"toee"`). Names are looked up
+regardless of case, preferring an exact match. Failures throw an `Error` with the reason. Calls run on the calling
+thread, so run long operations on large archives in a worker to keep a window responsive.
+
 ## Verifying a release
 
 Every release ships a `SHA256SUMS` file covering its binaries. Download it
@@ -288,3 +318,5 @@ target/x86_64-pc-windows-gnu/release/dat3.exe
 target/i686-pc-windows-gnu/release/dat3.exe
 target/wasm32-wasip1/release/dat3.wasm
 ```
+
+The npm package for Node and Electron is at `target/dat3-wasm.tgz`; `crates/dat3-wasm/package.sh` builds it alone.

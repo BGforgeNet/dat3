@@ -14,6 +14,7 @@ LZSS compression for writing is not implemented - files are stored uncompressed.
 
 use anyhow::{Context, Result, bail};
 use deku::prelude::*;
+use std::borrow::Cow;
 use std::io::Write;
 use std::path::Path;
 
@@ -228,9 +229,6 @@ impl Dat1Archive {
         source_root: Option<&Path>,
         case: CaseMode,
     ) -> Result<()> {
-        use std::collections::HashSet;
-
-        let key = |name: &str| case.fold(name).into_owned();
         let base_path = file_path;
         let files = utils::collect_files(file_path).with_context(|| {
             format!(
@@ -259,6 +257,27 @@ impl Dat1Archive {
             file_entry.size = size;
             new_entries.push(file_entry);
         }
+
+        self.insert_entries(new_entries, case);
+        Ok(())
+    }
+
+    /// An entry's contents, decompressed
+    pub fn contents<'a>(&'a self, file: &'a FileEntry) -> Result<Cow<'a, [u8]>> {
+        common::entry_contents(&self.data, file, lzss::decompress)
+    }
+
+    /// Add a prepared entry, replacing the entries of its name as `case` compares
+    pub fn insert_entry(&mut self, entry: FileEntry, case: CaseMode) {
+        self.insert_entries(vec![entry], case);
+    }
+
+    /// Place new entries in their directories, replacing existing entries of
+    /// the same name as `case` compares
+    fn insert_entries(&mut self, new_entries: Vec<FileEntry>, case: CaseMode) {
+        use std::collections::HashSet;
+
+        let key = |name: &str| case.fold(name).into_owned();
 
         // Every directory is swept, not just the ones the new entries land in:
         // an archive read from disk can hold an entry whose name does not match
@@ -295,31 +314,37 @@ impl Dat1Archive {
             };
             self.directories[dir_index].files.push(entry);
         }
-
-        Ok(())
     }
 
-    /// Delete a file from the archive by name
-    pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        let normalized_name = utils::normalize_user_path(file_name).into_owned();
-
+    /// Remove the entry named exactly `file_name`, reporting whether there was one
+    pub fn remove_entry(&mut self, file_name: &str) -> bool {
+        let normalized_name = utils::normalize_user_path(file_name);
         for dir in &mut self.directories {
             if let Some(pos) = dir.files.iter().position(|f| f.name == normalized_name) {
-                let display_name = utils::normalize_path_for_display(&normalized_name);
-                common::print_stdout(format_args!("Deleting: {display_name}"));
                 dir.files.remove(pos);
-                return Ok(());
+                return true;
             }
         }
-
-        bail!(
-            "File not found: {}",
-            utils::normalize_path_for_display(file_name)
-        );
+        false
     }
 
-    /// Save the archive to a file
+    /// Save the archive to a DAT1 file
     pub fn save(&self, path: &Path) -> Result<()> {
+        let (dirs, data_offset) = self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(&dirs, data_offset, out))
+            .context(WRITE_CONTEXT)
+    }
+
+    /// Write the archive as a DAT1 file to `out`
+    pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
+        let (dirs, data_offset) = self.prepare_save()?;
+        self.write_prepared(&dirs, data_offset, out)
+            .context(WRITE_CONTEXT)
+    }
+
+    /// The directories to write and where file data starts, checked before any
+    /// output exists so a refused save leaves no temp file
+    fn prepare_save(&self) -> Result<(Vec<&Directory>, u32)> {
         // Calculate where file data starts: header, directory names, then
         // directory content blocks. Computed up front so entry offsets are
         // known before anything is written.
@@ -365,81 +390,86 @@ impl Dat1Archive {
         if data_offset as u64 + total_payload > u32::MAX as u64 {
             bail!("DAT1 archive would exceed the format's 4 GiB offset limit");
         }
+        Ok((dirs_to_write, data_offset))
+    }
 
-        utils::write_atomically(path, |output| {
+    fn write_prepared(
+        &self,
+        dirs_to_write: &[&Directory],
+        data_offset: u32,
+        output: &mut dyn Write,
+    ) -> Result<()> {
+        output.write_all(
+            &Dat1Header {
+                dir_count: dirs_to_write.len() as u32,
+                // The hint must cover the count, and the reader keys on that
+                // to recognise the header; the count itself always satisfies it.
+                folder_allocation_hint: dirs_to_write.len() as u32,
+                reserved: 0,
+                // Zero rather than the clock: nothing reads it back, and a
+                // constant keeps repacking the same tree byte-reproducible.
+                timestamp: 0,
+            }
+            .to_bytes()?,
+        )?;
+
+        // Write directory names
+        for dir in dirs_to_write {
             output.write_all(
-                &Dat1Header {
-                    dir_count: dirs_to_write.len() as u32,
-                    // The hint must cover the count, and the reader keys on that
-                    // to recognise the header; the count itself always satisfies it.
-                    folder_allocation_hint: dirs_to_write.len() as u32,
-                    reserved: 0,
-                    // Zero rather than the clock: nothing reads it back, and a
-                    // constant keeps repacking the same tree byte-reproducible.
+                &Dat1Name {
+                    len: name_len_u8("directory name", &dir.name)?,
+                    bytes: dir.name.as_bytes().to_vec(),
+                }
+                .to_bytes()?,
+            )?;
+        }
+
+        let mut current_offset = data_offset;
+
+        // Write directory content headers and file entries
+        for dir in dirs_to_write {
+            output.write_all(
+                &Dat1DirHeader {
+                    file_count: dir.files.len() as u32,
+                    file_allocation_hint: dir.files.len() as u32,
+                    fixed_metadata_size: DAT1_ENTRY_METADATA_SIZE,
                     timestamp: 0,
                 }
                 .to_bytes()?,
             )?;
 
-            // Write directory names
-            for dir in &dirs_to_write {
-                output.write_all(
-                    &Dat1Name {
-                        len: name_len_u8("directory name", &dir.name)?,
-                        bytes: dir.name.as_bytes().to_vec(),
-                    }
-                    .to_bytes()?,
-                )?;
+            for file in &dir.files {
+                let stored_name = stored_file_name(&dir.name, &file.name);
+                let entry = Dat1FileEntry {
+                    name_len: name_len_u8("file name", stored_name)?,
+                    name_bytes: stored_name.as_bytes().to_vec(),
+                    attributes: if file.compressed {
+                        DAT1_COMPRESSED_FLAG
+                    } else {
+                        DAT1_UNCOMPRESSED_FLAG
+                    },
+                    offset: current_offset,
+                    size: file.size,
+                    packed_size: if file.compressed { file.packed_size } else { 0 },
+                };
+                output.write_all(&entry.to_bytes()?)?;
+
+                current_offset += file.packed_size;
             }
+        }
 
-            let mut current_offset = data_offset;
-
-            // Write directory content headers and file entries
-            for dir in &dirs_to_write {
-                output.write_all(
-                    &Dat1DirHeader {
-                        file_count: dir.files.len() as u32,
-                        file_allocation_hint: dir.files.len() as u32,
-                        fixed_metadata_size: DAT1_ENTRY_METADATA_SIZE,
-                        timestamp: 0,
-                    }
-                    .to_bytes()?,
-                )?;
-
-                for file in &dir.files {
-                    let stored_name = stored_file_name(&dir.name, &file.name);
-                    let entry = Dat1FileEntry {
-                        name_len: name_len_u8("file name", stored_name)?,
-                        name_bytes: stored_name.as_bytes().to_vec(),
-                        attributes: if file.compressed {
-                            DAT1_COMPRESSED_FLAG
-                        } else {
-                            DAT1_UNCOMPRESSED_FLAG
-                        },
-                        offset: current_offset,
-                        size: file.size,
-                        packed_size: if file.compressed { file.packed_size } else { 0 },
-                    };
-                    output.write_all(&entry.to_bytes()?)?;
-
-                    current_offset += file.packed_size;
-                }
+        // Write file data, borrowed from memory or from the original archive
+        for dir in dirs_to_write {
+            for file in &dir.files {
+                output.write_all(self.read_file_data(file)?)?;
             }
-
-            // Write file data, borrowed from memory or from the original archive
-            for dir in &dirs_to_write {
-                for file in &dir.files {
-                    output.write_all(self.read_file_data(file)?)?;
-                }
-            }
-
-            Ok(())
-        })
-        .context("Failed to write DAT1 file")?;
+        }
 
         Ok(())
     }
 }
+
+const WRITE_CONTEXT: &str = "Failed to write DAT1 file";
 
 /// Name as stored in a directory's content block: the directory prefix is
 /// stripped for real directories; root (".") entries are stored as-is.

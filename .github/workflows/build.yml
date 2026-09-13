@@ -37,7 +37,7 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy
-          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-pc-windows-gnu, i686-pc-windows-gnu, wasm32-wasip1
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-pc-windows-gnu, i686-pc-windows-gnu, wasm32-wasip1, wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -70,7 +70,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools p7zip-full qemu-user-static
 
       # zig, because mimalloc is C and apt has no aarch64-musl compiler, plus
-      # cargo-zigbuild for that cross-build and wasmtime for tests/wasm.sh.
+      # cargo-zigbuild for that cross-build, wasmtime for tests/wasm.sh and
+      # wasm-bindgen for the npm package.
       # Versions and digests live in the script; ci.sh has already installed the
       # gate tools it shares with this step.
       - name: Install build tools
@@ -110,6 +111,7 @@ jobs:
           cp target/x86_64-pc-windows-gnu/release/dat3.exe dat3.exe
           cp target/i686-pc-windows-gnu/release/dat3.exe dat3-win32.exe
           cp target/wasm32-wasip1/release/dat3.wasm dat3.wasm
+          cp target/dat3-wasm.tgz dat3-wasm.tgz
 
       - name: Prepare debug assets
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
@@ -133,6 +135,7 @@ jobs:
             dat3.exe
             dat3-win32.exe
             dat3.wasm
+            dat3-wasm.tgz
           if-no-files-found: error
 
       - name: Upload debug artifacts
@@ -171,11 +174,16 @@ jobs:
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
+          targets: wasm32-unknown-unknown
 
       # --locked so the committed lockfile is what gets checked, and --all-targets
       # so the test code is covered too.
       - name: Check against the declared MSRV
         run: cargo check --all-targets --locked
+
+      # Not a default workspace member: it builds only for its wasm target
+      - name: Check the wasm library against the declared MSRV
+        run: cargo check -p dat3-wasm --target wasm32-unknown-unknown --locked
 
   # Separate job so contents:write exists only on a tag run, and only for the
   # step that publishes. It builds nothing: the binaries come from the build
@@ -211,6 +219,7 @@ jobs:
             assets/dat3.exe
             assets/dat3-win32.exe
             assets/dat3.wasm
+            assets/dat3-wasm.tgz
             assets/SHA256SUMS
           fail_on_unmatched_files: true
         env:

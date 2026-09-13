@@ -56,13 +56,9 @@ fn parse_default_format(text: &str) -> Result<Option<ArchiveFormat>, String> {
     let value = &doc["dat3"]["default_format"];
     match value {
         yaml_rust2::Yaml::BadValue => Ok(None),
-        yaml_rust2::Yaml::String(s) => <ArchiveFormat as clap::ValueEnum>::from_str(s, false)
-            .map(Some)
-            .map_err(|_| {
-                format!(
-                    "unsupported dat3.default_format {s:?} (expected dat1, dat2, arcanum, or toee)"
-                )
-            }),
+        yaml_rust2::Yaml::String(s) => ArchiveFormat::from_arg_name(s).map(Some).ok_or_else(|| {
+            format!("unsupported dat3.default_format {s:?} (expected dat1, dat2, arcanum, or toee)")
+        }),
         other @ (yaml_rust2::Yaml::Real(_)
         | yaml_rust2::Yaml::Integer(_)
         | yaml_rust2::Yaml::Boolean(_)

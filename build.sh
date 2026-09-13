@@ -23,7 +23,8 @@ ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}")
 # Install targets if not already installed. Tolerated failure: a distro rustc has
 # no rustup, and its targets come from packages instead. A missing target still
 # fails loudly at the cargo build below.
-for target in "${ALL_TARGETS[@]}"; do
+# wasm32-unknown-unknown is the npm package's target, built by its own script below.
+for target in "${ALL_TARGETS[@]}" wasm32-unknown-unknown; do
 	rustup target add "$target" 2>/dev/null || true
 done
 
@@ -70,6 +71,9 @@ binary_name() {
 	esac
 }
 
+# The npm package for Node and Electron
+crates/dat3-wasm/package.sh
+
 echo ""
 echo "Cross-compile completed. Static binaries:"
 for profile in debug release; do
@@ -79,3 +83,5 @@ for profile in debug release; do
 	done
 	echo ""
 done
+echo "npm package:"
+ls -lh target/dat3-wasm.tgz

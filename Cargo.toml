@@ -1,5 +1,8 @@
 [workspace]
 members = ["crates/*"]
+# dat3-wasm builds only for wasm32-unknown-unknown (a cdylib cannot link on the
+# static musl target), so plain cargo commands leave it out; its gates name it.
+default-members = ["crates/dat3", "crates/dat3-core"]
 resolver = "3"
 
 [workspace.package]

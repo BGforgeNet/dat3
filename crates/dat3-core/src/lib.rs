@@ -12,6 +12,10 @@ Read, list, extract, add to and delete from Fallout (DAT1, DAT2) and Troika
   [`add_file`](DatArchive::add_file), [`delete`](DatArchive::delete) and
   [`save`](DatArchive::save) work on it. Adds and deletes change only the
   in-memory archive until it is saved.
+- For archives and files held in memory, [`from_bytes`](DatArchive::from_bytes),
+  [`entries`](DatArchive::entries), [`read`](DatArchive::read),
+  [`insert`](DatArchive::insert), [`remove`](DatArchive::remove) and
+  [`to_bytes`](DatArchive::to_bytes) touch no filesystem and print nothing.
 - [`ArchiveFormat`] names a format.
 - The options those methods take live in [`common`]: [`Selection`](common::Selection),
   [`CaseMode`](common::CaseMode), [`MissingFiles`](common::MissingFiles),
@@ -34,9 +38,9 @@ can use them, and change with it.
   that differ only in case, which keep their stored case.
   [`CaseMode::Sensitive`](common::CaseMode::Sensitive) uses names exactly as stored.
 - Errors are [`anyhow::Error`], worded for a person to read.
-- Operations print as the `dat3` command line does: listings and progress to
-  stdout, warnings and patterns that matched nothing to stderr.
-- [`DatArchive::open`] reads the whole archive into memory.
+- The path-based operations print as the `dat3` command line does: listings and
+  progress to stdout, warnings and patterns that matched nothing to stderr.
+- [`DatArchive::open`] and [`DatArchive::from_bytes`] hold the whole archive in memory.
 
 ## Example
 

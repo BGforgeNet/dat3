@@ -25,6 +25,8 @@ cargo fmt --all -- --check
 # Clippy lints, test targets included - without --all-targets the #[cfg(test)]
 # modules are never compiled under clippy
 cargo clippy --all-targets -- -D warnings
+# dat3-wasm is not a default member: it builds only for its wasm target
+cargo clippy -p dat3-wasm --target wasm32-unknown-unknown -- -D warnings
 
 # Tests
 cargo test --verbose

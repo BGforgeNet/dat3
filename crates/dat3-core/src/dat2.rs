@@ -12,6 +12,7 @@ Little-endian, flat file list, zlib compression, parallel extraction via rayon.
 use anyhow::{Context, Result, bail};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use deku::prelude::*;
+use std::borrow::Cow;
 use std::io::{Cursor, Write};
 use std::path::Path;
 
@@ -197,76 +198,97 @@ impl Dat2Archive {
         )
     }
 
-    /// Delete a file from the archive by name
-    pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        common::delete_file_from_list(&mut self.files, file_name)
+    /// An entry's contents, decompressed
+    pub fn contents<'a>(&'a self, file: &'a FileEntry) -> Result<Cow<'a, [u8]>> {
+        common::entry_contents(&self.data, file, common::decompress_zlib)
     }
 
-    /// Save the archive to a DAT2 file.
-    ///
-    /// DAT2 layout: file data, then directory tree, then 8-byte footer.
+    /// Add a prepared entry, replacing the entries of its name as `case` compares
+    pub fn insert_entry(&mut self, entry: FileEntry, case: CaseMode) {
+        common::merge_entries(&mut self.files, vec![entry], case);
+    }
+
+    /// Remove the entry named exactly `file_name`, reporting whether there was one
+    pub fn remove_entry(&mut self, file_name: &str) -> bool {
+        common::remove_from_list(&mut self.files, file_name)
+    }
+
+    /// Save the archive to a DAT2 file
     pub fn save(&self, path: &Path) -> Result<()> {
+        self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(out)).context(WRITE_CONTEXT)
+    }
+
+    /// Write the archive as a DAT2 file to `out`
+    pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
+        self.prepare_save()?;
+        self.write_prepared(out).context(WRITE_CONTEXT)
+    }
+
+    /// Checks that fail before any output exists, so a refused save leaves no temp file
+    fn prepare_save(&self) -> Result<()> {
         // DAT2 stores file offsets as u32. Entries keep data.len() == packed_size,
         // so this bounds the u32 offset accumulation below.
         let total_payload: u64 = self.files.iter().map(|f| f.packed_size as u64).sum();
         if total_payload > u32::MAX as u64 {
             bail!("DAT2 archive would exceed the format's 4 GiB offset limit");
         }
+        Ok(())
+    }
 
-        utils::write_atomically(path, |cursor| {
-            // Step 1: Write all file data
-            let mut current_offset = 0u32;
-            let mut file_offsets = Vec::new();
+    /// DAT2 layout: file data, then directory tree, then 8-byte footer.
+    fn write_prepared(&self, cursor: &mut dyn Write) -> Result<()> {
+        // Step 1: Write all file data
+        let mut current_offset = 0u32;
+        let mut file_offsets = Vec::new();
 
-            for file in &self.files {
-                file_offsets.push(current_offset);
+        for file in &self.files {
+            file_offsets.push(current_offset);
 
-                // In memory for a newly added file, borrowed from the original archive otherwise
-                let data = self.read_file_data(file)?;
+            // In memory for a newly added file, borrowed from the original archive otherwise
+            let data = self.read_file_data(file)?;
 
-                cursor.write_all(data)?;
-                current_offset += data.len() as u32;
-            }
+            cursor.write_all(data)?;
+            current_offset += data.len() as u32;
+        }
 
-            // Step 2: Write directory tree, tracking its size since a file
-            // writer has no cheap position() like the old in-memory cursor
-            let tree_start = current_offset as u64;
-            cursor.write_u32::<LittleEndian>(self.files.len() as u32)?;
-            let mut tree_size: u64 = 4;
+        // Step 2: Write directory tree, tracking its size since a file
+        // writer has no cheap position() like the old in-memory cursor
+        let tree_start = current_offset as u64;
+        cursor.write_u32::<LittleEndian>(self.files.len() as u32)?;
+        let mut tree_size: u64 = 4;
 
-            for (i, file) in self.files.iter().enumerate() {
-                let entry = Dat2FileEntry {
-                    filename_size: file.name.len() as u32,
-                    filename_bytes: file.name.as_bytes().to_vec(),
-                    compression_type: if file.compressed { 1 } else { 0 },
-                    real_size: file.size,
-                    packed_size: file.packed_size,
-                    offset: file_offsets[i],
-                };
-
-                let entry_bytes = entry.to_bytes()?;
-                cursor.write_all(&entry_bytes)?;
-                tree_size += entry_bytes.len() as u64;
-            }
-
-            // Step 3: Write the footer
-            let total_size = tree_start + tree_size + FOOTER_SIZE as u64;
-
-            let footer = Dat2Footer {
-                tree_size: tree_size as u32,
-                dat_size: u32::try_from(total_size)
-                    .context("DAT2 archive would exceed the format's 4 GiB size limit")?,
+        for (i, file) in self.files.iter().enumerate() {
+            let entry = Dat2FileEntry {
+                filename_size: file.name.len() as u32,
+                filename_bytes: file.name.as_bytes().to_vec(),
+                compression_type: if file.compressed { 1 } else { 0 },
+                real_size: file.size,
+                packed_size: file.packed_size,
+                offset: file_offsets[i],
             };
-            let footer_bytes = footer.to_bytes()?;
-            cursor.write_all(&footer_bytes)?;
 
-            Ok(())
-        })
-        .context("Failed to write DAT2 file")?;
+            let entry_bytes = entry.to_bytes()?;
+            cursor.write_all(&entry_bytes)?;
+            tree_size += entry_bytes.len() as u64;
+        }
+
+        // Step 3: Write the footer
+        let total_size = tree_start + tree_size + FOOTER_SIZE as u64;
+
+        let footer = Dat2Footer {
+            tree_size: tree_size as u32,
+            dat_size: u32::try_from(total_size)
+                .context("DAT2 archive would exceed the format's 4 GiB size limit")?,
+        };
+        let footer_bytes = footer.to_bytes()?;
+        cursor.write_all(&footer_bytes)?;
 
         Ok(())
     }
 }
+
+const WRITE_CONTEXT: &str = "Failed to write DAT2 file";
 
 #[cfg(test)]
 mod tests {

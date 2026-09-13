@@ -464,17 +464,9 @@ pub fn extract_archive_parallel(
 
             utils::ensure_dir_exists(&output_path)?;
 
-            // Read and optionally decompress
-            let file_data = utils::read_file_slice(archive_data, file)
-                .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
-            let write_result = if file.compressed {
-                let decompressed = decompress(file_data, file.size as usize)
-                    .with_context(|| format!("Failed to decompress {}", file.name))?;
-                fs::write(&output_path, decompressed)
-            } else {
-                fs::write(&output_path, file_data)
-            };
-            write_result.with_context(|| format!("Failed to write {}", output_path.display()))?;
+            let contents = entry_contents(archive_data, file, &decompress)?;
+            fs::write(&output_path, contents)
+                .with_context(|| format!("Failed to write {}", output_path.display()))?;
 
             // Counted once written, every 1000 files and at the end
             let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
@@ -496,6 +488,90 @@ pub fn extract_archive_parallel(
     Ok(())
 }
 
+/// An entry's contents: borrowed when stored uncompressed, decompressed with
+/// `decompress` otherwise
+pub fn entry_contents<'a>(
+    archive_data: &'a [u8],
+    file: &'a FileEntry,
+    decompress: impl Fn(&[u8], usize) -> Result<Vec<u8>>,
+) -> Result<std::borrow::Cow<'a, [u8]>> {
+    let stored = utils::read_file_slice(archive_data, file)
+        .with_context(|| format!("Failed to read data for file '{}'", file.name))?;
+    if file.compressed {
+        let decompressed = decompress(stored, file.size as usize)
+            .with_context(|| format!("Failed to decompress {}", file.name))?;
+        Ok(std::borrow::Cow::Owned(decompressed))
+    } else {
+        Ok(std::borrow::Cow::Borrowed(stored))
+    }
+}
+
+/// The position among stored `names` of the one `name` (`/` or `\` separated)
+/// refers to.
+///
+/// The exact name wins. Failing that, under [`CaseMode::Insensitive`] the one
+/// name equal ignoring case; several such names are an error, since only the
+/// exact spelling can tell them apart.
+pub fn find_stored_index<'a>(
+    names: impl IntoIterator<Item = &'a str, IntoIter: Clone>,
+    name: &str,
+    case: CaseMode,
+) -> Result<Option<usize>> {
+    let names = names.into_iter();
+    let wanted = utils::normalize_user_path(name);
+    // Exact pass first, without allocating: folding each name the scan passed
+    // cost an allocation per entry on every lookup.
+    if let Some(index) = names.clone().position(|stored| stored == wanted) {
+        return Ok(Some(index));
+    }
+    if case == CaseMode::Sensitive {
+        return Ok(None);
+    }
+    let folded = case.fold(&wanted);
+    let matches: Vec<(usize, &str)> = names
+        .enumerate()
+        .filter(|(_, stored)| case.fold(stored) == folded)
+        .collect();
+    match matches.as_slice() {
+        [] => Ok(None),
+        [(index, _)] => Ok(Some(*index)),
+        several => {
+            let shown: Vec<String> = several
+                .iter()
+                .map(|(_, stored)| utils::normalize_path_for_display(stored))
+                .collect();
+            bail!(
+                "{} matches entries that differ only in case; name one exactly: {}",
+                utils::normalize_path_for_display(name),
+                shown.join(" / ")
+            )
+        }
+    }
+}
+
+/// Merge `new_entries` into a zlib-format entry list: each replaces the
+/// entries of its name, compared as `case` says, a batch naming one path twice
+/// keeps its first entry, and the list stays sorted as the formats require.
+pub fn merge_entries(entries: &mut Vec<FileEntry>, new_entries: Vec<FileEntry>, case: CaseMode) {
+    use std::collections::HashSet;
+
+    let key = |name: &str| case.fold(name).into_owned();
+    let new_file_names: HashSet<String> = new_entries.iter().map(|e| key(&e.name)).collect();
+    entries.retain(|existing_file| !new_file_names.contains(&key(&existing_file.name)));
+
+    let mut seen_names = HashSet::new();
+    for entry in new_entries {
+        if seen_names.insert(key(&entry.name)) {
+            entries.push(entry);
+        }
+    }
+
+    // The formats require entries sorted alphabetically (case-insensitive).
+    // Cached: the key allocates, and sort_by_key recomputes it per comparison
+    // rather than per element.
+    entries.sort_by_cached_key(|f| f.name.to_lowercase());
+}
+
 /// Read files from disk into an entry list: zlib-compress when it saves
 /// space, replace same-named entries, dedupe the batch, and keep the list
 /// sorted case-insensitively as the zlib-based formats require.
@@ -510,7 +586,6 @@ pub fn add_files_zlib(
     case: CaseMode,
 ) -> Result<()> {
     use rayon::prelude::*;
-    use std::collections::HashSet;
 
     let base_path = file_path;
     let files = utils::collect_files(file_path).with_context(|| {
@@ -536,25 +611,7 @@ pub fn add_files_zlib(
         .collect();
 
     let new_entries = results?; // Collect results, propagating the first error if any file failed
-
-    // An added file replaces every existing entry of its name, compared as
-    // `case` says, and a batch naming one path twice keeps its first file.
-    let key = |name: &str| case.fold(name).into_owned();
-    let new_file_names: HashSet<String> = new_entries.iter().map(|e| key(&e.name)).collect();
-    entries.retain(|existing_file| !new_file_names.contains(&key(&existing_file.name)));
-
-    let mut seen_names = HashSet::new();
-    for entry in new_entries {
-        if seen_names.insert(key(&entry.name)) {
-            entries.push(entry);
-        }
-    }
-
-    // The formats require entries sorted alphabetically (case-insensitive).
-    // Cached: the key allocates, and sort_by_key recomputes it per comparison
-    // rather than per element.
-    entries.sort_by_cached_key(|f| f.name.to_lowercase());
-
+    merge_entries(entries, new_entries, case);
     Ok(())
 }
 
@@ -570,33 +627,30 @@ fn process_single_file_for_adding(
     let data = utils::read_entry_data(file)?;
     let archive_path = utils::calculate_archive_path(file, base_path, target_dir, source_root)?;
     let archive_path = case.fold(&archive_path).into_owned();
-    let display_path = utils::normalize_path_for_display(&archive_path);
-    // The readers reject longer names, so writing one would produce an archive
-    // dat3 itself cannot open.
-    if archive_path.len() > MAX_PATH_BYTES {
-        bail!("Archive path is longer than {MAX_PATH_BYTES} bytes: {display_path}");
-    }
-    print_stdout(format_args!("Adding: {display_path}"));
+    utils::check_entry_name_len(&archive_path)?;
+    print_stdout(format_args!(
+        "Adding: {}",
+        utils::normalize_path_for_display(&archive_path)
+    ));
+    zlib_entry(archive_path, data, compression)
+}
 
+/// An entry for a zlib format, compressed at `compression` when that saves space
+pub fn zlib_entry(name: String, data: Vec<u8>, compression: CompressionLevel) -> Result<FileEntry> {
     if compression.level() > 0 {
         let compressed_data = compress_zlib(&data, compression.level())?;
         // Only use compression if it actually saves space
         if compressed_data.len() < data.len() {
-            Ok(FileEntry::with_compression_data(
-                archive_path,
+            return Ok(FileEntry::with_compression_data(
+                name,
                 data,
                 compressed_data,
-            ))
-        } else {
-            let mut entry = FileEntry::with_data(archive_path, data, false);
-            entry.size = entry.packed_size;
-            Ok(entry)
+            ));
         }
-    } else {
-        let mut entry = FileEntry::with_data(archive_path, data, false);
-        entry.size = entry.packed_size;
-        Ok(entry)
     }
+    let mut entry = FileEntry::with_data(name, data, false);
+    entry.size = entry.packed_size;
+    Ok(entry)
 }
 
 /// Compress data using zlib
@@ -657,23 +711,19 @@ pub fn decompress_zlib(data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     Ok(decompressed)
 }
 
-/// Delete a file from a list by normalized name.
+/// Remove the entry named exactly `file_name` (`/` or `\` separated) from a
+/// list, reporting whether there was one.
 ///
-/// Shared by the DAT2, Arcanum, and ToEE delete implementations; DAT1 keeps its
-/// files per directory and deletes through its own.
-pub fn delete_file_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> Result<()> {
-    let normalized_name = utils::normalize_user_path(file_name).into_owned();
-
-    if let Some(pos) = files.iter().position(|f| f.name == normalized_name) {
-        let display_name = utils::normalize_path_for_display(&normalized_name);
-        print_stdout(format_args!("Deleting: {display_name}"));
-        files.remove(pos);
-        Ok(())
-    } else {
-        bail!(
-            "File not found: {}",
-            utils::normalize_path_for_display(file_name)
-        );
+/// Shared by the DAT2, Arcanum, and ToEE archives; DAT1 keeps its files per
+/// directory and removes through its own.
+pub fn remove_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> bool {
+    let normalized_name = utils::normalize_user_path(file_name);
+    match files.iter().position(|f| f.name == normalized_name) {
+        Some(pos) => {
+            files.remove(pos);
+            true
+        }
+        None => false,
     }
 }
 
@@ -1400,6 +1450,26 @@ pub mod utils {
             )
         })?;
         Ok(())
+    }
+
+    /// Refuse a stored name longer than [`MAX_PATH_BYTES`]: the readers reject
+    /// longer names, so writing one would produce an archive dat3 cannot open.
+    pub fn check_entry_name_len(archive_path: &str) -> Result<()> {
+        if archive_path.len() > MAX_PATH_BYTES {
+            bail!(
+                "Archive path is longer than {MAX_PATH_BYTES} bytes: {}",
+                normalize_path_for_display(archive_path)
+            );
+        }
+        Ok(())
+    }
+
+    /// The stored, backslash-separated form of a name given for a new entry,
+    /// refusing names an archive cannot hold
+    pub fn stored_name_for_insert(name: &str) -> Result<String> {
+        let stored = normalize_path_for_archive(&validate_add_archive_path(name)?);
+        check_entry_name_len(&stored)?;
+        Ok(stored)
     }
 
     /// Validate and normalize a path to be stored in a new archive.
