@@ -747,6 +747,20 @@ mod tests {
         fn null_only_input() {
             assert_eq!(utils::decode_filename(b"\0\0").unwrap(), "");
         }
+
+        /// The other formats name the entry whose name failed to decode; DAT1
+        /// names it by directory, since its entries are numbered per directory.
+        #[test]
+        fn a_dat1_error_names_the_entry_with_the_bad_name() {
+            let error =
+                crate::dat1::Dat1Archive::from_bytes(super::dat1_bytes(46, 1, "\u{e9}.TXT"))
+                    .unwrap_err();
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("Failed to decode name for file entry 0 in directory '.'"),
+                "got: {message}"
+            );
+        }
     }
 
     // ── validate_filename_ascii ────────────────────────────────────

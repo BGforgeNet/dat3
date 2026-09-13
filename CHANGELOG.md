@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Fixed: a crafted Fallout 2 or Arcanum archive could make dat3 reserve gigabytes of memory for a single file name, and a crafted entry in any format could expand on extraction far past the size it declares. Entry paths are now limited to 1024 bytes, and an entry must decompress to exactly its declared size.
-- Errors for damaged Fallout 1, Fallout 2 and Arcanum archives now report missing data in bytes rather than bits, and name the Fallout 2 entry that failed.
+- Errors for damaged Fallout 1, Fallout 2 and Arcanum archives now report missing data in bytes rather than bits, and name the Fallout 1 or Fallout 2 entry that failed.
 - Fixed: `l`, `x` and `e` reported a requested name as not found, and failed, when an earlier glob in the same command had already selected that file.
 - Fixed: adding a file whose name or directory is longer than 255 bytes to a Fallout 1 archive wrote an archive that could not be opened again. The add now fails and leaves the archive untouched.
 - Fixed: adding a file of 4 GiB or more wrote a corrupt archive. Such files are now refused.

@@ -128,7 +128,8 @@ impl Dat1Archive {
             })?;
             rest = r;
             dir_names.push(
-                utils::decode_filename(&name.bytes).context("Failed to decode directory name")?,
+                utils::decode_filename(&name.bytes)
+                    .with_context(|| format!("Failed to decode name for directory {i}"))?,
             );
         }
 
@@ -153,8 +154,9 @@ impl Dat1Archive {
                 })?;
                 rest = r;
 
-                let name = utils::decode_filename(&entry.name_bytes)
-                    .context("Failed to decode file name")?;
+                let name = utils::decode_filename(&entry.name_bytes).with_context(|| {
+                    format!("Failed to decode name for file entry {j} in directory '{dir_name}'")
+                })?;
                 let compressed = entry.attributes & DAT1_COMPRESSED_FLAG != 0;
                 let actual_packed_size = if entry.packed_size == 0 {
                     entry.size
