@@ -21,7 +21,8 @@ use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES, MissingFiles,
+    utils,
 };
 
 const FOOTER_SIZE: usize = 28;
@@ -31,11 +32,6 @@ const V0_MAGIC: [u8; 4] = *b" TAD";
 /// Longest stored name, including its NUL. Matches the bound OpenTemple's
 /// reader enforces per entry, which is what shipped archives are built against.
 const MAX_COMPONENT_BYTES: usize = 260;
-
-/// Longest full path: a backstop on parser memory rather than a format limit,
-/// since a path is materialized per entry and unbounded depth turned a 2.9 MB
-/// archive into 14.3 GB of strings. Shipped archives peak at 111 bytes.
-const MAX_PATH_BYTES: usize = 1024;
 
 const FLAG_RAW: u32 = 0x1;
 const FLAG_ZLIB: u32 = 0x2;

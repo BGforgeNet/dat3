@@ -10,6 +10,8 @@ use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
+use crate::common::check_decompressed_len;
+
 /// Dictionary size (2^12) - standard for DAT1 format
 const DICT_SIZE: usize = 4096;
 
@@ -52,8 +54,12 @@ const RAW_BLOCK_FLAG: u16 = 0x8000;
 /// entries exactly, while negating mis-frames those 206 and aborts extraction part
 /// way through. `critter.dat` cannot distinguish the two - it contains no raw blocks
 /// at all, which is why testing against it alone left this undetected.
+///
+/// The output must be exactly `expected_size` bytes; decoding stops as soon as
+/// it runs past that (see `check_decompressed_len`).
 pub fn decompress(compressed_data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     if compressed_data.is_empty() {
+        check_decompressed_len(0, expected_size)?;
         return Ok(Vec::new());
     }
 
@@ -81,6 +87,9 @@ pub fn decompress(compressed_data: &[u8], expected_size: usize) -> Result<Vec<u8
         if block_header & RAW_BLOCK_FLAG != 0 {
             // Raw block: the low 15 bits are its length (see the header note above)
             let bytes_to_read = (block_header & !RAW_BLOCK_FLAG) as usize;
+            if output.len() + bytes_to_read > expected_size {
+                check_decompressed_len(output.len() + bytes_to_read, expected_size)?;
+            }
             let mut direct_bytes = vec![0u8; bytes_to_read];
             cursor.read_exact(&mut direct_bytes).map_err(|e| {
                 anyhow::anyhow!(
@@ -172,10 +181,17 @@ pub fn decompress(compressed_data: &[u8], expected_size: usize) -> Result<Vec<u8
                         dict_write_pos = (dict_write_pos + 1) & (DICT_SIZE - 1);
                     }
                 }
+
+                // Per token rather than per byte: a token adds at most MAX_MATCH
+                // bytes, so the overrun this allows is negligible.
+                if output.len() > expected_size {
+                    check_decompressed_len(output.len(), expected_size)?;
+                }
             }
         }
     }
 
+    check_decompressed_len(output.len(), expected_size)?;
     Ok(output)
 }
 
@@ -191,8 +207,11 @@ mod tests {
 
     proptest! {
         #[test]
-        fn decompress_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
-            let _ = decompress(&bytes, 0);
+        fn decompress_never_panics(
+            bytes in prop::collection::vec(any::<u8>(), 0..2048),
+            expected_size in 0usize..40_000,
+        ) {
+            let _ = decompress(&bytes, expected_size);
         }
 
         #[test]
@@ -206,7 +225,29 @@ mod tests {
     fn does_not_trust_hostile_expected_size() {
         // expected_size comes from archive metadata; a crafted value must not
         // trigger a giant (or overflowing) upfront allocation.
-        assert_eq!(decompress(&raw_block(b"ABC"), usize::MAX).unwrap(), b"ABC");
+        assert!(decompress(&raw_block(b"ABC"), usize::MAX).is_err());
+    }
+
+    #[test]
+    fn stops_at_the_declared_size_when_the_stream_is_longer() {
+        let mut stream = raw_block(b"ABC");
+        stream.extend_from_slice(&raw_block(&[b'Z'; 1000]));
+        let err = decompress(&stream, 2).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("exceeds the declared size of 2 bytes"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn errors_when_the_stream_is_shorter_than_declared() {
+        let err = decompress(&raw_block(b"ABC"), 4).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("3 bytes, but the archive declares 4"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Raw (uncompressed) block, encoded the way shipped archives encode one:
@@ -264,7 +305,7 @@ mod tests {
     fn decompresses_literal_in_compressed_block() {
         // Compressed block of 2 bytes: flag byte 0x01 (bit 0 set = literal), then the literal.
         let stream = [0x00, 0x02, 0x01, b'X'];
-        assert_eq!(decompress(&stream, 3).unwrap(), b"X");
+        assert_eq!(decompress(&stream, 1).unwrap(), b"X");
     }
 
     #[test]

@@ -41,15 +41,44 @@ mod tests {
         use super::*;
         use std::io::Write;
 
+        fn compressed(data: &[u8]) -> Vec<u8> {
+            let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::new(6));
+            enc.write_all(data).unwrap();
+            enc.finish().unwrap()
+        }
+
+        #[test]
+        fn decompresses_to_the_declared_size() {
+            assert_eq!(decompress_zlib(&compressed(b"ABC"), 3).unwrap(), b"ABC");
+        }
+
+        #[test]
+        fn stops_at_the_declared_size_when_the_stream_is_longer() {
+            // A small entry declaring a tiny size must not expand to its full
+            // stream: that is how a crafted archive fills a disk.
+            let err = decompress_zlib(&compressed(&[0u8; 1 << 20]), 10).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("exceeds the declared size of 10 bytes"),
+                "unexpected error: {err}"
+            );
+        }
+
+        #[test]
+        fn errors_when_the_stream_is_shorter_than_declared() {
+            let err = decompress_zlib(&compressed(b"ABC"), 4).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("3 bytes, but the archive declares 4"),
+                "unexpected error: {err}"
+            );
+        }
+
         #[test]
         fn does_not_trust_hostile_expected_size() {
             // expected_size comes from archive metadata; a crafted value must
             // not trigger a giant (or panicking) upfront allocation.
-            let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::new(6));
-            enc.write_all(b"ABC").unwrap();
-            let compressed = enc.finish().unwrap();
-
-            assert_eq!(decompress_zlib(&compressed, usize::MAX).unwrap(), b"ABC");
+            assert!(decompress_zlib(&compressed(b"ABC"), usize::MAX).is_err());
         }
     }
 

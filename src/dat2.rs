@@ -16,7 +16,8 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES, MissingFiles,
+    utils,
 };
 
 /// 8-byte footer at the end of every DAT2 file.
@@ -35,6 +36,9 @@ const FOOTER_SIZE: usize = Dat2Footer::SIZE_BYTES.unwrap();
 #[derive(Debug, DekuRead, DekuWrite)]
 #[deku(endian = "little")]
 struct Dat2FileEntry {
+    // Checked as soon as it is read: deku sizes the name buffer from `count`
+    // up front, so an unchecked crafted length is an allocation of up to 4 GiB.
+    #[deku(assert = "*filename_size as usize <= MAX_PATH_BYTES")]
     filename_size: u32,
     #[deku(count = "filename_size")]
     filename_bytes: Vec<u8>,
@@ -417,5 +421,75 @@ mod tests {
         };
         let target = ScratchPath::new("dat2_overflow");
         assert!(archive.save(&target).is_err());
+    }
+
+    /// One-entry archive storing `data` uncompressed under the raw name bytes
+    fn single_entry_archive(name: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut tree = 1u32.to_le_bytes().to_vec();
+        tree.extend_from_slice(&(name.len() as u32).to_le_bytes());
+        tree.extend_from_slice(name);
+        tree.push(0); // compression_type: uncompressed
+        tree.extend_from_slice(&(data.len() as u32).to_le_bytes()); // real_size
+        tree.extend_from_slice(&(data.len() as u32).to_le_bytes()); // packed_size
+        tree.extend_from_slice(&0u32.to_le_bytes()); // offset
+
+        let mut out = data.to_vec();
+        out.extend_from_slice(&tree);
+        let dat_size = out.len() + FOOTER_SIZE;
+        out.extend_from_slice(&(tree.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(dat_size as u32).to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn accepts_a_name_at_the_path_length_limit() {
+        let name = vec![b'A'; MAX_PATH_BYTES];
+        let parsed = Dat2Archive::from_bytes(single_entry_archive(&name, b"x")).unwrap();
+        assert_eq!(parsed.files[0].name.len(), MAX_PATH_BYTES);
+    }
+
+    #[test]
+    fn rejects_a_name_over_the_path_length_limit() {
+        let name = vec![b'A'; MAX_PATH_BYTES + 1];
+        let err = Dat2Archive::from_bytes(single_entry_archive(&name, b"x")).unwrap_err();
+        assert!(
+            err.to_string().contains("filename_size"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_a_hostile_name_length_before_reading_the_name() {
+        // A 4 GiB length with no name behind it must fail on the length field,
+        // not by sizing a buffer for the name.
+        let mut archive = single_entry_archive(b"", b"");
+        archive[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        let err = Dat2Archive::from_bytes(archive).unwrap_err();
+        assert!(
+            err.to_string().contains("filename_size"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn add_rejects_a_path_over_the_length_limit() {
+        let dir = ScratchPath::dir("dat2_long_path");
+        let file = dir.join("F.TXT");
+        std::fs::write(&file, b"x").unwrap();
+
+        let mut archive = Dat2Archive::new();
+        let target_dir = "D".repeat(MAX_PATH_BYTES);
+        let err = archive
+            .add_file(
+                &file,
+                CompressionLevel::new(0).unwrap(),
+                Some(&target_dir),
+                None,
+            )
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains(&format!("longer than {MAX_PATH_BYTES} bytes")),
+            "unexpected error: {err:#}"
+        );
     }
 }

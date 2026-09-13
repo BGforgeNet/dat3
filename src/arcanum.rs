@@ -21,7 +21,8 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES, MissingFiles,
+    utils,
 };
 
 /// Size of the trailing footer in bytes, derived from `ArcanumFooter`
@@ -56,7 +57,9 @@ struct ArcanumFooter {
 #[derive(Debug, DekuRead, DekuWrite)]
 #[deku(endian = "little")]
 struct ArcanumFileEntry {
-    /// Length of the name including its NUL terminator
+    /// Length of the name including its NUL terminator. Checked as soon as it
+    /// is read: deku sizes the name buffer from `count` up front.
+    #[deku(assert = "*name_len as usize <= MAX_PATH_BYTES + 1")]
     name_len: u32,
     #[deku(count = "name_len")]
     name_bytes: Vec<u8>,
@@ -519,6 +522,39 @@ mod tests {
         let magic_pos = archive.len() - 12;
         archive[magic_pos] = b'X';
         assert!(ArcanumArchive::from_bytes(archive).is_err());
+    }
+
+    #[test]
+    fn accepts_a_name_at_the_path_length_limit() {
+        let name = "A".repeat(MAX_PATH_BYTES);
+        let archive = build_archive(&[(&name, FLAG_RAW, b"hi".to_vec(), 2)]);
+        let parsed = ArcanumArchive::from_bytes(archive).unwrap();
+        assert_eq!(parsed.files[0].name, name);
+    }
+
+    #[test]
+    fn rejects_a_name_over_the_path_length_limit() {
+        let name = "A".repeat(MAX_PATH_BYTES + 1);
+        let archive = build_archive(&[(&name, FLAG_RAW, b"hi".to_vec(), 2)]);
+        let err = ArcanumArchive::from_bytes(archive).unwrap_err();
+        assert!(
+            err.to_string().contains("name_len"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_a_hostile_name_length_before_reading_the_name() {
+        // A 4 GiB length with no name behind it must fail on the length field,
+        // not by sizing a buffer for the name.
+        let mut archive = build_archive(&[("A.TXT", FLAG_RAW, b"hi".to_vec(), 2)]);
+        // data (2) + table marker (4) + entry count (4) puts name_len at offset 10
+        archive[10..14].copy_from_slice(&u32::MAX.to_le_bytes());
+        let err = ArcanumArchive::from_bytes(archive).unwrap_err();
+        assert!(
+            err.to_string().contains("name_len"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

@@ -38,6 +38,12 @@ pub(crate) fn print_stdout(args: std::fmt::Arguments) {
 
 // ── Core types ─────────────────────────────────────────────────────
 
+/// Longest entry path any format reads or writes: a backstop on parser memory
+/// rather than a format limit. Names are length-prefixed by untrusted archive
+/// metadata, and unbounded ToEE depth once turned a 2.9 MB archive into 14.3 GB
+/// of path strings; shipped archives peak at 111 bytes.
+pub const MAX_PATH_BYTES: usize = 1024;
+
 /// Type-safe compression level (0-9).
 ///
 /// Wraps a `u8` so invalid values are rejected at construction time
@@ -356,6 +362,11 @@ fn process_single_file_for_adding(
     let data = fs::read(file).with_context(|| format!("Failed to read {}", file.display()))?;
     let archive_path = utils::calculate_archive_path(file, base_path, target_dir, source_root)?;
     let display_path = utils::normalize_path_for_display(&archive_path);
+    // The readers reject longer names, so writing one would produce an archive
+    // dat3 itself cannot open.
+    if archive_path.len() > MAX_PATH_BYTES {
+        bail!("Archive path is longer than {MAX_PATH_BYTES} bytes: {display_path}");
+    }
     print_stdout(format_args!("Adding: {display_path}"));
 
     if compression.level() > 0 {
@@ -387,11 +398,30 @@ fn compress_zlib(data: &[u8], level: u8) -> Result<Vec<u8>> {
     encoder.finish().context("Failed to compress with zlib")
 }
 
-/// Decompress zlib data with a pre-allocated output buffer
+/// Check decompressed output against the size its entry declares.
+///
+/// The declared size is untrusted, so decoders stop once output passes it
+/// rather than expanding a crafted stream in full. Real archives match exactly -
+/// every compressed entry in the archives the integration suite extracts does -
+/// so a mismatch marks a corrupt entry.
+pub fn check_decompressed_len(len: usize, expected_size: usize) -> Result<()> {
+    if len > expected_size {
+        bail!("Decompressed data exceeds the declared size of {expected_size} bytes");
+    }
+    if len < expected_size {
+        bail!("Decompressed data is {len} bytes, but the archive declares {expected_size}");
+    }
+    Ok(())
+}
+
+/// Decompress zlib data, which must expand to exactly `expected_size` bytes
 pub fn decompress_zlib(data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     use std::io::Read;
 
-    let mut decoder = flate2::read::ZlibDecoder::new(data);
+    // Reading one byte past the declared size is enough to detect an overrun
+    // without decoding the rest of the stream.
+    let limit = (expected_size as u64).saturating_add(1);
+    let mut decoder = flate2::read::ZlibDecoder::new(data).take(limit);
     // expected_size is untrusted archive metadata, so cap the reservation by
     // deflate's maximum expansion of ~1032:1 (raw deflate stores 8 bits per
     // symbol at minimum overhead).
@@ -399,6 +429,7 @@ pub fn decompress_zlib(data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     decoder
         .read_to_end(&mut decompressed)
         .context("Failed to decompress zlib data")?;
+    check_decompressed_len(decompressed.len(), expected_size)?;
     Ok(decompressed)
 }
 

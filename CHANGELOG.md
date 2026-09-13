@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: a crafted Fallout 2 or Arcanum archive could make dat3 reserve gigabytes of memory for a single file name, and a crafted entry in any format could expand on extraction far past the size it declares. Entry paths are now limited to 1024 bytes, and an entry must decompress to exactly its declared size.
+
 ## v0.10.1
 
 - New: `--ignore-missing` for `l`, `x` and `e` reports requested names and globs that are not in the archive as a warning instead of failing: whatever matched is still listed or extracted, and the exit status stays 0.
