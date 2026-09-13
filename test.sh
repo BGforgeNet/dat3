@@ -48,6 +48,7 @@ cd tests
 ./extract_missing.sh
 ./default_format.sh
 ./case_handling.sh
+./readme_help.sh
 # TypeScript: the assertions are about a parsed document, so a real parser runs them
 node ./json_listing.ts
 
