@@ -810,9 +810,9 @@ pub mod utils {
     /// A user-supplied name or glob, compiled once per command and then matched
     /// against every entry.
     ///
-    /// A pattern with glob metacharacters is a glob; one without a path separator
-    /// matches the file name alone. Any other pattern matches as a substring, for
-    /// backward compatibility.
+    /// A pattern with glob metacharacters is a glob, matched case-insensitively;
+    /// one without a path separator matches the file name alone. Any other pattern
+    /// matches as a case-sensitive substring, for backward compatibility.
     pub struct NamePattern {
         source: String,
         kind: PatternKind,
@@ -870,7 +870,14 @@ pub mod utils {
                     } else {
                         normalized.rsplit('/').next().unwrap_or(&normalized)
                     };
-                    glob.matches(target)
+                    // Archive names come from DOS/Windows tooling, where case carries no
+                    // meaning (entries are even sorted case-insensitively), so `*.frm`
+                    // must select `A.FRM`.
+                    let options = glob::MatchOptions {
+                        case_sensitive: false,
+                        ..glob::MatchOptions::new()
+                    };
+                    glob.matches_with(target, options)
                 }
             }
         }

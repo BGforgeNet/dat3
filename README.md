@@ -207,7 +207,7 @@ dat3 d master.dat @files_to_delete.txt
 - Shrink (`k` command) not implemented.
 - Flat extraction is a separate command, `e`.
 - DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.
-- Glob patterns (`*`, `?`, `[...]`) supported for list/extract/delete.
+- Glob patterns (`*`, `?`, `[...]`) supported for list/extract/delete, matched case-insensitively.
 
 ## Verifying a release
 

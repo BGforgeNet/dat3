@@ -621,6 +621,17 @@ mod tests {
         }
 
         #[test]
+        fn glob_ignores_case_like_the_archives_themselves() {
+            assert!(matches("ART\\CRITTERS\\FILE.FRM", "art/critters/*.frm"));
+            assert!(matches("art\\critters\\file.frm", "*.FRM"));
+        }
+
+        #[test]
+        fn plain_name_still_matches_case_sensitively() {
+            assert!(!matches("ART\\CRITTERS\\FILE.FRM", "file.frm"));
+        }
+
+        #[test]
         fn glob_star_no_match_wrong_extension() {
             assert!(!matches("ART\\CRITTERS\\FILE.FRM", "*.TXT"));
         }

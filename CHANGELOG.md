@@ -9,6 +9,7 @@
 - Fixed: adding a file of 4 GiB or more wrote a corrupt archive. Such files are now refused.
 - A malformed glob pattern (for example an unclosed `[`) is now reported as an error instead of being matched as plain text.
 - Fixed: `d` treated glob patterns as literal names and failed with "File not found", although glob deletion was documented. A glob now deletes every entry it matches; a plain name still deletes only the entry with exactly that name. If any name or glob matches nothing, nothing is deleted.
+- Glob patterns for `l`, `x`, `e` and `d` now ignore case, so `'*.frm'` selects `ART\CRITTERS\A.FRM`. Plain names are still matched exactly as typed.
 
 ## v0.10.1
 
