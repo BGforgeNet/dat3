@@ -200,6 +200,17 @@ mod tests {
             assert_eq!(replaced, ["A\\SAME.TXT"]);
         }
 
+        /// Names differing only in case land on one file on Windows and macOS.
+        #[test]
+        fn treats_names_differing_only_in_case_as_the_same_file() {
+            let entries = [entry("A\\X.TXT", b"first"), entry("B\\x.txt", b"second")];
+            let refs: Vec<&FileEntry> = entries.iter().collect();
+            let (kept, replaced) = utils::last_entry_per_flat_name(&refs);
+            let kept: Vec<&str> = kept.iter().map(|e| e.name.as_str()).collect();
+            assert_eq!(kept, ["B\\x.txt"]);
+            assert_eq!(replaced.len(), 1);
+        }
+
         /// An unsafe name must stop the extraction before any file is written,
         /// not after parallel workers have already written the others.
         #[test]
@@ -373,6 +384,16 @@ mod tests {
 
             let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o640, "mode was {mode:o}");
+        }
+
+        /// The temp name must not grow with the archive's name: most filesystems cap
+        /// a name at 255 bytes, and an archive near that limit still has to save.
+        #[test]
+        fn saves_an_archive_whose_name_is_near_the_filesystem_limit() {
+            let dir = scratch_dir("longname");
+            let target = dir.join(format!("{}.dat", "A".repeat(246)));
+            utils::write_atomically(&target, |w| Ok(w.write_all(b"new")?)).unwrap();
+            assert_eq!(fs::read(&target).unwrap(), b"new");
         }
 
         /// Two saves of one archive at once must not write into, or rename away,

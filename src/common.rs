@@ -673,8 +673,7 @@ pub mod utils {
         path: &Path,
         write: impl FnOnce(&mut std::io::BufWriter<fs::File>) -> Result<()>,
     ) -> Result<()> {
-        let file_name = path
-            .file_name()
+        path.file_name()
             .with_context(|| format!("Invalid archive path: {}", path.display()))?;
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -686,10 +685,9 @@ pub mod utils {
         let pid = 0;
         #[cfg(not(target_os = "wasi"))]
         let pid = std::process::id();
-        let mut tmp_name = std::ffi::OsString::from(".");
-        tmp_name.push(file_name);
-        tmp_name.push(format!(".{pid}-{nanos}.tmp"));
-        let tmp_path = path.with_file_name(tmp_name);
+        // Fixed length rather than derived from the archive's name, so an archive
+        // named close to the filesystem's 255-byte limit still gets a valid temp name.
+        let tmp_path = path.with_file_name(format!(".dat3-{pid:x}-{nanos:x}.tmp"));
 
         // Opened on its own so a failure here never removes a file this call did not create
         let file = fs::OpenOptions::new()
@@ -730,9 +728,16 @@ pub mod utils {
                 Some(parent) if !parent.as_os_str().is_empty() => parent,
                 _ => Path::new("."),
             };
-            fs::File::open(dir)
-                .and_then(|dir_handle| dir_handle.sync_all())
-                .with_context(|| format!("Failed to sync directory {}", dir.display()))?;
+            // A warning, not an error: the archive is already in place, and some
+            // mounts (network, FUSE, shared folders) reject syncing a directory, where
+            // a failed exit would lead a retrying script to apply the change twice.
+            if let Err(e) = fs::File::open(dir).and_then(|dir_handle| dir_handle.sync_all()) {
+                eprintln!(
+                    "Warning: saved {}, but could not sync directory {}: {e}",
+                    path.display(),
+                    dir.display()
+                );
+            }
         }
         Ok(())
     }
@@ -1325,14 +1330,17 @@ pub mod utils {
     ) -> (Vec<&'a FileEntry>, Vec<&'a FileEntry>) {
         use std::collections::HashMap;
 
-        let mut last_index: HashMap<&str, usize> = HashMap::new();
+        // Keyed case-insensitively: names differing only in case are one file on
+        // Windows and macOS, and archive names carry no meaningful case anyway.
+        let key = |file: &FileEntry| get_filename_from_dat_path(&file.name).to_lowercase();
+        let mut last_index: HashMap<String, usize> = HashMap::new();
         for (index, file) in files.iter().enumerate() {
-            last_index.insert(get_filename_from_dat_path(&file.name), index);
+            last_index.insert(key(file), index);
         }
         files.iter().enumerate().fold(
             (Vec::new(), Vec::new()),
             |(mut kept, mut replaced), (index, file)| {
-                if last_index[get_filename_from_dat_path(&file.name)] == index {
+                if last_index[&key(file)] == index {
                     kept.push(*file);
                 } else {
                     replaced.push(*file);

@@ -11,10 +11,10 @@
 - Fixed: `d` treated glob patterns as literal names and failed with "File not found", although glob deletion was documented. A glob now deletes every entry it matches; a plain name still deletes only the entry with exactly that name. If any name or glob matches nothing, nothing is deleted.
 - Glob patterns for `l`, `x`, `e` and `d` now ignore case, so `'*.frm'` selects `ART\CRITTERS\A.FRM`. Plain names are still matched exactly as typed.
 - An Arcanum archive whose entry table marker disagrees with its footer is now reported as damaged when opened, as ToEE archives already were, instead of being read from wherever the footer points.
-- Entry names Windows cannot create as named are now refused on every platform, both when extracting and when adding: a `:` inside a name (which writes an NTFS alternate data stream), device names such as `CON`, `NUL`, `COM1` or `LPT1` with or without an extension, and names ending in a dot or space.
-- Fixed: when `e` met several files of the same name in different directories, which copy ended up on disk varied from run to run. The last one in archive order now wins, and `e` warns how many were skipped.
+- Entry names Windows cannot create as named are now refused on every platform, both when extracting and when adding: a `:` inside a name (which writes an NTFS alternate data stream), device names such as `CON`, `NUL`, `COM1` or `LPT1` with or without an extension, and names ending in a dot or space. Extraction checks every name first, so a refused name leaves nothing half-extracted.
+- Fixed: when `e` met several files of the same name (ignoring case) in different directories, which copy ended up on disk varied from run to run. The last one in archive order now wins, and `e` warns how many were skipped.
 - Fixed: `a` printed each "Skipping symlink" warning twice.
-- Saving an archive now flushes it to disk before replacing the old file, keeps the old file's permissions, and no longer collides with another dat3 saving the same archive at the same time.
+- Saving an archive now flushes it to disk before replacing the old file, and on Linux and macOS keeps the old file's permissions. Two dat3 runs saving the same archive at once no longer write into each other's temporary file, though the one that finishes last still replaces the other's changes. Archives with very long file names, which could not be saved, now save.
 
 ## v0.10.1
 
