@@ -172,3 +172,15 @@ if [ "$skip_warnings" -ne 1 ]; then
 	echo "Error: expected one symlink skip warning, got $skip_warnings"
 	exit 1
 fi
+
+# A tree holding nothing but a symlink still says why nothing was added
+mkdir -p only_symlink
+ln -s ../modroot_symlink/secret.txt only_symlink/link.txt
+if only_symlink_stderr=$($DAT3 a only_symlink.dat only_symlink 2>&1 >/dev/null); then
+	echo "Error: adding a tree of only symlinks should fail"
+	exit 1
+fi
+if [[ "$only_symlink_stderr" != *"Skipping symlink"* ]]; then
+	echo "Error: the skipped symlink was not reported: $only_symlink_stderr"
+	exit 1
+fi

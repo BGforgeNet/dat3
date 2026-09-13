@@ -215,11 +215,14 @@ fn main() -> Result<()> {
 
             // Count files upfront - fails immediately if any path doesn't exist
             let mut total_files_to_add = 0;
+            let mut skipped_symlinks = Vec::new();
             for file_path in &expanded {
-                total_files_to_add += utils::count_files(file_path)?;
+                total_files_to_add += utils::count_files(file_path, &mut skipped_symlinks)?;
             }
 
             if total_files_to_add == 0 {
+                // The add pass that would report them never runs, so say it here
+                utils::report_skipped_symlinks(&skipped_symlinks);
                 bail!("No files to add to archive");
             }
 

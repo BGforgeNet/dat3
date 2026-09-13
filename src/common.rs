@@ -297,6 +297,12 @@ pub fn extract_archive_parallel(
         }
     };
 
+    // Every name is checked before the first write: inside the parallel loop an
+    // unsafe name would fail only after other workers had written their files.
+    for file in files_to_extract {
+        utils::validate_archive_path(&file.name)?;
+    }
+
     let total_files = files_to_extract.len();
     let completed = AtomicUsize::new(0);
 
@@ -306,8 +312,6 @@ pub fn extract_archive_parallel(
     files_to_extract
         .par_iter()
         .try_for_each(|file| -> Result<()> {
-            utils::validate_archive_path(&file.name)?;
-
             let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
 
             utils::ensure_dir_exists(&output_path)?;
@@ -780,23 +784,31 @@ pub mod utils {
         let mut files = Vec::new();
         let mut skipped = Vec::new();
         collect_files_inner(path.as_ref(), &mut files, &mut skipped)?;
+        report_skipped_symlinks(&skipped);
+        Ok(files)
+    }
+
+    /// Count the files `collect_files` would return, appending skipped symlinks to
+    /// `skipped` instead of reporting them: `a` counts up front and then collects
+    /// again as it adds, so the warnings belong to whichever pass ends the command.
+    pub fn count_files<P: AsRef<Path>>(
+        path: P,
+        skipped: &mut Vec<(PathBuf, bool)>,
+    ) -> Result<usize> {
+        let mut files = Vec::new();
+        collect_files_inner(path.as_ref(), &mut files, skipped)?;
+        Ok(files.len())
+    }
+
+    /// Print a warning per skipped symlink, given with whether its target is missing
+    pub fn report_skipped_symlinks(skipped: &[(PathBuf, bool)]) {
         for (link, dangling) in skipped {
-            if dangling {
+            if *dangling {
                 eprintln!("Skipping dangling symlink: {}", link.display());
             } else {
                 eprintln!("Skipping symlink: {}", link.display());
             }
         }
-        Ok(files)
-    }
-
-    /// Count the files `collect_files` would return, without reporting skipped
-    /// symlinks: `a` counts up front and then collects again as it adds, and the
-    /// warnings belong to the pass that does the adding.
-    pub fn count_files<P: AsRef<Path>>(path: P) -> Result<usize> {
-        let mut files = Vec::new();
-        collect_files_inner(path.as_ref(), &mut files, &mut Vec::new())?;
-        Ok(files.len())
     }
 
     /// Inner recursive worker for `collect_files`: files go to `out`, skipped

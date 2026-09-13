@@ -200,6 +200,29 @@ mod tests {
             assert_eq!(replaced, ["A\\SAME.TXT"]);
         }
 
+        /// An unsafe name must stop the extraction before any file is written,
+        /// not after parallel workers have already written the others.
+        #[test]
+        fn an_unsafe_entry_name_fails_before_anything_is_written() {
+            let mut entries: Vec<FileEntry> = (0..200)
+                .map(|i| entry(&format!("DATA\\F{i}.TXT"), b"data"))
+                .collect();
+            entries.push(entry("AUX\\B.TXT", b"data"));
+            let refs: Vec<&FileEntry> = entries.iter().collect();
+            let out = crate::test_support::ScratchPath::dir("unsafe_before_write");
+
+            let result = extract_archive_parallel(
+                &[],
+                &refs,
+                &out,
+                ExtractionMode::PreserveStructure,
+                |d, _| Ok(d.to_vec()),
+            );
+
+            assert!(result.is_err());
+            assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+        }
+
         /// Entries sharing a file name used to race to one output path from
         /// parallel workers, so which one survived varied from run to run.
         #[test]
