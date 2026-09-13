@@ -11,6 +11,7 @@
 - Fixed: `d` treated glob patterns as literal names and failed with "File not found", although glob deletion was documented. A glob now deletes every entry it matches; a plain name still deletes only the entry with exactly that name. If any name or glob matches nothing, nothing is deleted.
 - Glob patterns for `l`, `x`, `e` and `d` now ignore case, so `'*.frm'` selects `ART\CRITTERS\A.FRM`. Plain names are still matched exactly as typed.
 - An Arcanum archive whose entry table marker disagrees with its footer is now reported as damaged when opened, as ToEE archives already were, instead of being read from wherever the footer points.
+- Entry names Windows cannot create as named are now refused on every platform, both when extracting and when adding: a `:` inside a name (which writes an NTFS alternate data stream), device names such as `CON`, `NUL`, `COM1` or `LPT1` with or without an extension, and names ending in a dot or space.
 
 ## v0.10.1
 

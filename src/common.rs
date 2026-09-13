@@ -1051,9 +1051,30 @@ pub mod utils {
         bytes.len() == 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
     }
 
+    /// Why Windows would not create this path component as named, if it would not.
+    ///
+    /// Checked on every host for the same reason as drive prefixes: `name:stream`
+    /// writes an NTFS alternate data stream, a device name such as `CON` opens the
+    /// device rather than a file, and a trailing dot or space is silently stripped.
+    fn windows_unsafe_component(part: &str) -> Option<&'static str> {
+        if part.contains(':') {
+            return Some("':' in name");
+        }
+        if part.ends_with('.') || part.ends_with(' ') {
+            return Some("trailing dot or space in name");
+        }
+        let stem = part.split('.').next().unwrap_or(part).to_ascii_uppercase();
+        let numbered_port = stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit();
+        (matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") || numbered_port)
+            .then_some("reserved device name")
+    }
+
     /// Split an archive path into its safe components, rejecting every shape
-    /// that would let it escape the directory it is resolved against: `..`,
-    /// an absolute root, and a drive prefix. `.` components are dropped.
+    /// that would let it escape the directory it is resolved against (`..`, an
+    /// absolute root, a drive prefix) or that Windows would not create as named.
+    /// `.` components are dropped.
     ///
     /// Shared by both directions - entries read out of an archive and paths
     /// being written into one - so the two cannot drift apart again. The extract
@@ -1069,6 +1090,9 @@ pub mod utils {
                     let part = s.to_str().unwrap_or_default();
                     if is_drive_prefix(part) {
                         bail!("drive prefix '{part}'");
+                    }
+                    if let Some(reason) = windows_unsafe_component(part) {
+                        bail!("{reason} '{part}'");
                     }
                     parts.push(part.to_string());
                 }
@@ -1086,7 +1110,8 @@ pub mod utils {
     }
 
     /// Reject an archive entry name that would extract outside the output
-    /// directory - `..`, an absolute root, or a drive prefix.
+    /// directory - `..`, an absolute root, or a drive prefix - or onto something
+    /// other than the file it names on Windows.
     ///
     /// A malicious archive could store an entry as `../../../etc/passwd` or as
     /// `\tmp\x.txt`; the second is the more dangerous shape, because `Path::join`
@@ -1094,7 +1119,7 @@ pub mod utils {
     pub fn validate_archive_path(path: &str) -> Result<()> {
         archive_path_parts(path).map_err(|e| {
             anyhow::anyhow!(
-                "Path traversal detected in archive entry ({e}): {}",
+                "Unsafe path in archive entry ({e}): {}",
                 normalize_path_for_display(path)
             )
         })?;

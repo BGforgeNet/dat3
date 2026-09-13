@@ -888,6 +888,56 @@ mod tests {
             assert!(utils::validate_archive_path("..").is_err());
         }
 
+        fn unsafe_reason(path: &str) -> String {
+            let err = utils::validate_archive_path(path).unwrap_err();
+            format!("{err}")
+        }
+
+        /// On Windows `CON` opens the console and `NUL` discards data, with or
+        /// without an extension, whatever directory they sit in.
+        #[test]
+        fn rejects_a_windows_device_name_in_any_case_and_with_any_extension() {
+            for path in ["art/CON", "art/con.frm", "Nul.txt", "art/Com1.acm", "LPT9"] {
+                let reason = unsafe_reason(path);
+                assert!(
+                    reason.starts_with("Unsafe path in archive entry (reserved device name"),
+                    "{path}: {reason}"
+                );
+            }
+        }
+
+        #[test]
+        fn accepts_names_that_only_begin_like_a_device() {
+            for path in ["art/CONSOLE.TXT", "COM10.ACM", "art/AUXILIARY", "NULL.DAT"] {
+                assert!(utils::validate_archive_path(path).is_ok(), "{path}");
+            }
+        }
+
+        /// `name:stream` writes an NTFS alternate data stream instead of a file.
+        #[test]
+        fn rejects_a_colon_inside_a_name() {
+            assert_eq!(
+                unsafe_reason("art/file.txt:hidden"),
+                format!(
+                    "Unsafe path in archive entry (':' in name 'file.txt:hidden'): {}",
+                    utils::normalize_path_for_display("art/file.txt:hidden")
+                )
+            );
+        }
+
+        /// Windows strips a trailing dot or space, so the entry would land on a
+        /// different name than the one listed.
+        #[test]
+        fn rejects_a_trailing_dot_or_space() {
+            for path in ["art/file.", "art/dir /x.txt"] {
+                let reason = unsafe_reason(path);
+                assert!(
+                    reason.starts_with("Unsafe path in archive entry (trailing dot or space"),
+                    "{path}: {reason}"
+                );
+            }
+        }
+
         /// `Path::join` replaces the base when its argument is absolute, so an
         /// entry stored with a leading separator escapes `-o` entirely.
         #[test]
@@ -912,11 +962,15 @@ mod tests {
             assert!(utils::validate_add_archive_path("C:\\x.txt").is_err());
         }
 
-        /// A colon inside a name is not a drive prefix.
+        /// A colon inside a name is not a drive prefix: it is still refused, but as
+        /// a stream separator, not misreported as an absolute path.
         #[test]
-        fn accepts_a_colon_inside_a_component() {
-            assert!(utils::validate_archive_path("art/od:d.frm").is_ok());
-            assert!(utils::validate_archive_path("CC:/x.txt").is_ok());
+        fn reports_a_colon_inside_a_component_as_a_colon_not_a_drive() {
+            for path in ["art/od:d.frm", "CC:/x.txt"] {
+                let err = utils::validate_archive_path(path).unwrap_err().to_string();
+                assert!(err.contains("':' in name"), "{path}: {err}");
+                assert!(!err.contains("drive prefix"), "{path}: {err}");
+            }
         }
 
         /// The consumer-level guard for the same defect: extracting an archive
