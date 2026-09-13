@@ -12,9 +12,11 @@ cd "$(dirname "$0")"
 source ./common.sh
 
 # Create test directory
-TEST_DIR="test_duplicate_paths"
+TEST_DIR="$(pwd)/test_duplicate_paths"
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$TEST_DIR"' EXIT
 cd "$TEST_DIR"
 
 # Test 1: Adding same file multiple times should not create duplicates
@@ -92,7 +94,3 @@ if [ "$count" -ne 1 ]; then
 fi
 
 echo "All duplicate path tests passed"
-
-# Clean up
-cd ..
-rm -rf "$TEST_DIR"

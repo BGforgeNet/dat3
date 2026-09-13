@@ -21,6 +21,8 @@ OUT_DIR="pipe_out"
 # Enough entries that the reader has certainly exited before the writer's
 # second line: progress is reported every 1000 files.
 rm -rf "$SRC_DIR" "$OUT_DIR" "$PIPE_DAT"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$SRC_DIR" "$OUT_DIR" "$PIPE_DAT"' EXIT
 mkdir -p "$SRC_DIR/data"
 for i in $(seq 1 5000); do
 	printf 'x' >"$SRC_DIR/data/f$i.txt"
@@ -67,5 +69,3 @@ fi
 
 # l already handled this; keep it covered so the guard cannot regress there.
 assert_survives_closed_pipe "l (list)" "$DAT3" l "$PIPE_DAT"
-
-rm -rf "$SRC_DIR" "$OUT_DIR" "$PIPE_DAT"

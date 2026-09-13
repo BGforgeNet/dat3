@@ -12,9 +12,11 @@ cd "$(dirname "$0")"
 source ./common.sh
 
 # Create a temporary directory for our test
-TEST_DIR="test_non_ascii"
+TEST_DIR="$(pwd)/test_non_ascii"
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$TEST_DIR"' EXIT
 cd "$TEST_DIR"
 
 # Test 1: ASCII filename should work
@@ -34,7 +36,3 @@ echo "test content" >"tëst_dir/file.txt"
 if $DAT3 a test2.dat "tëst_dir" >/dev/null 2>&1; then
 	exit 1
 fi
-
-# Clean up
-cd ..
-rm -rf "$TEST_DIR"

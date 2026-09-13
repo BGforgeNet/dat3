@@ -12,9 +12,11 @@ cd "$(dirname "$0")"
 source ./common.sh
 
 # Create test directory
-TEST_DIR="test_response_file"
+TEST_DIR="$(pwd)/test_response_file"
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$TEST_DIR"' EXIT
 cd "$TEST_DIR"
 
 # Create test files for the archive
@@ -85,7 +87,3 @@ EOF
 
 # Should work with mixed separators
 $DAT3 l test_response.dat @test_response_mixed.txt
-
-# Clean up
-cd ..
-rm -rf "$TEST_DIR"

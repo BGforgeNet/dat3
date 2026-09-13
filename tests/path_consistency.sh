@@ -5,11 +5,13 @@ set -xeu -o pipefail
 # shellcheck source=tests/common.sh
 source "$(dirname "$0")/common.sh"
 
-TEST_DIR="test_path_consistency"
+TEST_DIR="$(pwd)/test_path_consistency"
 
 # Clean up any previous test
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$TEST_DIR"' EXIT
 cd "$TEST_DIR"
 
 echo "Testing path consistency with glob expansion..."
@@ -43,7 +45,3 @@ if [ "$count" -ne 3 ]; then
 fi
 
 echo "Path consistency test passed!"
-
-# Clean up
-cd ..
-rm -rf "$TEST_DIR"

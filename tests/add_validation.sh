@@ -12,9 +12,11 @@ cd "$(dirname "$0")"
 source ./common.sh
 
 # Create test directory
-TEST_DIR="test_add_validation"
+TEST_DIR="$(pwd)/test_add_validation"
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$TEST_DIR"' EXIT
 cd "$TEST_DIR"
 
 # Test 1: Missing file should fail and not create archive
@@ -160,7 +162,3 @@ if $DAT3 l symlink_skip.dat | grep -q "patch001/link.txt"; then
 	echo "Error: Symlink should have been skipped"
 	exit 1
 fi
-
-# Clean up
-cd ..
-rm -rf "$TEST_DIR"

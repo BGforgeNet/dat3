@@ -12,6 +12,8 @@ TEST_DIR="$SCRIPT_DIR/test_extract_missing"
 
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$TEST_DIR"' EXIT
 cd "$TEST_DIR"
 
 mkdir -p src

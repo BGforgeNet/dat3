@@ -14,6 +14,8 @@ TEST_DIR="$SCRIPT_DIR/test_glob_handling"
 # Clean up any previous test
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+# Removed on exit, so a failing check leaves nothing behind either
+trap 'rm -rf "$TEST_DIR"' EXIT
 cd "$TEST_DIR"
 
 echo "=== Testing glob pattern expansion ==="
