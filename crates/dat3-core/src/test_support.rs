@@ -55,6 +55,7 @@ impl ScratchPath {
         scratch
     }
 
+    /// The path itself
     pub fn path(&self) -> &Path {
         &self.0
     }

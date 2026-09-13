@@ -66,9 +66,12 @@ impl ArchiveFormat {
 /// format. Fallout archives typically stay under ~200MB; retail Arcanum
 /// archives run considerably larger and are held in RAM the same way.
 ///
-/// ```ignore
-/// let archive = DatArchive::open("master.dat")?;         // auto-detects format
-/// let dat1 = DatArchive::new(ArchiveFormat::Dat1);       // create new DAT1
+/// ```no_run
+/// use dat3_core::{ArchiveFormat, DatArchive};
+///
+/// let archive = DatArchive::open("master.dat")?; // auto-detects format
+/// let dat1 = DatArchive::new(ArchiveFormat::Dat1); // create new DAT1
+/// # anyhow::Ok(())
 /// ```
 #[derive(Debug)]
 pub enum DatArchive {
@@ -83,7 +86,10 @@ pub enum DatArchive {
 }
 
 impl DatArchive {
-    /// Open an existing DAT archive, auto-detecting the format
+    /// Open an existing DAT archive, auto-detecting the format.
+    ///
+    /// Reads the whole file into memory. DAT2 has no signature, so a file that is
+    /// none of the other formats is parsed as DAT2 and fails there if it is not one.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let data = fs::read(&path)
             .with_context(|| format!("Failed to read DAT file: {}", path.as_ref().display()))?;
@@ -102,7 +108,7 @@ impl DatArchive {
         }
     }
 
-    /// Create a new empty archive of the given format
+    /// Create a new empty archive of the given format. Nothing is written until [`save`](Self::save).
     pub fn new(format: ArchiveFormat) -> Self {
         match format {
             ArchiveFormat::Dat1 => Self::Dat1(Dat1Archive::new()),
@@ -148,7 +154,10 @@ impl DatArchive {
             && allocation_hint < DAT1_MAX_DIRECTORIES
     }
 
-    /// List files in the archive (all or filtered by patterns)
+    /// Print the entries `selection` picks to stdout, as columns or a JSON array.
+    ///
+    /// Patterns that match nothing are printed to stderr after the listing, and
+    /// fail the call when `selection.on_missing` is [`MissingFiles::Fail`](crate::common::MissingFiles::Fail).
     pub fn list(&self, selection: &Selection, format: ListFormat) -> Result<()> {
         match self {
             Self::Dat1(a) => a.list(selection, format),
@@ -158,7 +167,14 @@ impl DatArchive {
         }
     }
 
-    /// Extract files from the archive
+    /// Extract the entries `selection` picks into `output_dir`, in parallel.
+    ///
+    /// Every selected name is checked before anything is written: a name that is
+    /// unsafe to create, or a pattern that matches nothing under
+    /// [`MissingFiles::Fail`](crate::common::MissingFiles::Fail), fails with no files written. Names are
+    /// written as `selection.case` shows them. Progress goes to stdout; in
+    /// [`ExtractionMode::Flat`] entries whose file name a later entry reuses are
+    /// skipped with a warning on stderr.
     pub fn extract<P: AsRef<Path>>(
         &self,
         output_dir: P,
@@ -174,7 +190,19 @@ impl DatArchive {
         }
     }
 
-    /// Add a file to the archive (directories are processed recursively)
+    /// Add a file, or a directory recursively (symlinks are skipped), in memory.
+    ///
+    /// The entry name comes from `file_path`:
+    /// - with `source_root`, its path relative to that root, which must prefix it
+    ///   (pass both canonicalized);
+    /// - otherwise the path as given without a leading `./`, or with `target_dir`
+    ///   just the file's own name, or a directory's name and its contents.
+    ///
+    /// `target_dir` is prefixed to the name in either case, and a name the archive
+    /// cannot hold fails (see [`common::utils::validate_add_archive_path`]). An entry whose
+    /// name equals an existing one, compared as `case` says, replaces it; under
+    /// [`CaseMode::Insensitive`] new names are stored in lowercase. DAT1 stores
+    /// entries uncompressed whatever `compression` says. Prints each added name to stdout.
     pub fn add_file<P: AsRef<Path>>(
         &mut self,
         file_path: P,
@@ -192,7 +220,7 @@ impl DatArchive {
         }
     }
 
-    /// Names of every file entry in the archive
+    /// Names of every file entry, as stored: backslash-separated, in their stored case
     pub fn entry_names(&self) -> Vec<String> {
         let entries = match self {
             Self::Dat1(a) => a.entries(),
@@ -206,7 +234,12 @@ impl DatArchive {
             .collect()
     }
 
-    /// Delete every entry the `d` operands select (see `resolve_delete_targets`)
+    /// Delete every entry `patterns` select, in memory.
+    ///
+    /// A glob deletes every entry it matches; a plain name deletes only the entry
+    /// with that whole name. If any pattern matches nothing, nothing is deleted
+    /// (see [`resolve_delete_targets`](crate::common::resolve_delete_targets)).
+    /// Prints each deleted name to stdout.
     pub fn delete(&mut self, patterns: &[String], case: CaseMode) -> Result<()> {
         let names = self.entry_names();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -216,7 +249,8 @@ impl DatArchive {
         Ok(())
     }
 
-    /// Delete a file from the archive
+    /// Delete the entry named exactly `file_name` (`/` or `\` separated), in memory.
+    /// Prints the deleted name to stdout.
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
         match self {
             Self::Dat1(a) => a.delete_file(file_name),
@@ -226,7 +260,8 @@ impl DatArchive {
         }
     }
 
-    /// Save the archive to a file
+    /// Write the archive to `path`, replacing any file there only once the new one
+    /// is complete and flushed to disk.
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         match self {
             Self::Dat1(a) => a.save(path.as_ref()),

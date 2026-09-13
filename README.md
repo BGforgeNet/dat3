@@ -245,7 +245,8 @@ dat3-core = { git = "https://github.com/BGforgeNet/dat3", tag = "<release tag>" 
 ```
 
 Its API may still change between releases. The optional `clap` feature derives `clap::ValueEnum` on
-`ArchiveFormat`.
+`ArchiveFormat`. The API documentation, with an example, builds with `cargo doc --no-deps --package dat3-core --open`
+in a checkout, or with `cargo doc --open` in a project that depends on it.
 
 ## Verifying a release
 

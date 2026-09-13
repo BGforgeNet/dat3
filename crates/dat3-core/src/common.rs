@@ -144,7 +144,8 @@ pub enum ExtractionMode {
 /// What to do about a requested name or glob that matches nothing in the archive
 #[derive(Debug, Clone, Copy)]
 pub enum MissingFiles {
-    /// Report the misses and fail without listing or extracting anything
+    /// Report the misses and fail. Extraction writes nothing; a listing has
+    /// already printed whatever did match.
     Fail,
     /// Report the misses as a warning and carry on with whatever did match
     Warn,
@@ -186,6 +187,8 @@ pub struct NameView {
 }
 
 impl NameView {
+    /// A view over every stored name in one archive; `names` must be all of
+    /// them, since a case-only twin anywhere keeps a name in its stored case.
     pub fn new<'a>(mode: CaseMode, names: impl IntoIterator<Item = &'a str>) -> Self {
         let ambiguous = match mode {
             CaseMode::Sensitive => std::collections::HashSet::new(),
@@ -268,7 +271,9 @@ pub enum ListFormat {
 pub struct Selection<'a> {
     /// Names and globs as given; empty selects every entry
     pub patterns: &'a [String],
+    /// What to do about a pattern that matches no entry
     pub on_missing: MissingFiles,
+    /// How patterns compare with entry names, and how names are shown and extracted
     pub case: CaseMode,
 }
 
@@ -1123,10 +1128,12 @@ pub mod utils {
             &self.source
         }
 
+        /// Whether the pattern has glob metacharacters and matches as a glob
         pub fn is_glob(&self) -> bool {
             matches!(self.kind, PatternKind::Glob { .. })
         }
 
+        /// Whether the stored entry name `file_name` matches, comparing as `mode` says
         pub fn matches(&self, file_name: &str, mode: CaseMode) -> bool {
             match &self.kind {
                 PatternKind::Substring => mode
@@ -1484,8 +1491,6 @@ pub mod utils {
         PathBuf::from(dat_path.replace('\\', std::path::MAIN_SEPARATOR_STR))
     }
 
-    /// Get just the filename (basename) from a path.
-    /// Handles both forward and backward slashes.
     /// Split entries for flat extraction into the ones to write and the ones a
     /// later entry of the same file name replaces.
     ///
@@ -1518,6 +1523,8 @@ pub mod utils {
         )
     }
 
+    /// Get just the filename (basename) from a path.
+    /// Handles both forward and backward slashes.
     pub fn get_filename_from_dat_path(path: &str) -> &str {
         path.rfind(['/', '\\'])
             .map(|pos| &path[pos + 1..])
