@@ -777,18 +777,40 @@ pub mod utils {
         Ok(archive_data[start..end].to_vec())
     }
 
-    /// Collect all files from a path (file or directory, recursive).
-    /// Validates that all filenames are ASCII-only.
+    /// Collect all files from a path (file or directory, recursive), reporting each
+    /// symlink it skips. Validates that all filenames are ASCII-only.
     pub fn collect_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
-        collect_files_inner(path.as_ref(), &mut files)?;
+        let mut skipped = Vec::new();
+        collect_files_inner(path.as_ref(), &mut files, &mut skipped)?;
+        for (link, dangling) in skipped {
+            if dangling {
+                eprintln!("Skipping dangling symlink: {}", link.display());
+            } else {
+                eprintln!("Skipping symlink: {}", link.display());
+            }
+        }
         Ok(files)
     }
 
-    /// Inner recursive worker for `collect_files`.
+    /// Count the files `collect_files` would return, without reporting skipped
+    /// symlinks: `a` counts up front and then collects again as it adds, and the
+    /// warnings belong to the pass that does the adding.
+    pub fn count_files<P: AsRef<Path>>(path: P) -> Result<usize> {
+        let mut files = Vec::new();
+        collect_files_inner(path.as_ref(), &mut files, &mut Vec::new())?;
+        Ok(files.len())
+    }
+
+    /// Inner recursive worker for `collect_files`: files go to `out`, skipped
+    /// symlinks to `skipped` with whether their target is missing.
     ///
     /// Validates ASCII at the leaf push site so each path is checked exactly once.
-    fn collect_files_inner(path: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    fn collect_files_inner(
+        path: &Path,
+        out: &mut Vec<PathBuf>,
+        skipped: &mut Vec<(PathBuf, bool)>,
+    ) -> Result<()> {
         let metadata = match fs::symlink_metadata(path) {
             Ok(m) => m,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -802,10 +824,8 @@ pub mod utils {
 
         if metadata.file_type().is_symlink() {
             // Distinguish dangling symlinks (target missing) from non-dangling ones.
-            match path.try_exists() {
-                Ok(true) => eprintln!("Skipping symlink: {}", path.display()),
-                _ => eprintln!("Skipping dangling symlink: {}", path.display()),
-            }
+            let dangling = !matches!(path.try_exists(), Ok(true));
+            skipped.push((path.to_path_buf(), dangling));
             return Ok(());
         }
 
@@ -817,27 +837,12 @@ pub mod utils {
                 .with_context(|| format!("Invalid path: {}", path.display()))?;
             out.push(path.to_path_buf());
         } else if metadata.is_dir() {
-            for entry in fs::read_dir(path)? {
-                let entry = entry?;
-                let entry_path = entry.path();
-                let entry_metadata = fs::symlink_metadata(&entry_path)
-                    .with_context(|| format!("Failed to inspect path: {}", entry_path.display()))?;
-
-                if entry_metadata.file_type().is_symlink() {
-                    match entry_path.try_exists() {
-                        Ok(true) => eprintln!("Skipping symlink: {}", entry_path.display()),
-                        _ => eprintln!("Skipping dangling symlink: {}", entry_path.display()),
-                    }
-                } else if entry_metadata.is_file() {
-                    let path_str = entry_path.to_str().ok_or_else(|| {
-                        anyhow::anyhow!("Invalid path encoding: {}", entry_path.display())
-                    })?;
-                    validate_filename_ascii(path_str)
-                        .with_context(|| format!("Invalid path: {}", entry_path.display()))?;
-                    out.push(entry_path);
-                } else if entry_metadata.is_dir() {
-                    collect_files_inner(&entry_path, out)?;
-                }
+            let entries = fs::read_dir(path)
+                .with_context(|| format!("Failed to read directory: {}", path.display()))?;
+            for entry in entries {
+                let entry = entry
+                    .with_context(|| format!("Failed to read directory: {}", path.display()))?;
+                collect_files_inner(&entry.path(), out, skipped)?;
             }
         }
 

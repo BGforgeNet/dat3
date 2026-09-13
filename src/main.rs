@@ -216,8 +216,7 @@ fn main() -> Result<()> {
             // Count files upfront - fails immediately if any path doesn't exist
             let mut total_files_to_add = 0;
             for file_path in &expanded {
-                let collected_files = utils::collect_files(file_path)?;
-                total_files_to_add += collected_files.len();
+                total_files_to_add += utils::count_files(file_path)?;
             }
 
             if total_files_to_add == 0 {

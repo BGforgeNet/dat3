@@ -162,3 +162,13 @@ if $DAT3 l symlink_skip.dat | grep -q "patch001/link.txt"; then
 	echo "Error: Symlink should have been skipped"
 	exit 1
 fi
+
+# The skip is reported once, not once per walk of the tree
+rm -f symlink_skip.dat
+skip_stderr=$($DAT3 a symlink_skip.dat --format dat1 -C modroot_symlink patch001 2>&1 >/dev/null)
+# grep -c exits 1 when its count is zero; the count itself is what gets checked
+skip_warnings=$(grep -c "Skipping symlink" <<<"$skip_stderr" || true)
+if [ "$skip_warnings" -ne 1 ]; then
+	echo "Error: expected one symlink skip warning, got $skip_warnings"
+	exit 1
+fi
