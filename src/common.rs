@@ -238,6 +238,24 @@ pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
     Ok(filtered.into_iter().map(|file| file.as_ref()).collect())
 }
 
+/// Warn that flat extraction skips entries whose file name a later entry reuses
+fn report_flat_name_collisions(replaced: &[&FileEntry]) {
+    const SHOWN: usize = 5;
+    if replaced.is_empty() {
+        return;
+    }
+    eprintln!(
+        "Warning: {} entries share a file name with a later entry and are not extracted in flat mode:",
+        replaced.len()
+    );
+    for file in replaced.iter().take(SHOWN) {
+        eprintln!("  {}", utils::normalize_path_for_display(&file.name));
+    }
+    if replaced.len() > SHOWN {
+        eprintln!("  ...and {} more", replaced.len() - SHOWN);
+    }
+}
+
 /// Extract entries in parallel, decompressing each compressed one with
 /// `decompress`.
 ///
@@ -253,6 +271,17 @@ pub fn extract_archive_parallel(
 ) -> Result<()> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let kept;
+    let files_to_extract = match mode {
+        ExtractionMode::PreserveStructure => files_to_extract,
+        ExtractionMode::Flat => {
+            let replaced;
+            (kept, replaced) = utils::last_entry_per_flat_name(files_to_extract);
+            report_flat_name_collisions(&replaced);
+            &kept
+        }
+    };
 
     let total_files = files_to_extract.len();
     let completed = AtomicUsize::new(0);
@@ -1257,6 +1286,35 @@ pub mod utils {
 
     /// Get just the filename (basename) from a path.
     /// Handles both forward and backward slashes.
+    /// Split entries for flat extraction into the ones to write and the ones a
+    /// later entry of the same file name replaces.
+    ///
+    /// Same-named files in different directories are common in real archives (the
+    /// Fallout 1 `master.dat` holds about two thousand), so a collision is not an
+    /// error. Keeping the last one matches what extracting in archive order would
+    /// leave, instead of whichever parallel write happened to finish last.
+    pub fn last_entry_per_flat_name<'a>(
+        files: &[&'a FileEntry],
+    ) -> (Vec<&'a FileEntry>, Vec<&'a FileEntry>) {
+        use std::collections::HashMap;
+
+        let mut last_index: HashMap<&str, usize> = HashMap::new();
+        for (index, file) in files.iter().enumerate() {
+            last_index.insert(get_filename_from_dat_path(&file.name), index);
+        }
+        files.iter().enumerate().fold(
+            (Vec::new(), Vec::new()),
+            |(mut kept, mut replaced), (index, file)| {
+                if last_index[get_filename_from_dat_path(&file.name)] == index {
+                    kept.push(*file);
+                } else {
+                    replaced.push(*file);
+                }
+                (kept, replaced)
+            },
+        )
+    }
+
     pub fn get_filename_from_dat_path(path: &str) -> &str {
         path.rfind(['/', '\\'])
             .map(|pos| &path[pos + 1..])

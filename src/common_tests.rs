@@ -151,6 +151,54 @@ mod tests {
         }
     }
 
+    // ── flat extraction ────────────────────────────────────────────
+
+    mod flat_extraction {
+        use super::*;
+
+        fn entry(name: &str, data: &[u8]) -> FileEntry {
+            let mut entry = FileEntry::with_data(name.to_string(), data.to_vec(), false);
+            entry.size = data.len() as u32;
+            entry
+        }
+
+        #[test]
+        fn keeps_only_the_last_entry_for_each_file_name() {
+            let entries = [
+                entry("A\\SAME.TXT", b"first"),
+                entry("OTHER.TXT", b"other"),
+                entry("B\\SAME.TXT", b"second"),
+            ];
+            let refs: Vec<&FileEntry> = entries.iter().collect();
+            let (kept, replaced) = utils::last_entry_per_flat_name(&refs);
+            let names: Vec<&str> = kept.iter().map(|e| e.name.as_str()).collect();
+            assert_eq!(names, ["OTHER.TXT", "B\\SAME.TXT"]);
+            let replaced: Vec<&str> = replaced.iter().map(|e| e.name.as_str()).collect();
+            assert_eq!(replaced, ["A\\SAME.TXT"]);
+        }
+
+        /// Entries sharing a file name used to race to one output path from
+        /// parallel workers, so which one survived varied from run to run.
+        #[test]
+        fn writes_the_last_entry_when_names_collide() {
+            let entries = [
+                entry("A\\SAME.TXT", b"first"),
+                entry("B\\SAME.TXT", b"second"),
+            ];
+            let refs: Vec<&FileEntry> = entries.iter().collect();
+            let out = crate::test_support::ScratchPath::dir("flat_collision");
+            extract_archive_parallel(
+                &[],
+                &refs,
+                &out,
+                ExtractionMode::Flat,
+                |d, _| Ok(d.to_vec()),
+            )
+            .unwrap();
+            assert_eq!(std::fs::read(out.join("SAME.TXT")).unwrap(), b"second");
+        }
+    }
+
     // ── read_file_slice ────────────────────────────────────────────
 
     mod read_file_slice {
