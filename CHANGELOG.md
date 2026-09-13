@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fixed: a crafted Fallout 2 or Arcanum archive could make dat3 reserve gigabytes of memory for a single file name, and a crafted entry in any format could expand on extraction far past the size it declares. Entry paths are now limited to 1024 bytes, and an entry must decompress to exactly its declared size.
+- Errors for damaged Fallout 1, Fallout 2 and Arcanum archives now report missing data in bytes rather than bits, and name the Fallout 2 entry that failed.
 
 ## v0.10.1
 

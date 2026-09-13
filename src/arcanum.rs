@@ -111,7 +111,7 @@ impl ArcanumArchive {
         }
 
         let (_, footer) = ArcanumFooter::from_bytes((&data[data.len() - FOOTER_SIZE..], 0))
-            .map_err(|e| anyhow::anyhow!("Failed to parse Arcanum footer: {e}"))?;
+            .map_err(|e| common::deku_parse_error("Failed to parse Arcanum footer", e))?;
         if footer.magic != MAGIC {
             bail!("Not an Arcanum DAT archive: missing 1TAD magic");
         }
@@ -137,8 +137,9 @@ impl ArcanumArchive {
         for i in 0..entry_count {
             let remaining = &table[current_offset..];
             let ((remaining_slice, _bit_offset), entry) =
-                ArcanumFileEntry::from_bytes((remaining, 0))
-                    .map_err(|e| anyhow::anyhow!("Failed to parse Arcanum entry {i}: {e}"))?;
+                ArcanumFileEntry::from_bytes((remaining, 0)).map_err(|e| {
+                    common::deku_parse_error(format_args!("Failed to parse Arcanum entry {i}"), e)
+                })?;
             current_offset += remaining.len() - remaining_slice.len();
 
             // Directory entries carry no data; directories are recreated

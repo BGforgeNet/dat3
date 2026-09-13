@@ -82,6 +82,45 @@ mod tests {
         }
     }
 
+    // ── deku_parse_error ───────────────────────────────────────────
+
+    mod deku_parse_error {
+        use super::*;
+        use deku::DekuError;
+        use deku::error::NeedSize;
+
+        #[test]
+        fn reports_a_short_read_in_bytes() {
+            let err = deku_parse_error(
+                "Failed to parse entry 3",
+                DekuError::Incomplete(NeedSize::new(776)),
+            );
+            let text = err.to_string();
+            assert_eq!(
+                text,
+                "Failed to parse entry 3: archive data ends early (97 more bytes needed)"
+            );
+        }
+
+        #[test]
+        fn reports_a_failed_field_check_as_an_invalid_value() {
+            let err = deku_parse_error(
+                "Failed to parse entry 3",
+                DekuError::Assertion("Dat2FileEntry.filename_size".into()),
+            );
+            assert_eq!(
+                err.to_string(),
+                "Failed to parse entry 3: invalid value (Dat2FileEntry.filename_size)"
+            );
+        }
+
+        #[test]
+        fn keeps_other_errors_with_their_context() {
+            let err = deku_parse_error("Failed to parse entry 3", DekuError::Parse("bad".into()));
+            assert_eq!(err.to_string(), "Failed to parse entry 3: Parse error: bad");
+        }
+    }
+
     // ── resolve_output_path ────────────────────────────────────────
 
     mod resolve_output_path {

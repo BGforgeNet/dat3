@@ -398,6 +398,19 @@ fn compress_zlib(data: &[u8], level: u8) -> Result<Vec<u8>> {
     encoder.finish().context("Failed to compress with zlib")
 }
 
+/// Word a parse error from a deku-derived record for the user. deku reports a
+/// short read in bits, which says nothing useful about a truncated archive.
+pub fn deku_parse_error(context: impl std::fmt::Display, e: deku::DekuError) -> anyhow::Error {
+    match e {
+        deku::DekuError::Incomplete(need) => anyhow::anyhow!(
+            "{context}: archive data ends early ({} more bytes needed)",
+            need.byte_size()
+        ),
+        deku::DekuError::Assertion(check) => anyhow::anyhow!("{context}: invalid value ({check})"),
+        other => anyhow::anyhow!("{context}: {other}"),
+    }
+}
+
 /// Check decompressed output against the size its entry declares.
 ///
 /// The declared size is untrusted, so decoders stop once output passes it

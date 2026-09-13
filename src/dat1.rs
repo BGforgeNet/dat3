@@ -112,13 +112,14 @@ impl Dat1Archive {
     /// Parse an existing DAT1 archive from raw bytes
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         let ((mut rest, _), header) = Dat1Header::from_bytes((&data, 0))
-            .map_err(|e| anyhow::anyhow!("Failed to parse DAT1 header: {e}"))?;
+            .map_err(|e| common::deku_parse_error("Failed to parse DAT1 header", e))?;
 
         // Read directory names
         let mut dir_names = Vec::new();
         for i in 0..header.dir_count {
-            let ((r, _), name) = Dat1Name::from_bytes((rest, 0))
-                .map_err(|e| anyhow::anyhow!("Failed to parse name for directory {i}: {e}"))?;
+            let ((r, _), name) = Dat1Name::from_bytes((rest, 0)).map_err(|e| {
+                common::deku_parse_error(format_args!("Failed to parse name for directory {i}"), e)
+            })?;
             rest = r;
             dir_names.push(
                 utils::decode_filename(&name.bytes).context("Failed to decode directory name")?,
@@ -129,14 +130,20 @@ impl Dat1Archive {
         let mut directories = Vec::new();
         for dir_name in dir_names {
             let ((r, _), dir_header) = Dat1DirHeader::from_bytes((rest, 0)).map_err(|e| {
-                anyhow::anyhow!("Failed to parse content header for directory '{dir_name}': {e}")
+                common::deku_parse_error(
+                    format_args!("Failed to parse content header for directory '{dir_name}'"),
+                    e,
+                )
             })?;
             rest = r;
 
             let mut files = Vec::new();
             for j in 0..dir_header.file_count {
                 let ((r, _), entry) = Dat1FileEntry::from_bytes((rest, 0)).map_err(|e| {
-                    anyhow::anyhow!("Failed to parse file entry {j} in directory '{dir_name}': {e}")
+                    common::deku_parse_error(
+                        format_args!("Failed to parse file entry {j} in directory '{dir_name}'"),
+                        e,
+                    )
                 })?;
                 rest = r;
 

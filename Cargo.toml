@@ -18,12 +18,16 @@ anyhow = "1.0"
 
 # Binary data handling
 byteorder = "1.5"          # Read/write integers in different byte orders
-deku = "0.20"              # Declarative binary parsing
+# Declarative record layouts for DAT1, DAT2 and Arcanum; ToEE reads with byteorder. Kept rather than ported to
+# byteorder or binrw: its one hazard, sizing a name buffer from an untrusted `count`, is closed by an assert on each
+# length field, and a port would at most lift the clap cap below (binrw is on syn 2 as well).
+deku = "0.20"
 
 # Command-line interface
-# <4.6: clap 4.6 switched to syn 3 while deku's derive macros still use syn 2,
-# and [bans] multiple-versions = "deny" forbids carrying both. Lift when deku moves to syn 3.
-clap = { version = ">=4.4, <4.6", features = ["derive"] }
+# <4.6.4: clap_derive 4.6.4 moved to syn 3 while deku's derive macros still use syn 2, and [bans] multiple-versions =
+# "deny" forbids carrying both. Nothing in 4.6.x is needed; if a needed fix ships past the cap, skip syn 2 in
+# deny.toml before porting off deku.
+clap = { version = ">=4.4, <4.6.4", features = ["derive"] }
 
 # Compression and performance
 # zlib-rs backend: measurably faster than the default miniz_oxide (level-9 archive

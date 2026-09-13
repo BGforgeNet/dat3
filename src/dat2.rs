@@ -79,7 +79,7 @@ impl Dat2Archive {
         // Parse the footer at end of file
         let footer_bytes = &data[data.len() - FOOTER_SIZE..];
         let (_, footer) = Dat2Footer::from_bytes((footer_bytes, 0))
-            .map_err(|e| anyhow::anyhow!("Failed to parse DAT2 footer: {}", e))?;
+            .map_err(|e| common::deku_parse_error("Failed to parse DAT2 footer", e))?;
 
         if footer.dat_size as usize != data.len() {
             bail!(
@@ -117,8 +117,9 @@ impl Dat2Archive {
         for i in 0..file_count {
             let remaining_data = &tree_data[current_offset..];
             let ((remaining_slice, _bit_offset), entry) =
-                Dat2FileEntry::from_bytes((remaining_data, 0))
-                    .map_err(|e| anyhow::anyhow!("Failed to parse file entry: {}", e))?;
+                Dat2FileEntry::from_bytes((remaining_data, 0)).map_err(|e| {
+                    common::deku_parse_error(format_args!("Failed to parse file entry {i}"), e)
+                })?;
 
             let filename = utils::decode_filename(&entry.filename_bytes)
                 .with_context(|| format!("Failed to decode filename for file entry {i}"))?;
