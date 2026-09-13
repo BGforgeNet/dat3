@@ -1,5 +1,5 @@
 /*!
-Scratch filesystem paths for tests.
+Scratch filesystem paths for tests, and shared selection helpers.
 
 Tests here write real archives and extract real trees, so they need somewhere on
 disk. Cleaning that up with a trailing `remove_dir_all` at the end of the test
@@ -11,6 +11,18 @@ failure path too.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+use crate::common::{CaseMode, MissingFiles, Selection};
+
+/// A selection matching names exactly as stored, for tests about something other
+/// than case handling
+pub fn exact(patterns: &[String], on_missing: MissingFiles) -> Selection<'_> {
+    Selection {
+        patterns,
+        on_missing,
+        case: CaseMode::Sensitive,
+    }
+}
 
 /// A temp-directory path that deletes itself when it goes out of scope.
 pub struct ScratchPath(PathBuf);

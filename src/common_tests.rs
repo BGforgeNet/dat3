@@ -151,6 +151,100 @@ mod tests {
         }
     }
 
+    // ── case handling ──────────────────────────────────────────────
+
+    mod case_handling {
+        use super::*;
+
+        #[test]
+        fn groups_only_names_that_differ_in_case() {
+            let names = ["A.TXT", "b.txt", "a.txt", "B.TXT", "c.txt", "a.txt"];
+            assert_eq!(
+                case_only_duplicates(names),
+                [vec!["A.TXT", "a.txt"], vec!["B.TXT", "b.txt"]]
+            );
+        }
+
+        #[test]
+        fn shows_names_in_lowercase_unless_a_case_only_twin_exists() {
+            let view = NameView::new(CaseMode::Insensitive, ["ART\\HERO.FRM", "A.TXT", "a.txt"]);
+            assert_eq!(view.shown("ART\\HERO.FRM"), "art\\hero.frm");
+            assert_eq!(view.shown("A.TXT"), "A.TXT");
+            assert_eq!(view.shown("a.txt"), "a.txt");
+        }
+
+        #[test]
+        fn shows_stored_names_when_case_sensitive() {
+            let view = NameView::new(CaseMode::Sensitive, ["ART\\HERO.FRM"]);
+            assert_eq!(view.shown("ART\\HERO.FRM"), "ART\\HERO.FRM");
+        }
+
+        #[test]
+        fn json_listing_uses_the_shown_names() {
+            let entry = FileEntry {
+                name: "ART\\HERO.FRM".to_string(),
+                offset: 0,
+                size: 1,
+                packed_size: 1,
+                compressed: false,
+                data: None,
+            };
+            let files = [entry];
+            let view = NameView::new(CaseMode::Insensitive, ["ART\\HERO.FRM"]);
+            assert!(
+                utils::format_file_listing_json(&files, &view)
+                    .contains("\"name\": \"art/hero.frm\""),
+                "{}",
+                utils::format_file_listing_json(&files, &view)
+            );
+        }
+
+        /// A plain name ignoring case selects every stored spelling of it.
+        #[test]
+        fn delete_by_plain_name_selects_every_case_only_twin() {
+            let names = ["A.TXT", "a.txt", "OTHER.TXT"];
+            assert_eq!(
+                resolve_delete_targets(&names, &["a.txt".to_string()], CaseMode::Insensitive)
+                    .unwrap(),
+                ["A.TXT", "a.txt"]
+            );
+            assert_eq!(
+                resolve_delete_targets(&names, &["a.txt".to_string()], CaseMode::Sensitive)
+                    .unwrap(),
+                ["a.txt"]
+            );
+        }
+
+        /// Matching, deleting and showing fold case the same way, beyond ASCII
+        /// too, so a name matches exactly when it would be shown alike.
+        #[test]
+        fn non_ascii_names_fold_alike_everywhere() {
+            let stored = "DATA\\\u{c9}T\u{c9}.TXT";
+            let typed = "data\\\u{e9}t\u{e9}.txt";
+            let view = NameView::new(CaseMode::Insensitive, [stored]);
+            assert_eq!(view.shown(stored), typed);
+
+            let matches = |pattern: &str| {
+                utils::NamePattern::new(pattern)
+                    .unwrap()
+                    .matches(stored, CaseMode::Insensitive)
+            };
+            assert!(matches(typed), "substring");
+            assert!(matches("data/\u{e9}t*.txt"), "glob, lowercase pattern");
+            assert!(
+                utils::NamePattern::new("DATA/\u{c9}T*.TXT")
+                    .unwrap()
+                    .matches("data\\\u{e9}t\u{e9}.txt", CaseMode::Insensitive),
+                "glob, uppercase pattern"
+            );
+            assert_eq!(
+                resolve_delete_targets(&[stored], &[typed.to_string()], CaseMode::Insensitive)
+                    .unwrap(),
+                [stored]
+            );
+        }
+    }
+
     // ── progress_line ──────────────────────────────────────────────
 
     mod progress_line {
@@ -227,6 +321,7 @@ mod tests {
                 &refs,
                 &out,
                 ExtractionMode::PreserveStructure,
+                &NameView::new(CaseMode::Sensitive, []),
                 |d, _| Ok(d.to_vec()),
             );
 
@@ -249,6 +344,7 @@ mod tests {
                 &refs,
                 &out,
                 ExtractionMode::Flat,
+                &NameView::new(CaseMode::Sensitive, []),
                 |d, _| Ok(d.to_vec()),
             )
             .unwrap();
@@ -496,9 +592,8 @@ mod tests {
             archive
                 .extract(
                     &dir,
-                    &[],
                     ExtractionMode::PreserveStructure,
-                    MissingFiles::Fail,
+                    &crate::test_support::exact(&[], MissingFiles::Fail),
                 )
                 .unwrap();
             let got = std::fs::read(dir.join("A.TXT")).unwrap();
@@ -741,7 +836,15 @@ mod tests {
         use super::*;
 
         fn matches(file_name: &str, pattern: &str) -> bool {
-            utils::NamePattern::new(pattern).unwrap().matches(file_name)
+            utils::NamePattern::new(pattern)
+                .unwrap()
+                .matches(file_name, CaseMode::Sensitive)
+        }
+
+        fn matches_ignoring_case(file_name: &str, pattern: &str) -> bool {
+            utils::NamePattern::new(pattern)
+                .unwrap()
+                .matches(file_name, CaseMode::Insensitive)
         }
 
         #[test]
@@ -770,13 +873,18 @@ mod tests {
         }
 
         #[test]
-        fn glob_ignores_case_like_the_archives_themselves() {
-            assert!(matches("ART\\CRITTERS\\FILE.FRM", "art/critters/*.frm"));
-            assert!(matches("art\\critters\\file.frm", "*.FRM"));
+        fn globs_and_plain_names_ignore_case_by_default() {
+            assert!(matches_ignoring_case(
+                "ART\\CRITTERS\\FILE.FRM",
+                "art/critters/*.frm"
+            ));
+            assert!(matches_ignoring_case("art\\critters\\file.frm", "*.FRM"));
+            assert!(matches_ignoring_case("ART\\CRITTERS\\FILE.FRM", "file.frm"));
         }
 
         #[test]
-        fn plain_name_still_matches_case_sensitively() {
+        fn globs_and_plain_names_respect_case_when_sensitive() {
+            assert!(!matches("ART\\CRITTERS\\FILE.FRM", "art/critters/*.frm"));
             assert!(!matches("ART\\CRITTERS\\FILE.FRM", "file.frm"));
         }
 
@@ -1144,9 +1252,8 @@ mod tests {
             let archive = DatArchive::open(&archive_path).unwrap();
             let result = archive.extract(
                 &out,
-                &[],
                 ExtractionMode::PreserveStructure,
-                MissingFiles::Fail,
+                &crate::test_support::exact(&[], MissingFiles::Fail),
             );
 
             let escaped = escape.exists();
@@ -1727,8 +1834,11 @@ mod tests {
         fn filtering_fails_on_a_missing_pattern_by_default() {
             let entries = vec![entry("a.txt")];
             let patterns = vec!["a.txt".to_string(), "nope.txt".to_string()];
-            let err =
-                filter_files_by_patterns(&entries, &patterns, MissingFiles::Fail).unwrap_err();
+            let err = filter_files_by_patterns(
+                &entries,
+                &crate::test_support::exact(&patterns, MissingFiles::Fail),
+            )
+            .unwrap_err();
             assert!(
                 err.to_string().contains("not found"),
                 "unexpected error: {err}"
@@ -1739,8 +1849,11 @@ mod tests {
         fn filtering_keeps_the_matched_files_when_misses_are_tolerated() {
             let entries = vec![entry("a.txt"), entry("b.txt")];
             let patterns = vec!["a.txt".to_string(), "nope.txt".to_string()];
-            let matched =
-                filter_files_by_patterns(&entries, &patterns, MissingFiles::Warn).unwrap();
+            let matched = filter_files_by_patterns(
+                &entries,
+                &crate::test_support::exact(&patterns, MissingFiles::Warn),
+            )
+            .unwrap();
             assert_eq!(matched.len(), 1);
             assert_eq!(matched[0].name, "a.txt");
         }
@@ -1751,8 +1864,11 @@ mod tests {
         fn filtering_succeeds_with_no_matches_at_all_when_misses_are_tolerated() {
             let entries = vec![entry("a.txt")];
             let patterns = vec!["nope.txt".to_string()];
-            let matched =
-                filter_files_by_patterns(&entries, &patterns, MissingFiles::Warn).unwrap();
+            let matched = filter_files_by_patterns(
+                &entries,
+                &crate::test_support::exact(&patterns, MissingFiles::Warn),
+            )
+            .unwrap();
             assert!(matched.is_empty());
         }
 
@@ -1762,7 +1878,12 @@ mod tests {
             let all: Vec<&FileEntry> = entries.iter().collect();
             let patterns = vec!["nope.txt".to_string()];
             assert!(
-                list_files_filtered(&all, &patterns, ListFormat::Text, MissingFiles::Fail).is_err()
+                list_files_filtered(
+                    &all,
+                    &crate::test_support::exact(&patterns, MissingFiles::Fail),
+                    ListFormat::Text
+                )
+                .is_err()
             );
         }
 
@@ -1772,7 +1893,12 @@ mod tests {
             let all: Vec<&FileEntry> = entries.iter().collect();
             let patterns = vec!["a.txt".to_string(), "nope.txt".to_string()];
             assert!(
-                list_files_filtered(&all, &patterns, ListFormat::Text, MissingFiles::Warn).is_ok()
+                list_files_filtered(
+                    &all,
+                    &crate::test_support::exact(&patterns, MissingFiles::Warn),
+                    ListFormat::Text
+                )
+                .is_ok()
             );
         }
     }
@@ -1796,14 +1922,17 @@ mod tests {
         #[test]
         fn empty_listing_is_an_empty_array() {
             let files: Vec<FileEntry> = vec![];
-            assert_eq!(utils::format_file_listing_json(&files), "[]");
+            assert_eq!(
+                utils::format_file_listing_json(&files, &NameView::new(CaseMode::Sensitive, [])),
+                "[]"
+            );
         }
 
         #[test]
         fn renders_one_entry_per_line_with_all_fields() {
             let files = vec![entry("ART\\SPLASH.RIX", 1024, 512, true)];
             assert_eq!(
-                utils::format_file_listing_json(&files),
+                utils::format_file_listing_json(&files, &NameView::new(CaseMode::Sensitive, [])),
                 "[\n  {\"name\": \"ART/SPLASH.RIX\", \"size\": 1024, \"packed_size\": 512, \
                  \"compressed\": true}\n]"
             );
@@ -1816,7 +1945,8 @@ mod tests {
                 entry("b.txt", 2, 2, false),
                 entry("c.txt", 3, 3, false),
             ];
-            let json = utils::format_file_listing_json(&files);
+            let json =
+                utils::format_file_listing_json(&files, &NameView::new(CaseMode::Sensitive, []));
             assert_eq!(json.matches("},\n").count(), 2);
             assert!(json.ends_with("false}\n]"), "no trailing comma: {json}");
         }
@@ -1826,7 +1956,8 @@ mod tests {
         #[test]
         fn always_uses_forward_slashes_regardless_of_platform() {
             let files = vec![entry("ART\\CRITTERS\\HANPWRAA.FRM", 10, 10, false)];
-            let json = utils::format_file_listing_json(&files);
+            let json =
+                utils::format_file_listing_json(&files, &NameView::new(CaseMode::Sensitive, []));
             assert!(json.contains("\"ART/CRITTERS/HANPWRAA.FRM\""), "{json}");
             assert!(!json.contains('\\'), "{json}");
         }
@@ -1836,7 +1967,8 @@ mod tests {
         #[test]
         fn escapes_characters_that_would_break_the_document() {
             let files = vec![entry("say \"hi\"\n\tx\u{01}.txt", 0, 0, false)];
-            let json = utils::format_file_listing_json(&files);
+            let json =
+                utils::format_file_listing_json(&files, &NameView::new(CaseMode::Sensitive, []));
             assert!(json.contains(r#"\"hi\""#), "{json}");
             assert!(json.contains("\\n\\tx\\u0001.txt"), "{json}");
         }
@@ -1844,7 +1976,8 @@ mod tests {
         #[test]
         fn passes_through_non_ascii_unescaped() {
             let files = vec![entry("Кириллица.txt", 0, 0, false)];
-            let json = utils::format_file_listing_json(&files);
+            let json =
+                utils::format_file_listing_json(&files, &NameView::new(CaseMode::Sensitive, []));
             assert!(json.contains("Кириллица.txt"), "{json}");
         }
     }

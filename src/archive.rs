@@ -13,7 +13,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::arcanum::{self, ArcanumArchive};
-use crate::common::{self, CompressionLevel, ExtractionMode, ListFormat, MissingFiles};
+use crate::common::{self, CaseMode, CompressionLevel, ExtractionMode, ListFormat, Selection};
 use crate::dat1::Dat1Archive;
 use crate::dat2::Dat2Archive;
 use crate::toee::{self, ToeeArchive};
@@ -148,17 +148,12 @@ impl DatArchive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(
-        &self,
-        files: &[String],
-        format: ListFormat,
-        on_missing: MissingFiles,
-    ) -> Result<()> {
+    pub fn list(&self, selection: &Selection, format: ListFormat) -> Result<()> {
         match self {
-            Self::Dat1(a) => a.list(files, format, on_missing),
-            Self::Dat2(a) => a.list(files, format, on_missing),
-            Self::Arcanum(a) => a.list(files, format, on_missing),
-            Self::Toee(a) => a.list(files, format, on_missing),
+            Self::Dat1(a) => a.list(selection, format),
+            Self::Dat2(a) => a.list(selection, format),
+            Self::Arcanum(a) => a.list(selection, format),
+            Self::Toee(a) => a.list(selection, format),
         }
     }
 
@@ -166,15 +161,15 @@ impl DatArchive {
     pub fn extract<P: AsRef<Path>>(
         &self,
         output_dir: P,
-        files: &[String],
         mode: ExtractionMode,
-        on_missing: MissingFiles,
+        selection: &Selection,
     ) -> Result<()> {
+        let output_dir = output_dir.as_ref();
         match self {
-            Self::Dat1(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
-            Self::Dat2(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
-            Self::Arcanum(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
-            Self::Toee(a) => a.extract(output_dir.as_ref(), files, mode, on_missing),
+            Self::Dat1(a) => a.extract(output_dir, mode, selection),
+            Self::Dat2(a) => a.extract(output_dir, mode, selection),
+            Self::Arcanum(a) => a.extract(output_dir, mode, selection),
+            Self::Toee(a) => a.extract(output_dir, mode, selection),
         }
     }
 
@@ -185,14 +180,14 @@ impl DatArchive {
         compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
+        case: CaseMode,
     ) -> Result<()> {
+        let path = file_path.as_ref();
         match self {
-            Self::Dat1(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
-            Self::Dat2(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
-            Self::Arcanum(a) => {
-                a.add_file(file_path.as_ref(), compression, target_dir, source_root)
-            }
-            Self::Toee(a) => a.add_file(file_path.as_ref(), compression, target_dir, source_root),
+            Self::Dat1(a) => a.add_file(path, compression, target_dir, source_root, case),
+            Self::Dat2(a) => a.add_file(path, compression, target_dir, source_root, case),
+            Self::Arcanum(a) => a.add_file(path, compression, target_dir, source_root, case),
+            Self::Toee(a) => a.add_file(path, compression, target_dir, source_root, case),
         }
     }
 
@@ -211,10 +206,10 @@ impl DatArchive {
     }
 
     /// Delete every entry the `d` operands select (see `resolve_delete_targets`)
-    pub fn delete(&mut self, patterns: &[String]) -> Result<()> {
+    pub fn delete(&mut self, patterns: &[String], case: CaseMode) -> Result<()> {
         let names = self.entry_names();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        for target in common::resolve_delete_targets(&names, patterns)? {
+        for target in common::resolve_delete_targets(&names, patterns, case)? {
             self.delete_file(&target)?;
         }
         Ok(())
@@ -253,19 +248,169 @@ mod tests {
         ArchiveFormat::Toee,
     ];
 
-    /// A new archive holding one small file per name (`/`-separated)
+    /// A new archive holding one small file per name (`/`-separated), stored in
+    /// exactly the case given
     fn archive_with(format: ArchiveFormat, names: &[&str]) -> DatArchive {
-        let src = ScratchPath::dir("archive_delete_src");
         let mut archive = DatArchive::new(format);
+        add_names(&mut archive, names, CaseMode::Sensitive);
+        archive
+    }
+
+    /// Add one small file per name, as `a` would under `case`
+    fn add_names(archive: &mut DatArchive, names: &[&str], case: CaseMode) {
+        let src = ScratchPath::dir("archive_names_src");
         for name in names {
             let path = src.join(name);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, b"data").unwrap();
+            std::fs::write(&path, name.as_bytes()).unwrap();
             archive
-                .add_file(&path, CompressionLevel::new(0).unwrap(), None, Some(&src))
+                .add_file(
+                    &path,
+                    CompressionLevel::new(0).unwrap(),
+                    None,
+                    Some(&src),
+                    case,
+                )
                 .unwrap();
         }
+    }
+
+    /// Save and reopen, so assertions see what the format actually stored
+    fn reopened(archive: &DatArchive) -> DatArchive {
+        let path = ScratchPath::new("archive_case_roundtrip");
+        archive.save(&path).unwrap();
+        DatArchive::open(&path).unwrap()
+    }
+
+    fn all_entries(case: CaseMode) -> Selection<'static> {
+        Selection {
+            patterns: &[],
+            on_missing: common::MissingFiles::Fail,
+            case,
+        }
+    }
+
+    #[test]
+    fn by_default_new_entries_are_stored_in_lowercase() {
+        for format in ALL_FORMATS {
+            let mut archive = DatArchive::new(format);
+            add_names(&mut archive, &["Art/Hero.FRM"], CaseMode::Insensitive);
+            assert_eq!(
+                sorted_names(&reopened(&archive)),
+                ["art\\hero.frm"],
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_case_sensitive_new_entries_keep_their_case() {
+        for format in ALL_FORMATS {
+            let archive = archive_with(format, &["Art/Hero.FRM"]);
+            assert_eq!(
+                sorted_names(&reopened(&archive)),
+                ["Art\\Hero.FRM"],
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn by_default_extraction_writes_lowercase_paths() {
+        for format in ALL_FORMATS {
+            let archive = reopened(&archive_with(format, &["ART/HERO.FRM"]));
+            let out = ScratchPath::dir("archive_case_extract");
+            archive
+                .extract(
+                    &out,
+                    ExtractionMode::PreserveStructure,
+                    &all_entries(CaseMode::Insensitive),
+                )
+                .unwrap();
+            assert!(out.join("art").join("hero.frm").is_file(), "{format:?}");
+            assert!(!out.join("ART").exists(), "{format:?}");
+        }
+    }
+
+    #[test]
+    fn with_case_sensitive_extraction_keeps_stored_paths() {
+        for format in ALL_FORMATS {
+            let archive = reopened(&archive_with(format, &["ART/HERO.FRM"]));
+            let out = ScratchPath::dir("archive_case_extract_exact");
+            archive
+                .extract(
+                    &out,
+                    ExtractionMode::PreserveStructure,
+                    &all_entries(CaseMode::Sensitive),
+                )
+                .unwrap();
+            assert!(out.join("ART").join("HERO.FRM").is_file(), "{format:?}");
+        }
+    }
+
+    /// Re-adding a file under another case replaces the entry rather than
+    /// keeping two names that differ only in case.
+    #[test]
+    fn by_default_adding_replaces_an_entry_differing_only_in_case() {
+        for format in ALL_FORMATS {
+            let mut archive = reopened(&archive_with(format, &["ART/HERO.FRM", "ART/OTHER.FRM"]));
+            add_names(&mut archive, &["art/hero.frm"], CaseMode::Insensitive);
+            // DAT1 and ToEE keep one stored spelling per directory, so the new
+            // lowercase file sits under the existing ART; the flat formats store
+            // the whole lowercase path.
+            let expected = match format {
+                ArchiveFormat::Dat1 | ArchiveFormat::Toee => ["ART\\OTHER.FRM", "ART\\hero.frm"],
+                ArchiveFormat::Dat2 | ArchiveFormat::Arcanum => ["ART\\OTHER.FRM", "art\\hero.frm"],
+            };
+            assert_eq!(sorted_names(&reopened(&archive)), expected, "{format:?}");
+        }
+    }
+
+    #[test]
+    fn by_default_delete_ignores_case() {
+        for format in ALL_FORMATS {
+            let mut archive = reopened(&archive_with(format, &["ART/HERO.FRM", "ART/OTHER.FRM"]));
+            archive
+                .delete(&["art/hero.frm".to_string()], CaseMode::Insensitive)
+                .unwrap();
+            assert_eq!(sorted_names(&archive), ["ART\\OTHER.FRM"], "{format:?}");
+        }
+    }
+
+    #[test]
+    fn with_case_sensitive_delete_needs_the_exact_case() {
+        for format in ALL_FORMATS {
+            let mut archive = reopened(&archive_with(format, &["ART/HERO.FRM"]));
+            assert!(
+                archive
+                    .delete(&["art/hero.frm".to_string()], CaseMode::Sensitive)
+                    .is_err(),
+                "{format:?}"
+            );
+        }
+    }
+
+    /// DAT1 stores one name per directory, so a file added under a differently
+    /// cased directory joins the stored one instead of creating a second.
+    #[test]
+    fn dat1_adding_into_a_directory_stored_in_another_case_round_trips() {
+        let mut archive = reopened(&archive_with(ArchiveFormat::Dat1, &["ART/HERO.FRM"]));
+        add_names(&mut archive, &["art/new.frm"], CaseMode::Insensitive);
+        let archive = reopened(&archive);
+        assert_eq!(sorted_names(&archive), ["ART\\HERO.FRM", "ART\\new.frm"]);
+
+        let out = ScratchPath::dir("dat1_case_dir");
         archive
+            .extract(
+                &out,
+                ExtractionMode::PreserveStructure,
+                &all_entries(CaseMode::Insensitive),
+            )
+            .unwrap();
+        assert_eq!(
+            std::fs::read(out.join("art").join("new.frm")).unwrap(),
+            b"art/new.frm"
+        );
     }
 
     fn sorted_names(archive: &DatArchive) -> Vec<String> {
@@ -281,7 +426,9 @@ mod tests {
                 format,
                 &["ART/A.FRM", "ART/B.FRM", "ART/A.TXT", "TEXT/A.FRM"],
             );
-            archive.delete(&["ART/*.FRM".to_string()]).unwrap();
+            archive
+                .delete(&["ART/*.FRM".to_string()], CaseMode::Sensitive)
+                .unwrap();
             assert_eq!(
                 sorted_names(&archive),
                 ["ART\\A.TXT", "TEXT\\A.FRM"],
@@ -294,7 +441,9 @@ mod tests {
     fn a_plain_name_deletes_only_the_entry_with_that_exact_name() {
         for format in ALL_FORMATS {
             let mut archive = archive_with(format, &["DATA/A.TXT", "DATA/BIGA.TXT"]);
-            archive.delete(&["DATA/A.TXT".to_string()]).unwrap();
+            archive
+                .delete(&["DATA/A.TXT".to_string()], CaseMode::Sensitive)
+                .unwrap();
             assert_eq!(sorted_names(&archive), ["DATA\\BIGA.TXT"], "{format:?}");
         }
     }
@@ -304,7 +453,10 @@ mod tests {
         for format in ALL_FORMATS {
             let mut archive = archive_with(format, &["DATA/A.TXT", "DATA/B.TXT"]);
             let err = archive
-                .delete(&["DATA/A.TXT".to_string(), "*.ZZZ".to_string()])
+                .delete(
+                    &["DATA/A.TXT".to_string(), "*.ZZZ".to_string()],
+                    CaseMode::Sensitive,
+                )
                 .unwrap_err();
             assert_eq!(
                 err.to_string(),

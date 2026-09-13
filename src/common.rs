@@ -150,6 +150,108 @@ pub enum MissingFiles {
     Warn,
 }
 
+/// Whether entry names are matched, shown and written regardless of case
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaseMode {
+    /// The default: names match regardless of case, and are listed, extracted
+    /// and added in lowercase. The archives come from DOS/Windows tooling, where
+    /// case carries no meaning.
+    Insensitive,
+    /// `--case-sensitive`: names match, list and extract exactly as stored
+    Sensitive,
+}
+
+impl CaseMode {
+    /// `name` as this mode compares, shows and stores it. Every case-insensitive
+    /// comparison goes through this one full Unicode fold, so a name matches
+    /// another exactly when both would be shown alike.
+    pub fn fold(self, name: &str) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Sensitive => std::borrow::Cow::Borrowed(name),
+            Self::Insensitive => std::borrow::Cow::Owned(name.to_lowercase()),
+        }
+    }
+}
+
+/// How one command presents an archive's stored entry names under a `CaseMode`.
+///
+/// Case-insensitively a name is shown and extracted in lowercase, unless the
+/// archive stores several names differing only in case: those keep their stored
+/// case, so the entries stay distinct instead of landing on one path.
+#[derive(Debug)]
+pub struct NameView {
+    mode: CaseMode,
+    /// Lowercased names that more than one stored spelling shares
+    ambiguous: std::collections::HashSet<String>,
+}
+
+impl NameView {
+    pub fn new<'a>(mode: CaseMode, names: impl IntoIterator<Item = &'a str>) -> Self {
+        let ambiguous = match mode {
+            CaseMode::Sensitive => std::collections::HashSet::new(),
+            CaseMode::Insensitive => case_only_duplicates(names)
+                .into_iter()
+                .map(|group| mode.fold(group[0]).into_owned())
+                .collect(),
+        };
+        Self { mode, ambiguous }
+    }
+
+    /// The name to list or extract a stored entry name as
+    pub fn shown<'a>(&self, stored: &'a str) -> std::borrow::Cow<'a, str> {
+        let folded = self.mode.fold(stored);
+        if self.ambiguous.contains(folded.as_ref()) {
+            std::borrow::Cow::Borrowed(stored)
+        } else {
+            folded
+        }
+    }
+}
+
+/// Groups of stored names that are equal ignoring case but not exactly, each
+/// group sorted, in the order of their lowercase form
+pub fn case_only_duplicates<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<Vec<&'a str>> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut by_lowercase: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
+    for name in names {
+        by_lowercase
+            .entry(CaseMode::Insensitive.fold(name).into_owned())
+            .or_default()
+            .insert(name);
+    }
+    by_lowercase
+        .into_values()
+        .filter(|spellings| spellings.len() > 1)
+        .map(|spellings| spellings.into_iter().collect())
+        .collect()
+}
+
+/// Warn about stored names differing only in case, which case-insensitive mode
+/// keeps in their stored case
+pub fn report_case_only_duplicates<'a>(names: impl IntoIterator<Item = &'a str>) {
+    const SHOWN: usize = 5;
+    let groups = case_only_duplicates(names);
+    if groups.is_empty() {
+        return;
+    }
+    eprintln!(
+        "Warning: this archive holds names that differ only in case ({} {}); they keep their stored case (use --case-sensitive to work with them exactly):",
+        groups.len(),
+        if groups.len() == 1 { "set" } else { "sets" }
+    );
+    for group in groups.iter().take(SHOWN) {
+        let shown: Vec<String> = group
+            .iter()
+            .map(|name| utils::normalize_path_for_display(name))
+            .collect();
+        eprintln!("  {}", shown.join(" / "));
+    }
+    if groups.len() > SHOWN {
+        eprintln!("  ...and {} more", groups.len() - SHOWN);
+    }
+}
+
 /// Controls how the `l` command renders its listing
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListFormat {
@@ -161,32 +263,44 @@ pub enum ListFormat {
 
 // ── Shared archive operations ──────────────────────────────────────
 
+/// Which entries a `l`, `x` or `e` command asks for, and how to match them
+#[derive(Debug, Clone, Copy)]
+pub struct Selection<'a> {
+    /// Names and globs as given; empty selects every entry
+    pub patterns: &'a [String],
+    pub on_missing: MissingFiles,
+    pub case: CaseMode,
+}
+
 /// List files using shared filter-and-print logic.
 ///
 /// All formats use this same flow:
 /// normalize patterns -> filter entries -> print listing -> report missing.
 pub fn list_files_filtered(
     all_files: &[&FileEntry],
-    patterns: &[String],
+    selection: &Selection,
     format: ListFormat,
-    on_missing: MissingFiles,
 ) -> Result<()> {
-    let compiled = utils::compile_patterns(patterns)?;
+    let compiled = utils::compile_patterns(selection.patterns)?;
+    let view = NameView::new(
+        selection.case,
+        all_files.iter().map(|file| file.name.as_str()),
+    );
 
     let (files_to_list, missing_patterns) =
         filter_and_track_patterns(all_files, &compiled, |file, pattern| {
-            pattern.matches(&file.name)
+            pattern.matches(&file.name, selection.case)
         });
 
     match format {
-        ListFormat::Text => utils::print_file_listing(&files_to_list),
+        ListFormat::Text => utils::print_file_listing(&files_to_list, &view),
         ListFormat::Json => print_stdout(format_args!(
             "{}",
-            utils::format_file_listing_json(&files_to_list)
+            utils::format_file_listing_json(&files_to_list, &view)
         )),
     }
 
-    report_missing_patterns(&missing_patterns, on_missing)
+    report_missing_patterns(&missing_patterns, selection.on_missing)
 }
 
 /// Report patterns that matched no entry, failing unless the caller tolerates
@@ -226,19 +340,46 @@ fn report_missing_patterns(
 /// per-directory lists can filter without first cloning them into a flat `Vec`.
 pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
     all_files: &'a [T],
-    patterns: &[String],
-    on_missing: MissingFiles,
+    selection: &Selection,
 ) -> Result<Vec<&'a FileEntry>> {
-    let compiled = utils::compile_patterns(patterns)?;
+    let compiled = utils::compile_patterns(selection.patterns)?;
 
     let (filtered, missing_patterns) =
         filter_and_track_patterns(all_files, &compiled, |file, pattern| {
-            pattern.matches(&file.as_ref().name)
+            pattern.matches(&file.as_ref().name, selection.case)
         });
 
-    report_missing_patterns(&missing_patterns, on_missing)?;
+    report_missing_patterns(&missing_patterns, selection.on_missing)?;
 
     Ok(filtered.into_iter().map(|file| file.as_ref()).collect())
+}
+
+/// Select entries and extract them under names shown per `selection.case`.
+///
+/// Shared by all four formats, which differ only in their codec.
+pub fn extract_matching<T: AsRef<FileEntry>>(
+    archive_data: &[u8],
+    all_files: &[T],
+    output_dir: &Path,
+    mode: ExtractionMode,
+    selection: &Selection,
+    decompress: impl Fn(&[u8], usize) -> Result<Vec<u8>> + Sync,
+) -> Result<()> {
+    // Judged against the whole archive, so a name keeps its stored case whenever
+    // a differently cased twin exists, whether or not the twin was selected.
+    let names = NameView::new(
+        selection.case,
+        all_files.iter().map(|file| file.as_ref().name.as_str()),
+    );
+    let selected = filter_files_by_patterns(all_files, selection)?;
+    extract_archive_parallel(
+        archive_data,
+        &selected,
+        output_dir,
+        mode,
+        &names,
+        decompress,
+    )
 }
 
 /// Extraction progress, with a rate only once any time has measurably passed
@@ -281,6 +422,7 @@ pub fn extract_archive_parallel(
     files_to_extract: &[&FileEntry],
     output_dir: &Path,
     mode: ExtractionMode,
+    names: &NameView,
     decompress: impl Fn(&[u8], usize) -> Result<Vec<u8>> + Sync,
 ) -> Result<()> {
     use rayon::prelude::*;
@@ -312,7 +454,8 @@ pub fn extract_archive_parallel(
     files_to_extract
         .par_iter()
         .try_for_each(|file| -> Result<()> {
-            let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
+            let output_path =
+                utils::resolve_output_path(output_dir, &names.shown(&file.name), mode);
 
             utils::ensure_dir_exists(&output_path)?;
 
@@ -359,6 +502,7 @@ pub fn add_files_zlib(
     compression: CompressionLevel,
     target_dir: Option<&str>,
     source_root: Option<&Path>,
+    case: CaseMode,
 ) -> Result<()> {
     use rayon::prelude::*;
     use std::collections::HashSet;
@@ -375,21 +519,28 @@ pub fn add_files_zlib(
     let results: Result<Vec<FileEntry>> = files
         .par_iter()
         .map(|file| {
-            process_single_file_for_adding(file, base_path, compression, target_dir, source_root)
+            process_single_file_for_adding(
+                file,
+                base_path,
+                compression,
+                target_dir,
+                source_root,
+                case,
+            )
         })
         .collect();
 
     let new_entries = results?; // Collect results, propagating the first error if any file failed
 
-    // Remove existing files that match new file names
-    let new_file_names: HashSet<String> = new_entries.iter().map(|e| e.name.clone()).collect();
-    entries.retain(|existing_file| !new_file_names.contains(&existing_file.name));
+    // An added file replaces every existing entry of its name, compared as
+    // `case` says, and a batch naming one path twice keeps its first file.
+    let key = |name: &str| case.fold(name).into_owned();
+    let new_file_names: HashSet<String> = new_entries.iter().map(|e| key(&e.name)).collect();
+    entries.retain(|existing_file| !new_file_names.contains(&key(&existing_file.name)));
 
-    // Add new files, deduplicating within the batch (keep first occurrence).
-    // This can happen if the user passes the same file or two files with the same name.
     let mut seen_names = HashSet::new();
     for entry in new_entries {
-        if seen_names.insert(entry.name.clone()) {
+        if seen_names.insert(key(&entry.name)) {
             entries.push(entry);
         }
     }
@@ -409,9 +560,11 @@ fn process_single_file_for_adding(
     compression: CompressionLevel,
     target_dir: Option<&str>,
     source_root: Option<&Path>,
+    case: CaseMode,
 ) -> Result<FileEntry> {
     let data = utils::read_entry_data(file)?;
     let archive_path = utils::calculate_archive_path(file, base_path, target_dir, source_root)?;
+    let archive_path = case.fold(&archive_path).into_owned();
     let display_path = utils::normalize_path_for_display(&archive_path);
     // The readers reject longer names, so writing one would produce an archive
     // dat3 itself cannot open.
@@ -522,9 +675,14 @@ pub fn delete_file_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> Res
 /// Resolve `d` operands to the names of the entries they delete.
 ///
 /// A glob selects every entry it matches. A plain name selects only the entry
-/// with exactly that name: the substring matching `l` and `x` apply would delete
-/// unrelated files. Any operand that selects nothing fails the whole command.
-pub fn resolve_delete_targets(names: &[&str], patterns: &[String]) -> Result<Vec<String>> {
+/// with that whole name (ignoring case unless `case` is sensitive): the substring
+/// matching `l` and `x` apply would delete unrelated files. Any operand that
+/// selects nothing fails the whole command.
+pub fn resolve_delete_targets(
+    names: &[&str],
+    patterns: &[String],
+    case: CaseMode,
+) -> Result<Vec<String>> {
     if patterns.is_empty() {
         return Ok(Vec::new());
     }
@@ -532,9 +690,9 @@ pub fn resolve_delete_targets(names: &[&str], patterns: &[String]) -> Result<Vec
     let (selected, missing_patterns) =
         filter_and_track_patterns(names, &compiled, |name, pattern| {
             if pattern.is_glob() {
-                pattern.matches(name)
+                pattern.matches(name, case)
             } else {
-                *name == pattern.source()
+                case.fold(name) == case.fold(pattern.source())
             }
         });
     report_missing_patterns(&missing_patterns, MissingFiles::Fail)?;
@@ -588,7 +746,7 @@ pub mod utils {
 
     /// Print formatted file listing to stdout.
     /// Output goes through `print_stdout`, so a closed pipe (e.g. `| head`) silences it.
-    pub fn print_file_listing<T: AsRef<FileEntry>>(files: &[T]) {
+    pub fn print_file_listing<T: AsRef<FileEntry>>(files: &[T], view: &NameView) {
         print_stdout(format_args!(
             "{:>11} {:>11}  {:>4}  Name",
             "Size", "Packed", "Comp"
@@ -598,7 +756,7 @@ pub mod utils {
         for file in files {
             let file = file.as_ref();
             let comp_str = if file.compressed { "Yes" } else { "No" };
-            let display_name = normalize_path_for_display(&file.name);
+            let display_name = normalize_path_for_display(&view.shown(&file.name));
             print_stdout(format_args!(
                 "{:>11} {:>11}  {:>4}  {}",
                 file.size, file.packed_size, comp_str, display_name
@@ -636,7 +794,7 @@ pub mod utils {
     /// keeps the platform's own: this output is data for another program, so
     /// the same archive has to describe itself identically everywhere. The
     /// names it emits are what the `x`, `e`, and `d` commands accept back.
-    pub fn format_file_listing_json<T: AsRef<FileEntry>>(files: &[T]) -> String {
+    pub fn format_file_listing_json<T: AsRef<FileEntry>>(files: &[T], view: &NameView) -> String {
         if files.is_empty() {
             return "[]".to_string();
         }
@@ -645,7 +803,7 @@ pub mod utils {
         for (i, file) in files.iter().enumerate() {
             let file = file.as_ref();
             out.push_str("  {\"name\": ");
-            push_json_string(&mut out, &file.name.replace('\\', "/"));
+            push_json_string(&mut out, &view.shown(&file.name).replace('\\', "/"));
             out.push_str(&format!(
                 ", \"size\": {}, \"packed_size\": {}, \"compressed\": {}}}",
                 file.size, file.packed_size, file.compressed
@@ -911,9 +1069,9 @@ pub mod utils {
     /// A user-supplied name or glob, compiled once per command and then matched
     /// against every entry.
     ///
-    /// A pattern with glob metacharacters is a glob, matched case-insensitively;
-    /// one without a path separator matches the file name alone. Any other pattern
-    /// matches as a case-sensitive substring, for backward compatibility.
+    /// A pattern with glob metacharacters is a glob; one without a path separator
+    /// matches the file name alone. Any other pattern matches as a substring, for
+    /// backward compatibility. Both ignore case unless the `CaseMode` is sensitive.
     pub struct NamePattern {
         source: String,
         kind: PatternKind,
@@ -922,6 +1080,9 @@ pub mod utils {
     enum PatternKind {
         Glob {
             glob: glob::Pattern,
+            /// The pattern after `CaseMode::fold`, matched against folded names:
+            /// the glob crate's own case-insensitive mode folds ASCII only.
+            folded: glob::Pattern,
             whole_path: bool,
         },
         Substring,
@@ -933,14 +1094,17 @@ pub mod utils {
         pub fn new(pattern: &str) -> Result<Self> {
             let kind = if contains_glob_metacharacters(pattern) {
                 let normalized = pattern.replace('\\', "/");
-                let glob = glob::Pattern::new(&normalized).map_err(|_| {
-                    anyhow::anyhow!(
-                        "Invalid glob pattern: {}",
-                        normalize_path_for_display(pattern)
-                    )
-                })?;
+                let compile = |source: &str| {
+                    glob::Pattern::new(source).map_err(|_| {
+                        anyhow::anyhow!(
+                            "Invalid glob pattern: {}",
+                            normalize_path_for_display(pattern)
+                        )
+                    })
+                };
                 PatternKind::Glob {
-                    glob,
+                    glob: compile(&normalized)?,
+                    folded: compile(&CaseMode::Insensitive.fold(&normalized))?,
                     whole_path: normalized.contains('/'),
                 }
             } else {
@@ -961,24 +1125,26 @@ pub mod utils {
             matches!(self.kind, PatternKind::Glob { .. })
         }
 
-        pub fn matches(&self, file_name: &str) -> bool {
+        pub fn matches(&self, file_name: &str, mode: CaseMode) -> bool {
             match &self.kind {
-                PatternKind::Substring => file_name.contains(self.source.as_str()),
-                PatternKind::Glob { glob, whole_path } => {
-                    let normalized = file_name.replace('\\', "/");
+                PatternKind::Substring => mode
+                    .fold(file_name)
+                    .contains(mode.fold(&self.source).as_ref()),
+                PatternKind::Glob {
+                    glob,
+                    folded,
+                    whole_path,
+                } => {
+                    let normalized = mode.fold(file_name).replace('\\', "/");
                     let target = if *whole_path {
                         normalized.as_str()
                     } else {
                         normalized.rsplit('/').next().unwrap_or(&normalized)
                     };
-                    // Archive names come from DOS/Windows tooling, where case carries no
-                    // meaning (entries are even sorted case-insensitively), so `*.frm`
-                    // must select `A.FRM`.
-                    let options = glob::MatchOptions {
-                        case_sensitive: false,
-                        ..glob::MatchOptions::new()
-                    };
-                    glob.matches_with(target, options)
+                    match mode {
+                        CaseMode::Sensitive => glob.matches(target),
+                        CaseMode::Insensitive => folded.matches(target),
+                    }
                 }
             }
         }

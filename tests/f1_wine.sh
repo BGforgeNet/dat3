@@ -45,14 +45,15 @@ for archive in $archives; do
 		$DAT2 x -d "$ref_dir" "$archive" 2>/dev/null
 	fi
 
-	# Test 1: dat3 must extract what dat2.exe extracts
+	# Test 1: dat3 must extract what dat2.exe extracts. dat2.exe keeps the
+	# stored case, so both dat3 steps here do too.
 	rm -rf "$dat3_dir"
-	$DAT3 x "$archive" -o "$dat3_dir"
+	$DAT3 x --case-sensitive "$archive" -o "$dat3_dir"
 	diff -qr "$ref_dir" "$dat3_dir"
 
 	# Test 2: dat2.exe must read back an archive dat3 wrote
 	rm -rf "$repacked" "$repacked_dir"
-	(cd "$dat3_dir" && $DAT3 a --format dat1 "../$repacked" -- *)
+	(cd "$dat3_dir" && $DAT3 a --case-sensitive --format dat1 "../$repacked" -- *)
 	$DAT2 x -d "$repacked_dir" "$repacked" 2>/dev/null
 	diff -qr "$ref_dir" "$repacked_dir"
 

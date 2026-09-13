@@ -47,6 +47,7 @@ cd tests
 ./glob_handling.sh
 ./extract_missing.sh
 ./default_format.sh
+./case_handling.sh
 # TypeScript: the assertions are about a parsed document, so a real parser runs them
 node ./json_listing.ts
 

@@ -21,8 +21,8 @@ use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES, MissingFiles,
-    utils,
+    self, CaseMode, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES,
+    Selection, utils,
 };
 
 const FOOTER_SIZE: usize = 28;
@@ -441,29 +441,22 @@ impl ToeeArchive {
         self.files.iter().collect()
     }
 
-    pub fn list(
-        &self,
-        files: &[String],
-        format: ListFormat,
-        on_missing: MissingFiles,
-    ) -> Result<()> {
-        let all_files = self.entries();
-        common::list_files_filtered(&all_files, files, format, on_missing)
+    pub fn list(&self, selection: &Selection, format: ListFormat) -> Result<()> {
+        common::list_files_filtered(&self.entries(), selection, format)
     }
 
     pub fn extract(
         &self,
         output_dir: &Path,
-        files: &[String],
         mode: ExtractionMode,
-        on_missing: MissingFiles,
+        selection: &Selection,
     ) -> Result<()> {
-        let files_to_extract = common::filter_files_by_patterns(&self.files, files, on_missing)?;
-        common::extract_archive_parallel(
+        common::extract_matching(
             &self.data,
-            &files_to_extract,
+            &self.files,
             output_dir,
             mode,
+            selection,
             common::decompress_zlib,
         )
     }
@@ -478,6 +471,7 @@ impl ToeeArchive {
         compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
+        case: CaseMode,
     ) -> Result<()> {
         common::add_files_zlib(
             &mut self.files,
@@ -485,6 +479,7 @@ impl ToeeArchive {
             compression,
             target_dir,
             source_root,
+            case,
         )
     }
 
@@ -709,6 +704,7 @@ impl ToeeArchive {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::MissingFiles;
     use crate::test_support::ScratchPath;
     use proptest::prelude::*;
 
@@ -801,9 +797,8 @@ mod tests {
         parsed
             .extract(
                 &out,
-                &[],
                 ExtractionMode::PreserveStructure,
-                MissingFiles::Fail,
+                &crate::test_support::exact(&[], MissingFiles::Fail),
             )
             .unwrap();
         assert_eq!(std::fs::read(out.join("root.txt")).unwrap(), b"root");

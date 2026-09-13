@@ -16,7 +16,7 @@ dat3
 
 Fallout and Troika .dat management CLI
 
-Usage: dat3 <COMMAND>
+Usage: dat3 [OPTIONS] <COMMAND>
 
 Commands:
   l     List files in a DAT archive
@@ -27,8 +27,9 @@ Commands:
   help  Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help     Print help
-  -V, --version  Print version
+      --case-sensitive  Match, list, extract and add entry names exactly as stored. Without it, names match regardless of case and are listed, extracted and added in lowercase
+  -h, --help            Print help
+  -V, --version         Print version
 
 ```
 
@@ -108,6 +109,28 @@ The unmatched names still go to stderr, so a script can log them. Useful when
 one file list is run against several archives and only some of them hold each
 file. Every name missing is not an error either - nothing is extracted and the
 exit status is still 0.
+
+### Letter case in entry names
+
+The games look files up regardless of case, so by default dat3 does too:
+
+- names and globs given to `l`, `x`, `e` and `d` match regardless of case
+- `l` and `l --json` list names in lowercase
+- `x` and `e` create lowercase files and directories
+- `a` stores new entries in lowercase, and replaces an entry that differs only in case
+
+Entries already in an archive keep their stored case until they are added again.
+
+An archive can hold names that differ only in case, such as `README.TXT` and `readme.txt`. dat3 keeps those apart:
+they are listed and extracted in their stored case, a name matching one of them selects all of them, and every command
+that opens the archive prints a warning naming them.
+
+`--case-sensitive` turns all of this off, for any command: names match exactly, and are listed, extracted and added
+as stored or given.
+
+```bash
+dat3 x master.dat --case-sensitive -o ./extracted/
+```
 
 ### Response file support
 
@@ -207,7 +230,9 @@ dat3 d master.dat @files_to_delete.txt
 - Shrink (`k` command) not implemented.
 - Flat extraction is a separate command, `e`.
 - DAT1 compression (LZSS) not implemented, only decompression. Fallout 1 style .dat files are thus created without compression.
-- Glob patterns (`*`, `?`, `[...]`) supported for list/extract/delete, matched case-insensitively.
+- Glob patterns (`*`, `?`, `[...]`) supported for list/extract/delete.
+- Names are matched, listed, extracted and added in lowercase unless `--case-sensitive` is given (see [Letter case in
+  entry names](#letter-case-in-entry-names)).
 
 ## Verifying a release
 

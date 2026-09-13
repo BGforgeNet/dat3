@@ -16,8 +16,8 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES, MissingFiles,
-    utils,
+    self, CaseMode, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES,
+    Selection, utils,
 };
 
 /// 8-byte footer at the end of every DAT2 file.
@@ -146,30 +146,23 @@ impl Dat2Archive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(
-        &self,
-        files: &[String],
-        format: ListFormat,
-        on_missing: MissingFiles,
-    ) -> Result<()> {
-        let all_files = self.entries();
-        common::list_files_filtered(&all_files, files, format, on_missing)
+    pub fn list(&self, selection: &Selection, format: ListFormat) -> Result<()> {
+        common::list_files_filtered(&self.entries(), selection, format)
     }
 
     /// Extract files from the archive using parallel processing
     pub fn extract(
         &self,
         output_dir: &Path,
-        files: &[String],
         mode: ExtractionMode,
-        on_missing: MissingFiles,
+        selection: &Selection,
     ) -> Result<()> {
-        let files_to_extract = common::filter_files_by_patterns(&self.files, files, on_missing)?;
-        common::extract_archive_parallel(
+        common::extract_matching(
             &self.data,
-            &files_to_extract,
+            &self.files,
             output_dir,
             mode,
+            selection,
             common::decompress_zlib,
         )
     }
@@ -186,6 +179,7 @@ impl Dat2Archive {
         compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
+        case: CaseMode,
     ) -> Result<()> {
         common::add_files_zlib(
             &mut self.files,
@@ -193,6 +187,7 @@ impl Dat2Archive {
             compression,
             target_dir,
             source_root,
+            case,
         )
     }
 
@@ -270,6 +265,7 @@ impl Dat2Archive {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::MissingFiles;
     use crate::test_support::ScratchPath;
     use proptest::prelude::*;
 
@@ -333,9 +329,8 @@ mod tests {
         let err = reparsed
             .extract(
                 &out,
-                &patterns,
                 ExtractionMode::PreserveStructure,
-                MissingFiles::Fail,
+                &crate::test_support::exact(&patterns, MissingFiles::Fail),
             )
             .unwrap_err();
 
@@ -366,9 +361,8 @@ mod tests {
         reparsed
             .extract(
                 &out,
-                &patterns,
                 ExtractionMode::PreserveStructure,
-                MissingFiles::Warn,
+                &crate::test_support::exact(&patterns, MissingFiles::Warn),
             )
             .unwrap();
 
@@ -484,7 +478,13 @@ mod tests {
 
         let mut archive = Dat2Archive::new();
         let err = archive
-            .add_file(&file, CompressionLevel::new(0).unwrap(), None, None)
+            .add_file(
+                &file,
+                CompressionLevel::new(0).unwrap(),
+                None,
+                None,
+                crate::common::CaseMode::Sensitive,
+            )
             .unwrap_err();
         assert!(
             format!("{err:#}").contains("larger than the 4 GiB a DAT archive entry can hold"),
@@ -506,6 +506,7 @@ mod tests {
                 CompressionLevel::new(0).unwrap(),
                 Some(&target_dir),
                 None,
+                crate::common::CaseMode::Sensitive,
             )
             .unwrap_err();
         assert!(

@@ -65,9 +65,10 @@ $DAT3 d "$DEMO_MOD" "WorldMap/WorldMap.mes"
 echo "demo test file" >demo_add.txt
 $DAT3 a "$DEMO_MOD" -t WorldMap demo_add.txt
 rm -rf "$MOD_OUT"
+# Names are extracted in lowercase by default
 $DAT3 x "$DEMO_MOD" -o "$MOD_OUT"
-diff "$MOD_OUT/WorldMap/demo_add.txt" demo_add.txt
-if [ -e "$MOD_OUT/WorldMap/WorldMap.mes" ]; then
+diff "$MOD_OUT/worldmap/demo_add.txt" demo_add.txt
+if [ ! -d "$MOD_OUT/worldmap" ] || [ -e "$MOD_OUT/worldmap/worldmap.mes" ]; then
 	echo "Error: deleted file still present in archive"
 	exit 1
 fi

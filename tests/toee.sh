@@ -24,18 +24,19 @@ TOEE_DELETED="rules/indicators/sickened.txt"
 fetch_templeplus_dat
 
 # Listing and extraction exercise the real archive's raw and zlib-compressed
-# entries. The checksum covers every extracted path and byte in stable order.
+# entries. The checksum covers every extracted path and byte in stable order, as
+# stored, so this extraction and the round trip below keep names' case.
 "$DAT3" l "$TEMPLEPLUS_DAT"
 rm -rf "$TOEE_OUT"
-"$DAT3" x "$TEMPLEPLUS_DAT" -o "$TOEE_OUT"
+"$DAT3" x --case-sensitive "$TEMPLEPLUS_DAT" -o "$TOEE_OUT"
 hash_tree "$TOEE_OUT" "$TOEE_MANIFEST"
 echo "$TOEE_TREE_MD5  $TOEE_MANIFEST" | md5sum -c
 
 # Repack the complete tree as ToEE and extract it again.
 rm -f "$TOEE_REPACKED"
-(cd "$TOEE_OUT" && "$DAT3" a --format toee -c 9 "../$TOEE_REPACKED" .)
+(cd "$TOEE_OUT" && "$DAT3" a --case-sensitive --format toee -c 9 "../$TOEE_REPACKED" .)
 rm -rf "$TOEE_REPACKED_OUT"
-"$DAT3" x "$TOEE_REPACKED" -o "$TOEE_REPACKED_OUT"
+"$DAT3" x --case-sensitive "$TOEE_REPACKED" -o "$TOEE_REPACKED_OUT"
 diff -r "$TOEE_OUT" "$TOEE_REPACKED_OUT"
 
 # Delete and add against a copy of the original archive.

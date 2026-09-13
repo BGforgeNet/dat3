@@ -28,7 +28,9 @@ mod common_tests;
 mod test_support; // Self-cleaning scratch paths for the test modules
 
 use archive::{ArchiveFormat, DatArchive};
-use common::{CompressionLevel, ExtractionMode, ListFormat, MissingFiles, utils};
+use common::{
+    CaseMode, CompressionLevel, ExtractionMode, ListFormat, MissingFiles, Selection, utils,
+};
 
 /// Command-line interface definition.
 /// The `clap` crate uses these derive macros to automatically parse arguments.
@@ -38,6 +40,11 @@ use common::{CompressionLevel, ExtractionMode, ListFormat, MissingFiles, utils};
 #[command(about = "Fallout and Troika .dat management CLI")]
 #[command(version)]
 struct Cli {
+    /// Match, list, extract and add entry names exactly as stored. Without it,
+    /// names match regardless of case and are listed, extracted and added in lowercase.
+    #[arg(long, global = true)]
+    case_sensitive: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -121,8 +128,24 @@ fn missing_files_policy(ignore_missing: bool) -> MissingFiles {
     }
 }
 
+/// Open an archive, warning when case-insensitive mode meets stored names that
+/// differ only in case: those keep their stored case rather than merging.
+fn open_archive(path: &Path, case: CaseMode) -> Result<DatArchive> {
+    let archive = DatArchive::open(path)?;
+    if case == CaseMode::Insensitive {
+        let names = archive.entry_names();
+        common::report_case_only_duplicates(names.iter().map(String::as_str));
+    }
+    Ok(archive)
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let case = if cli.case_sensitive {
+        CaseMode::Sensitive
+    } else {
+        CaseMode::Insensitive
+    };
 
     match cli.command {
         Commands::List {
@@ -131,14 +154,19 @@ fn main() -> Result<()> {
             json,
             ignore_missing,
         } => {
-            let archive = DatArchive::open(&dat_file)?;
+            let archive = open_archive(&dat_file, case)?;
             let patterns = utils::expand_response_files_for_archive(&files)?;
             let format = if json {
                 ListFormat::Json
             } else {
                 ListFormat::Text
             };
-            archive.list(&patterns, format, missing_files_policy(ignore_missing))?;
+            let selection = Selection {
+                patterns: &patterns,
+                on_missing: missing_files_policy(ignore_missing),
+                case,
+            };
+            archive.list(&selection, format)?;
         }
 
         Commands::Extract {
@@ -147,15 +175,15 @@ fn main() -> Result<()> {
             files,
             ignore_missing,
         } => {
-            let archive = DatArchive::open(&dat_file)?;
+            let archive = open_archive(&dat_file, case)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // default: current directory
             let patterns = utils::expand_response_files_for_archive(&files)?;
-            archive.extract(
-                &output_dir,
-                &patterns,
-                ExtractionMode::PreserveStructure,
-                missing_files_policy(ignore_missing),
-            )?;
+            let selection = Selection {
+                patterns: &patterns,
+                on_missing: missing_files_policy(ignore_missing),
+                case,
+            };
+            archive.extract(&output_dir, ExtractionMode::PreserveStructure, &selection)?;
         }
 
         Commands::ExtractFlat {
@@ -164,15 +192,15 @@ fn main() -> Result<()> {
             files,
             ignore_missing,
         } => {
-            let archive = DatArchive::open(&dat_file)?;
+            let archive = open_archive(&dat_file, case)?;
             let output_dir = output.unwrap_or_else(|| PathBuf::from(".")); // default: current directory
             let patterns = utils::expand_response_files_for_archive(&files)?;
-            archive.extract(
-                &output_dir,
-                &patterns,
-                ExtractionMode::Flat,
-                missing_files_policy(ignore_missing),
-            )?;
+            let selection = Selection {
+                patterns: &patterns,
+                on_missing: missing_files_policy(ignore_missing),
+                case,
+            };
+            archive.extract(&output_dir, ExtractionMode::Flat, &selection)?;
         }
 
         Commands::Add {
@@ -228,7 +256,7 @@ fn main() -> Result<()> {
 
             let mut archive = if dat_file.exists() {
                 // Open existing archive - format is fixed, can't change it
-                let archive = DatArchive::open(&dat_file)?;
+                let archive = open_archive(&dat_file, case)?;
                 if let Some(requested) = format {
                     let actual = archive.format();
                     if requested != actual {
@@ -264,6 +292,7 @@ fn main() -> Result<()> {
                     compression_level,
                     target_dir.as_deref(),
                     change_dir.as_deref(),
+                    case,
                 )?;
             }
 
@@ -271,9 +300,9 @@ fn main() -> Result<()> {
         }
 
         Commands::Delete { dat_file, files } => {
-            let mut archive = DatArchive::open(&dat_file)?;
+            let mut archive = open_archive(&dat_file, case)?;
             let patterns = utils::expand_response_files_for_archive(&files)?;
-            archive.delete(&patterns)?;
+            archive.delete(&patterns, case)?;
             archive.save(&dat_file)?;
         }
     }

@@ -68,8 +68,10 @@ fi
 
 fetch_arcanum_demo
 
+# dbmaker keeps the demo's stored mixed-case names (WorldMap), so dat3 does too
+# for every step compared against it.
 rm -rf demo_dat3 demo_db
-$DAT3 x "$ARCANUM_DEMO_DAT" -o demo_dat3
+$DAT3 x --case-sensitive "$ARCANUM_DEMO_DAT" -o demo_dat3
 mkdir demo_db
 (cd demo_db && dbmaker -u "../$ARCANUM_DEMO_DAT")
 diff -r demo_dat3 demo_db
@@ -77,9 +79,9 @@ diff -r demo_dat3 demo_db
 # dat3 modifies the real archive; dbmaker reads the result
 DEMO_MOD="demo_mod.dat"
 cp "$ARCANUM_DEMO_DAT" "$DEMO_MOD"
-$DAT3 d "$DEMO_MOD" "WorldMap/WorldMap.mes"
+$DAT3 d --case-sensitive "$DEMO_MOD" "WorldMap/WorldMap.mes"
 echo "demo test file" >demo_add.txt
-$DAT3 a "$DEMO_MOD" -t WorldMap demo_add.txt
+$DAT3 a --case-sensitive "$DEMO_MOD" -t WorldMap demo_add.txt
 rm -rf demo_db
 mkdir demo_db
 (cd demo_db && dbmaker -u "../$DEMO_MOD")

@@ -18,7 +18,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::common::{
-    self, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MissingFiles, utils,
+    self, CaseMode, CompressionLevel, ExtractionMode, FileEntry, ListFormat, Selection, utils,
 };
 use crate::lzss;
 
@@ -185,14 +185,8 @@ impl Dat1Archive {
     }
 
     /// List files in the archive (all or filtered by patterns)
-    pub fn list(
-        &self,
-        files: &[String],
-        format: ListFormat,
-        on_missing: MissingFiles,
-    ) -> Result<()> {
-        let all_files = self.entries();
-        common::list_files_filtered(&all_files, files, format, on_missing)
+    pub fn list(&self, selection: &Selection, format: ListFormat) -> Result<()> {
+        common::list_files_filtered(&self.entries(), selection, format)
     }
 
     /// Extract files from the archive in parallel, mirroring the DAT2 path
@@ -200,17 +194,15 @@ impl Dat1Archive {
     pub fn extract(
         &self,
         output_dir: &Path,
-        files: &[String],
         mode: ExtractionMode,
-        on_missing: MissingFiles,
+        selection: &Selection,
     ) -> Result<()> {
-        let all_files = self.entries();
-        let files_to_extract = common::filter_files_by_patterns(&all_files, files, on_missing)?;
-        common::extract_archive_parallel(
+        common::extract_matching(
             &self.data,
-            &files_to_extract,
+            &self.entries(),
             output_dir,
             mode,
+            selection,
             lzss::decompress,
         )
     }
@@ -228,9 +220,11 @@ impl Dat1Archive {
         _compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
+        case: CaseMode,
     ) -> Result<()> {
         use std::collections::HashSet;
 
+        let key = |name: &str| case.fold(name).into_owned();
         let base_path = file_path;
         let files = utils::collect_files(file_path).with_context(|| {
             format!(
@@ -248,6 +242,7 @@ impl Dat1Archive {
 
             let archive_path =
                 utils::calculate_archive_path(&file, base_path, target_dir, source_root)?;
+            let archive_path = case.fold(&archive_path).into_owned();
 
             let size = data.len() as u32;
             let display_path = utils::normalize_path_for_display(&archive_path);
@@ -262,24 +257,36 @@ impl Dat1Archive {
         // Every directory is swept, not just the ones the new entries land in:
         // an archive read from disk can hold an entry whose name does not match
         // the bucket it sits in, and both copies would then be written out.
-        let new_names: HashSet<&str> = new_entries.iter().map(|e| e.name.as_str()).collect();
+        let new_names: HashSet<String> = new_entries.iter().map(|e| key(&e.name)).collect();
         for dir in &mut self.directories {
             dir.files
-                .retain(|existing| !new_names.contains(existing.name.as_str()));
+                .retain(|existing| !new_names.contains(&key(&existing.name)));
         }
 
-        for entry in new_entries {
-            let dir_name = utils::get_dirname_from_dat_path(&entry.name);
-            let dir_index =
-                if let Some(index) = self.directories.iter().position(|d| d.name == dir_name) {
-                    index
-                } else {
-                    self.directories.push(Directory {
-                        name: dir_name.to_string(),
-                        files: Vec::new(),
-                    });
-                    self.directories.len() - 1
-                };
+        for mut entry in new_entries {
+            let dir_name = utils::get_dirname_from_dat_path(&entry.name).to_string();
+            let dir_key = key(&dir_name);
+            let existing = self
+                .directories
+                .iter()
+                .position(|d| key(&d.name) == dir_key);
+            let dir_index = if let Some(index) = existing {
+                // Joining a directory stored in another case: the entry takes the
+                // stored spelling, since DAT1 keeps one name per directory and
+                // strips exactly that prefix from each file it holds.
+                let stored_dir = &self.directories[index].name;
+                if *stored_dir != dir_name && dir_name != "." {
+                    let file_name = utils::get_filename_from_dat_path(&entry.name).to_string();
+                    entry.name = format!("{stored_dir}\\{file_name}");
+                }
+                index
+            } else {
+                self.directories.push(Directory {
+                    name: dir_name,
+                    files: Vec::new(),
+                });
+                self.directories.len() - 1
+            };
             self.directories[dir_index].files.push(entry);
         }
 
@@ -453,6 +460,7 @@ fn stored_file_name<'a>(dir_name: &str, file_name: &'a str) -> &'a str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::MissingFiles;
     use crate::test_support::ScratchPath;
     use proptest::prelude::*;
 
@@ -478,10 +486,22 @@ mod tests {
         let level = CompressionLevel::new(0).unwrap();
 
         archive
-            .add_file(&src.join("data"), level, None, Some(&src))
+            .add_file(
+                &src.join("data"),
+                level,
+                None,
+                Some(&src),
+                crate::common::CaseMode::Sensitive,
+            )
             .unwrap();
         archive
-            .add_file(&src.join("data"), level, None, Some(&src))
+            .add_file(
+                &src.join("data"),
+                level,
+                None,
+                Some(&src),
+                crate::common::CaseMode::Sensitive,
+            )
             .unwrap();
         let total = total_entries(&archive);
         std::fs::remove_dir_all(&src).unwrap();
@@ -509,6 +529,7 @@ mod tests {
                 CompressionLevel::new(0).unwrap(),
                 None,
                 Some(&src),
+                crate::common::CaseMode::Sensitive,
             )
             .unwrap();
         let total = total_entries(&archive);
@@ -674,9 +695,8 @@ mod tests {
         reparsed
             .extract(
                 &out,
-                &[],
                 ExtractionMode::PreserveStructure,
-                MissingFiles::Fail,
+                &crate::test_support::exact(&[], MissingFiles::Fail),
             )
             .unwrap();
 
@@ -703,9 +723,8 @@ mod tests {
         let err = reparsed
             .extract(
                 &out,
-                &patterns,
                 ExtractionMode::PreserveStructure,
-                MissingFiles::Fail,
+                &crate::test_support::exact(&patterns, MissingFiles::Fail),
             )
             .unwrap_err();
 
