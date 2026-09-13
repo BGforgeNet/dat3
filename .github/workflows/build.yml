@@ -153,8 +153,8 @@ jobs:
 
   # The declared rust-version is a promise to users, and nothing checked it: the
   # build job pins a toolchain many releases newer, so code using a feature
-  # stabilised after 1.87 would compile there and fail for anyone honouring the
-  # README. The version is read from Cargo.toml rather than repeated here.
+  # stabilised after 1.87 would compile there and fail for anyone honouring
+  # docs/building.md. The version is read from Cargo.toml rather than repeated here.
   msrv:
     name: msrv
     runs-on: ubuntu-latest
