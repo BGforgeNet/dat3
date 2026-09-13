@@ -613,13 +613,10 @@ mod tests {
         #[test]
         fn round_trips_a_detected_archive() {
             let bytes = dat1_bytes(46, 1, "A.TXT");
-            let path =
-                std::env::temp_dir().join(format!("dat3_detect_rt_{}.dat", std::process::id()));
+            let path = crate::test_support::ScratchPath::new("detect_rt");
             std::fs::write(&path, &bytes).unwrap();
             let archive = DatArchive::open(&path).unwrap();
-            std::fs::remove_file(&path).ok();
-            let dir = std::env::temp_dir().join(format!("dat3_detect_x_{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
+            let dir = crate::test_support::ScratchPath::new("detect_x");
             archive
                 .extract(
                     &dir,
@@ -627,9 +624,7 @@ mod tests {
                     &crate::test_support::exact(&[], MissingFiles::Fail),
                 )
                 .unwrap();
-            let got = std::fs::read(dir.join("A.TXT")).unwrap();
-            std::fs::remove_dir_all(&dir).unwrap();
-            assert_eq!(got, b"hi");
+            assert_eq!(std::fs::read(dir.join("A.TXT")).unwrap(), b"hi");
         }
     }
 
@@ -1236,19 +1231,15 @@ mod tests {
         /// prove the extract path calls it.
         #[test]
         fn extraction_writes_nothing_outside_the_output_directory() {
-            let pid = std::process::id();
-            let escape = std::env::temp_dir().join(format!("dat3_escape_{pid}.txt"));
-            std::fs::remove_file(&escape).ok();
-            assert!(!escape.exists(), "stale probe file from an earlier run");
+            let escape = crate::test_support::ScratchPath::new("escape");
 
-            // Stored the way a hostile archive would: a leading separator, which
-            // is what makes Path::join discard the output directory.
-            let entry = format!("\\tmp\\dat3_escape_{pid}.txt");
-            let archive_path = std::env::temp_dir().join(format!("dat3_escape_src_{pid}.dat"));
+            // Stored the way a hostile archive would: the absolute path, which is
+            // what makes Path::join discard the output directory.
+            let entry = escape.display().to_string().replace('/', "\\");
+            let archive_path = crate::test_support::ScratchPath::new("escape_src");
             std::fs::write(&archive_path, super::dat1_bytes(46, 1, &entry)).unwrap();
 
-            let out = std::env::temp_dir().join(format!("dat3_escape_out_{pid}"));
-            let _ = std::fs::remove_dir_all(&out);
+            let out = crate::test_support::ScratchPath::new("escape_out");
             let archive = DatArchive::open(&archive_path).unwrap();
             let result = archive.extract(
                 &out,
@@ -1256,12 +1247,10 @@ mod tests {
                 &crate::test_support::exact(&[], MissingFiles::Fail),
             );
 
-            let escaped = escape.exists();
-            std::fs::remove_file(&archive_path).ok();
-            std::fs::remove_file(&escape).ok();
-            let _ = std::fs::remove_dir_all(&out);
-
-            assert!(!escaped, "extraction wrote outside the output directory");
+            assert!(
+                !escape.exists(),
+                "extraction wrote outside the output directory"
+            );
             assert!(result.is_err(), "extraction of a hostile entry should fail");
         }
 
