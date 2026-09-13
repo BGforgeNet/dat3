@@ -620,6 +620,12 @@ pub mod utils {
     /// then rename it over the target, so an interrupted save cannot destroy an
     /// existing archive. Streaming keeps peak memory at one file's data instead
     /// of buffering the whole archive.
+    ///
+    /// The temp file is synced before the rename (and the directory after it on
+    /// Unix): a rename is durable before the data it points at, so without the sync
+    /// a power loss shortly after saving can leave the archive truncated. It is named per process
+    /// and created exclusively, so concurrent saves of one archive cannot write
+    /// into each other's temp file. On Unix it takes the replaced archive's permissions.
     pub fn write_atomically(
         path: &Path,
         write: impl FnOnce(&mut std::io::BufWriter<fs::File>) -> Result<()>,
@@ -627,29 +633,63 @@ pub mod utils {
         let file_name = path
             .file_name()
             .with_context(|| format!("Invalid archive path: {}", path.display()))?;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.subsec_nanos())
+            .unwrap_or_default();
+        // std::process::id panics as unsupported on WASI; the timestamp and the
+        // exclusive create below still keep one save out of another's temp file there.
+        #[cfg(target_os = "wasi")]
+        let pid = 0;
+        #[cfg(not(target_os = "wasi"))]
+        let pid = std::process::id();
         let mut tmp_name = std::ffi::OsString::from(".");
         tmp_name.push(file_name);
-        tmp_name.push(".tmp");
+        tmp_name.push(format!(".{pid}-{nanos}.tmp"));
         let tmp_path = path.with_file_name(tmp_name);
 
-        let result = fs::File::create(&tmp_path)
-            .with_context(|| format!("Failed to create {}", tmp_path.display()))
-            .and_then(|file| {
-                let mut writer = std::io::BufWriter::new(file);
-                write(&mut writer)?;
-                writer
-                    .flush()
-                    .with_context(|| format!("Failed to write {}", tmp_path.display()))
-            });
+        // Opened on its own so a failure here never removes a file this call did not create
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)
+            .with_context(|| format!("Failed to create {}", tmp_path.display()))?;
+
+        let result = (|| -> Result<()> {
+            let mut writer = std::io::BufWriter::new(file);
+            write(&mut writer)?;
+            let file = writer
+                .into_inner()
+                .map_err(|e| e.into_error())
+                .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+            file.sync_all()
+                .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+            // Unix only: WASI cannot set permissions, and on Windows the one
+            // permission bit, read-only, would make the rename below fail.
+            #[cfg(unix)]
+            if let Ok(existing) = fs::metadata(path) {
+                file.set_permissions(existing.permissions())
+                    .with_context(|| {
+                        format!("Failed to set permissions on {}", tmp_path.display())
+                    })?;
+            }
+            fs::rename(&tmp_path, path)
+                .with_context(|| format!("Failed to move archive into place: {}", path.display()))
+        })();
         if let Err(e) = result {
             let _ = fs::remove_file(&tmp_path);
             return Err(e);
         }
 
-        if let Err(e) = fs::rename(&tmp_path, path) {
-            let _ = fs::remove_file(&tmp_path);
-            return Err(e)
-                .with_context(|| format!("Failed to move archive into place: {}", path.display()));
+        #[cfg(unix)]
+        {
+            let dir = match path.parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => parent,
+                _ => Path::new("."),
+            };
+            fs::File::open(dir)
+                .and_then(|dir_handle| dir_handle.sync_all())
+                .with_context(|| format!("Failed to sync directory {}", dir.display()))?;
         }
         Ok(())
     }

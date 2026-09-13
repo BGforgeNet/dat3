@@ -12,6 +12,7 @@
 - Glob patterns for `l`, `x`, `e` and `d` now ignore case, so `'*.frm'` selects `ART\CRITTERS\A.FRM`. Plain names are still matched exactly as typed.
 - An Arcanum archive whose entry table marker disagrees with its footer is now reported as damaged when opened, as ToEE archives already were, instead of being read from wherever the footer points.
 - Entry names Windows cannot create as named are now refused on every platform, both when extracting and when adding: a `:` inside a name (which writes an NTFS alternate data stream), device names such as `CON`, `NUL`, `COM1` or `LPT1` with or without an extension, and names ending in a dot or space.
+- Saving an archive now flushes it to disk before replacing the old file, keeps the old file's permissions, and no longer collides with another dat3 saving the same archive at the same time.
 
 ## v0.10.1
 

@@ -261,6 +261,39 @@ mod tests {
                 .collect();
             assert_eq!(names, vec![std::ffi::OsString::from("out.dat")]);
         }
+
+        /// Saving replaces the file, so without this a read-only or group-shared
+        /// archive would come back with the process umask's default mode.
+        #[cfg(unix)]
+        #[test]
+        fn keeps_the_permissions_of_the_archive_it_replaces() {
+            use std::os::unix::fs::PermissionsExt;
+
+            let dir = scratch_dir("perms");
+            let target = dir.join("out.dat");
+            fs::write(&target, b"old").unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+
+            utils::write_atomically(&target, |w| Ok(w.write_all(b"new")?)).unwrap();
+
+            let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o640, "mode was {mode:o}");
+        }
+
+        /// Two saves of one archive at once must not write into, or rename away,
+        /// each other's temp file.
+        #[test]
+        fn does_not_touch_a_temp_file_another_save_left_in_place() {
+            let dir = scratch_dir("othertemp");
+            let target = dir.join("out.dat");
+            let other = dir.join(".out.dat.tmp");
+            fs::write(&other, b"another save in progress").unwrap();
+
+            utils::write_atomically(&target, |w| Ok(w.write_all(b"new")?)).unwrap();
+
+            assert_eq!(fs::read(&target).unwrap(), b"new");
+            assert_eq!(fs::read(&other).unwrap(), b"another save in progress");
+        }
     }
 
     // ── DAT1 format detection ──────────────────────────────────────
