@@ -3,13 +3,17 @@
 set -xeu -o pipefail
 
 # Install the pinned gate tools when missing or out of date
-./install-tools.sh actionlint cargo-audit cargo-deny cargo-machete zizmor
+./install-tools.sh actionlint cargo-deny cargo-machete shellcheck shfmt zizmor
 
 # Workflow YAML lint. zizmor gates at "low" and above; the one finding below
 # that is a style note preferring `gh release` over the pinned release action,
 # which the project keeps for its fail_on_unmatched_files check.
 actionlint
 zizmor --min-severity low .github/workflows/
+
+# Shell scripts: lint at shellcheck's default severity, and fail on any formatting drift
+git ls-files -z '*.sh' | xargs -0 shellcheck
+git ls-files -z '*.sh' | xargs -0 shfmt -d
 
 # Typecheck the TypeScript test helpers under tests/
 npm ci
@@ -22,16 +26,10 @@ cargo fmt --all -- --check
 # modules are never compiled under clippy
 cargo clippy --all-targets -- -D warnings
 
-# Compilation check
-cargo check
-
 # Tests
 cargo test --verbose
 
-# Security audit
-cargo audit
-
-# License/dependency check
+# License, advisory (RustSec) and duplicate-dependency checks
 cargo deny check -D parse-error licenses
 cargo deny check advisories
 cargo deny check bans

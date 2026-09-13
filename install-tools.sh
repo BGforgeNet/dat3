@@ -13,14 +13,15 @@ set -xeu -o pipefail
 
 BIN_DIR="$HOME/.cargo/bin"
 
-ALL_TOOLS=(actionlint cargo-audit cargo-deny cargo-machete cargo-zigbuild wasmtime zig zizmor)
+ALL_TOOLS=(actionlint cargo-deny cargo-machete cargo-zigbuild shellcheck shfmt wasmtime zig zizmor)
 
 # zig lives as a whole tree; only a symlink to it goes in BIN_DIR
 ZIG_DIR="$HOME/.local/share/zig"
 
 # Digests are of the immutable release assets; refresh them when bumping a
-# version. Where the vendor publishes its own checksum file the two agree; zizmor
-# publishes none, so its digest is computed from the downloaded asset.
+# version. Where the vendor publishes its own checksum file the two agree; the
+# zizmor, ShellCheck and shfmt releases carry none, so those digests are computed
+# from the downloaded asset.
 ACTIONLINT_VERSION="1.7.12"
 ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
 
@@ -28,8 +29,12 @@ ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a
 ZIZMOR_VERSION="1.29.0"
 ZIZMOR_SHA256="dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839"
 
-AUDIT_VERSION="0.22.2"
-AUDIT_SHA256="7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428"
+SHELLCHECK_VERSION="0.11.0"
+SHELLCHECK_SHA256="8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+
+# Published as a bare binary rather than an archive
+SHFMT_VERSION="3.14.1"
+SHFMT_SHA256="76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7bf"
 
 DENY_VERSION="0.20.2"
 DENY_SHA256="9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
@@ -48,7 +53,8 @@ WASMTIME_SHA256="446e8641ba372333670ba0373d5d3083e5cf0dd001b66088afbb3983db0f768
 ZIG_VERSION="0.16.0"
 ZIG_SHA256="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 
-# Prints "version|url|sha256|path-of-the-binary-inside-the-archive" for a tool
+# Prints "version|url|sha256|path-of-the-binary-inside-the-archive" for a tool;
+# an empty path means the download is the binary itself.
 tool_spec() {
 	case "$1" in
 	actionlint)
@@ -63,12 +69,17 @@ tool_spec() {
 			"$ZIZMOR_SHA256" \
 			"zizmor"
 		;;
-	cargo-audit)
-		# The release tag contains a slash, hence the %2F
-		printf '%s|%s|%s|%s' "$AUDIT_VERSION" \
-			"https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-musl-v${AUDIT_VERSION}.tgz" \
-			"$AUDIT_SHA256" \
-			"cargo-audit-x86_64-unknown-linux-musl-v${AUDIT_VERSION}/cargo-audit"
+	shellcheck)
+		printf '%s|%s|%s|%s' "$SHELLCHECK_VERSION" \
+			"https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+			"$SHELLCHECK_SHA256" \
+			"shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+		;;
+	shfmt)
+		printf '%s|%s|%s|%s' "$SHFMT_VERSION" \
+			"https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" \
+			"$SHFMT_SHA256" \
+			""
 		;;
 	cargo-deny)
 		printf '%s|%s|%s|%s' "$DENY_VERSION" \
@@ -124,10 +135,14 @@ install_tool() {
 	local name="$1" url="$2" sha256="$3" path_in_archive="$4" tmp
 	tmp="$(mktemp -d)"
 	fetch_archive "$url" "$sha256" "$tmp/archive"
-	# --no-same-owner: extracting as root would otherwise try to restore the
-	# archive's uid/gid, which fails outside a full-privileged container.
-	tar --no-same-owner -xf "$tmp/archive" -C "$tmp" "$path_in_archive"
-	install -m 0755 "$tmp/$path_in_archive" "$BIN_DIR/$name"
+	if [ -z "$path_in_archive" ]; then
+		install -m 0755 "$tmp/archive" "$BIN_DIR/$name"
+	else
+		# --no-same-owner: extracting as root would otherwise try to restore the
+		# archive's uid/gid, which fails outside a full-privileged container.
+		tar --no-same-owner -xf "$tmp/archive" -C "$tmp" "$path_in_archive"
+		install -m 0755 "$tmp/$path_in_archive" "$BIN_DIR/$name"
+	fi
 	rm -rf "$tmp"
 }
 

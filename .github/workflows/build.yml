@@ -47,11 +47,6 @@ jobs:
           # keep serving a target/ dir built before build.sh's target list grew.
           key: ${{ hashFiles('build.sh') }}
 
-      - name: Shellcheck
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
-        with:
-          scandir: "."
-
       # tests/json_listing.ts runs through Node's own type stripping rather than
       # a build step, so the Node version is what decides whether it runs at
       # all. Pinned so the runner image's default cannot change that silently.
