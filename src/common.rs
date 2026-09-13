@@ -471,6 +471,28 @@ pub fn delete_file_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> Res
     }
 }
 
+/// Resolve `d` operands to the names of the entries they delete.
+///
+/// A glob selects every entry it matches. A plain name selects only the entry
+/// with exactly that name: the substring matching `l` and `x` apply would delete
+/// unrelated files. Any operand that selects nothing fails the whole command.
+pub fn resolve_delete_targets(names: &[&str], patterns: &[String]) -> Result<Vec<String>> {
+    if patterns.is_empty() {
+        return Ok(Vec::new());
+    }
+    let compiled = utils::compile_patterns(patterns)?;
+    let (selected, missing_patterns) =
+        filter_and_track_patterns(names, &compiled, |name, pattern| {
+            if pattern.is_glob() {
+                pattern.matches(name)
+            } else {
+                *name == pattern.source()
+            }
+        });
+    report_missing_patterns(&missing_patterns, MissingFiles::Fail)?;
+    Ok(selected.into_iter().map(|name| name.to_string()).collect())
+}
+
 /// Filter items by patterns, tracking which patterns matched.
 ///
 /// Returns (matched_items, unmatched_patterns). Each item appears once however
@@ -832,6 +854,10 @@ pub mod utils {
         /// The pattern as given, for reporting
         pub fn source(&self) -> &str {
             &self.source
+        }
+
+        pub fn is_glob(&self) -> bool {
+            matches!(self.kind, PatternKind::Glob { .. })
         }
 
         pub fn matches(&self, file_name: &str) -> bool {

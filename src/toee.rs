@@ -432,13 +432,18 @@ impl ToeeArchive {
         Ok(())
     }
 
+    /// References to every file entry (directories are not entries)
+    pub fn entries(&self) -> Vec<&FileEntry> {
+        self.files.iter().collect()
+    }
+
     pub fn list(
         &self,
         files: &[String],
         format: ListFormat,
         on_missing: MissingFiles,
     ) -> Result<()> {
-        let all_files: Vec<&FileEntry> = self.files.iter().collect();
+        let all_files = self.entries();
         common::list_files_filtered(&all_files, files, format, on_missing)
     }
 

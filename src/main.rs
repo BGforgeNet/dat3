@@ -271,11 +271,7 @@ fn main() -> Result<()> {
         Commands::Delete { dat_file, files } => {
             let mut archive = DatArchive::open(&dat_file)?;
             let patterns = utils::expand_response_files_for_archive(&files)?;
-
-            for pattern in patterns {
-                archive.delete_file(&pattern)?;
-            }
-
+            archive.delete(&patterns)?;
             archive.save(&dat_file)?;
         }
     }

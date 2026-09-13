@@ -180,7 +180,7 @@ impl Dat1Archive {
     }
 
     /// Collect references to all files across all directories
-    fn all_files(&self) -> Vec<&FileEntry> {
+    pub fn entries(&self) -> Vec<&FileEntry> {
         self.directories.iter().flat_map(|dir| &dir.files).collect()
     }
 
@@ -191,7 +191,7 @@ impl Dat1Archive {
         format: ListFormat,
         on_missing: MissingFiles,
     ) -> Result<()> {
-        let all_files = self.all_files();
+        let all_files = self.entries();
         common::list_files_filtered(&all_files, files, format, on_missing)
     }
 
@@ -204,7 +204,7 @@ impl Dat1Archive {
         mode: ExtractionMode,
         on_missing: MissingFiles,
     ) -> Result<()> {
-        let all_files = self.all_files();
+        let all_files = self.entries();
         let files_to_extract = common::filter_files_by_patterns(&all_files, files, on_missing)?;
         common::extract_archive_parallel(
             &self.data,

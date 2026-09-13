@@ -272,5 +272,24 @@ if echo "$OUTPUT" | grep -q "nested.txt"; then
 fi
 echo "Question mark glob filter passed!"
 
+# Test 13: Glob pattern for delete command
+echo ""
+echo "=== Test 13: Glob pattern for delete command ==="
+
+cp test9.dat test13.dat
+"$DAT3" d test13.dat 'patch000/?.txt'
+verify_file_missing test13.dat "patch000/1.txt"
+verify_file_missing test13.dat "patch000/2.txt"
+# Only what the glob matches goes
+verify_file_exists test13.dat "patch000/yyy/nested.txt"
+verify_file_exists test13.dat "patch000/data.bin"
+
+# A plain name deletes only that exact entry, never one containing it
+cp test9.dat test13b.dat
+"$DAT3" d test13b.dat 'patch000/1.txt'
+verify_file_missing test13b.dat "patch000/1.txt"
+verify_file_exists test13b.dat "patch000/2.txt"
+echo "Glob pattern for delete passed!"
+
 echo ""
 echo "All glob tests completed successfully!"

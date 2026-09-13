@@ -168,6 +168,11 @@ impl ArcanumArchive {
         })
     }
 
+    /// References to every file entry
+    pub fn entries(&self) -> Vec<&FileEntry> {
+        self.files.iter().collect()
+    }
+
     /// List files in the archive (all or filtered by patterns)
     pub fn list(
         &self,
@@ -175,7 +180,7 @@ impl ArcanumArchive {
         format: ListFormat,
         on_missing: MissingFiles,
     ) -> Result<()> {
-        let all_files: Vec<&FileEntry> = self.files.iter().collect();
+        let all_files = self.entries();
         common::list_files_filtered(&all_files, files, format, on_missing)
     }
 

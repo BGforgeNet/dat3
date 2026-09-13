@@ -13,7 +13,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::arcanum::{self, ArcanumArchive};
-use crate::common::{CompressionLevel, ExtractionMode, ListFormat, MissingFiles};
+use crate::common::{self, CompressionLevel, ExtractionMode, ListFormat, MissingFiles};
 use crate::dat1::Dat1Archive;
 use crate::dat2::Dat2Archive;
 use crate::toee::{self, ToeeArchive};
@@ -196,6 +196,30 @@ impl DatArchive {
         }
     }
 
+    /// Names of every file entry in the archive
+    pub fn entry_names(&self) -> Vec<String> {
+        let entries = match self {
+            Self::Dat1(a) => a.entries(),
+            Self::Dat2(a) => a.entries(),
+            Self::Arcanum(a) => a.entries(),
+            Self::Toee(a) => a.entries(),
+        };
+        entries
+            .into_iter()
+            .map(|entry| entry.name.clone())
+            .collect()
+    }
+
+    /// Delete every entry the `d` operands select (see `resolve_delete_targets`)
+    pub fn delete(&mut self, patterns: &[String]) -> Result<()> {
+        let names = self.entry_names();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        for target in common::resolve_delete_targets(&names, patterns)? {
+            self.delete_file(&target)?;
+        }
+        Ok(())
+    }
+
     /// Delete a file from the archive
     pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
         match self {
@@ -213,6 +237,85 @@ impl DatArchive {
             Self::Dat2(a) => a.save(path.as_ref()),
             Self::Arcanum(a) => a.save(path.as_ref()),
             Self::Toee(a) => a.save(path.as_ref()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::ScratchPath;
+
+    const ALL_FORMATS: [ArchiveFormat; 4] = [
+        ArchiveFormat::Dat1,
+        ArchiveFormat::Dat2,
+        ArchiveFormat::Arcanum,
+        ArchiveFormat::Toee,
+    ];
+
+    /// A new archive holding one small file per name (`/`-separated)
+    fn archive_with(format: ArchiveFormat, names: &[&str]) -> DatArchive {
+        let src = ScratchPath::dir("archive_delete_src");
+        let mut archive = DatArchive::new(format);
+        for name in names {
+            let path = src.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b"data").unwrap();
+            archive
+                .add_file(&path, CompressionLevel::new(0).unwrap(), None, Some(&src))
+                .unwrap();
+        }
+        archive
+    }
+
+    fn sorted_names(archive: &DatArchive) -> Vec<String> {
+        let mut names = archive.entry_names();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_glob_deletes_every_matching_entry_and_nothing_else() {
+        for format in ALL_FORMATS {
+            let mut archive = archive_with(
+                format,
+                &["ART/A.FRM", "ART/B.FRM", "ART/A.TXT", "TEXT/A.FRM"],
+            );
+            archive.delete(&["ART/*.FRM".to_string()]).unwrap();
+            assert_eq!(
+                sorted_names(&archive),
+                ["ART\\A.TXT", "TEXT\\A.FRM"],
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_plain_name_deletes_only_the_entry_with_that_exact_name() {
+        for format in ALL_FORMATS {
+            let mut archive = archive_with(format, &["DATA/A.TXT", "DATA/BIGA.TXT"]);
+            archive.delete(&["DATA/A.TXT".to_string()]).unwrap();
+            assert_eq!(sorted_names(&archive), ["DATA\\BIGA.TXT"], "{format:?}");
+        }
+    }
+
+    #[test]
+    fn an_unmatched_pattern_fails_before_anything_is_deleted() {
+        for format in ALL_FORMATS {
+            let mut archive = archive_with(format, &["DATA/A.TXT", "DATA/B.TXT"]);
+            let err = archive
+                .delete(&["DATA/A.TXT".to_string(), "*.ZZZ".to_string()])
+                .unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "Some requested files were not found",
+                "{format:?}"
+            );
+            assert_eq!(
+                sorted_names(&archive),
+                ["DATA\\A.TXT", "DATA\\B.TXT"],
+                "{format:?}"
+            );
         }
     }
 }
