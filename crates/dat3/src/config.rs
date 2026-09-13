@@ -15,7 +15,7 @@ the built-in default, so a foreign or broken config never blocks the tool.
 
 use std::path::Path;
 
-use crate::archive::ArchiveFormat;
+use dat3_core::ArchiveFormat;
 
 /// Config file name, looked up in the process working directory
 pub const CONFIG_FILE: &str = ".bgforge.yml";
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn missing_file_is_silent_none() {
-        let dir = crate::test_support::ScratchPath::new("cfg");
+        let dir = dat3_core::test_support::ScratchPath::new("cfg");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(default_format(&dir), None);

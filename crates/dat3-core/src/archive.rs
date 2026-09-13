@@ -8,7 +8,6 @@ build on, so module dependencies run one way.
 */
 
 use anyhow::{Context, Result};
-use clap::ValueEnum;
 use std::fs;
 use std::path::Path;
 
@@ -22,7 +21,8 @@ use crate::toee::{self, ToeeArchive};
 const DAT1_MAX_DIRECTORIES: u32 = 1000;
 
 /// A supported archive format, as selected by `a --format` or `.bgforge.yml`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ArchiveFormat {
     /// Fallout 1 (big-endian, LZSS; created uncompressed)
     Dat1,
@@ -70,6 +70,7 @@ impl ArchiveFormat {
 /// let archive = DatArchive::open("master.dat")?;         // auto-detects format
 /// let dat1 = DatArchive::new(ArchiveFormat::Dat1);       // create new DAT1
 /// ```
+#[derive(Debug)]
 pub enum DatArchive {
     /// Fallout 1 format (big-endian, hierarchical dirs, LZSS compression)
     Dat1(Dat1Archive),

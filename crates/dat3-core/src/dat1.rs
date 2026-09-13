@@ -96,6 +96,12 @@ pub struct Dat1Archive {
     data: Vec<u8>,
 }
 
+impl Default for Dat1Archive {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dat1Archive {
     /// Create a new empty DAT1 archive with just a root directory
     pub fn new() -> Self {

@@ -93,6 +93,12 @@ pub fn is_arcanum_format(data: &[u8]) -> bool {
     data.len() >= FOOTER_SIZE + 4 && data[data.len() - 12..data.len() - 8] == MAGIC
 }
 
+impl Default for ArcanumArchive {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ArcanumArchive {
     /// Create a new empty Arcanum archive
     pub fn new() -> Self {

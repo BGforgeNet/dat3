@@ -247,6 +247,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dat3-core"
+version = "0.10.1"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "clap",
+ "deku",
+ "flate2",
+ "glob",
+ "proptest",
+ "rayon",
+]
+
+[[package]]
 name = "deku"
 version = "0.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -298,14 +312,9 @@ name = "fallout-dat3"
 version = "0.10.1"
 dependencies = [
  "anyhow",
- "byteorder",
  "clap",
- "deku",
- "flate2",
- "glob",
+ "dat3-core",
  "mimalloc",
- "proptest",
- "rayon",
  "yaml-rust2",
 ]
 

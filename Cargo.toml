@@ -1,27 +1,20 @@
-[package]
-name = "fallout-dat3"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
 version = "0.10.1"
 edition = "2024"
 # Floor set by u32::is_multiple_of (stabilized 1.87); 1.85 fails to compile, 1.87 verified clean.
 rust-version = "1.87"
 authors = ["BGforge"]
-description = "Cross-platform CLI for Fallout and Troika DAT archives."
 license = "GPL-3.0-only"
+# Consumed as a git dependency, never from crates.io.
+publish = false
 
-[[bin]]
-name = "dat3"
-path = "src/main.rs"
-
-[dependencies]
+[workspace.dependencies]
 # Error handling - makes error management much easier
 anyhow = "1.0"
-
-# Binary data handling
-byteorder = "1.5"          # Read/write integers in different byte orders
-# Declarative record layouts for DAT1, DAT2 and Arcanum; ToEE reads with byteorder. Kept rather than ported to
-# byteorder or binrw: its one hazard, sizing a name buffer from an untrusted `count`, is closed by an assert on each
-# length field, and a port would at most lift the clap cap below (binrw is on syn 2 as well).
-deku = "0.20"
 
 # Command-line interface
 # <4.6.4: clap_derive 4.6.4 moved to syn 3 while deku's derive macros still use syn 2, and [bans] multiple-versions =
@@ -29,29 +22,11 @@ deku = "0.20"
 # deny.toml before porting off deku.
 clap = { version = ">=4.4, <4.6.4", features = ["derive"] }
 
-# Compression and performance
-# zlib-rs backend: measurably faster than the default miniz_oxide (level-9 archive
-# creation -17%, extraction -11% on a 129 MB archive) and pure Rust, so the
-# mingw/musl cross-builds need no C toolchain.
-flate2 = { version = "1.1", features = ["zlib-rs"] } # zlib compression for DAT2 format
-rayon = "1.8"              # Parallel processing for faster extraction
-
-# Cross-platform path handling
-glob = "0.3"               # Glob pattern matching for cross-platform support
-# Reads .bgforge.yml for the default-format setting. Default features off:
-# they only add encoding_rs for non-UTF-8 input detection, which a config
-# file doesn't need (and whose BSD-3-Clause part the license gate rejects).
-yaml-rust2 = { version = "0.12", default-features = false }
-
-# Optional: Use mimalloc on Linux for better performance
-[target.'cfg(target_os = "linux")'.dependencies]
-mimalloc = "0.1"
-
-[lints.rust]
+[workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 missing_debug_implementations = "warn"
 
-[lints.clippy]
+[workspace.lints.clippy]
 # `expect` stays a warning: it is allowed on an invariant that cannot fail, with the message saying why.
 unwrap_used = "deny"
 expect_used = "warn"
@@ -71,6 +46,3 @@ strip = true
 
 [profile.release.package."*"]
 opt-level = 3
-
-[dev-dependencies]
-proptest = "1.11.0"

@@ -25,6 +25,7 @@ pub fn exact(patterns: &[String], on_missing: MissingFiles) -> Selection<'_> {
 }
 
 /// A temp-directory path that deletes itself when it goes out of scope.
+#[derive(Debug)]
 pub struct ScratchPath(PathBuf);
 
 impl ScratchPath {
@@ -44,6 +45,10 @@ impl ScratchPath {
     }
 
     /// The same, with the directory created and empty.
+    #[expect(
+        clippy::expect_used,
+        reason = "test-only helper: a failed setup should fail the test that asked for it"
+    )]
     pub fn dir(tag: &str) -> Self {
         let scratch = Self::new(tag);
         std::fs::create_dir_all(&scratch.0).expect("could not create scratch directory");

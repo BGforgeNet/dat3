@@ -13,24 +13,12 @@ use std::path::{Path, PathBuf};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-mod arcanum; // Arcanum (Troika) DAT format implementation
-mod archive; // ArchiveFormat and the unified DatArchive interface
-mod common; // Shared types, archive operations, and path utilities
 mod config; // Optional .bgforge.yml defaults
-mod dat1; // Fallout 1 DAT format implementation
-mod dat2; // Fallout 2 DAT format implementation
-mod lzss; // LZSS decompression for DAT1 files
-mod toee; // The Temple of Elemental Evil (Troika) DAT format implementation
 
-#[cfg(test)]
-mod common_tests;
-#[cfg(test)]
-mod test_support; // Self-cleaning scratch paths for the test modules
-
-use archive::{ArchiveFormat, DatArchive};
-use common::{
-    CaseMode, CompressionLevel, ExtractionMode, ListFormat, MissingFiles, Selection, utils,
+use dat3_core::common::{
+    self, CaseMode, CompressionLevel, ExtractionMode, ListFormat, MissingFiles, Selection, utils,
 };
+use dat3_core::{ArchiveFormat, DatArchive};
 
 /// Command-line interface definition.
 /// The `clap` crate uses these derive macros to automatically parse arguments.
@@ -308,4 +296,47 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod cli_args {
+    use clap::Parser;
+
+    #[test]
+    fn rejects_out_of_range_compression_at_parse_time() {
+        let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "10", "file"]);
+        assert!(
+            result.is_err(),
+            "compression level 10 should be rejected during argument parsing"
+        );
+    }
+
+    #[test]
+    fn accepts_maximum_compression_level() {
+        let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "9", "file"]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accepts_each_archive_format() {
+        for format in ["dat1", "dat2", "arcanum", "toee"] {
+            let result =
+                crate::Cli::try_parse_from(["dat3", "a", "test.dat", "--format", format, "file"]);
+            assert!(result.is_ok(), "--format {format} should parse");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_format_and_removed_format_flags() {
+        for args in [
+            ["dat3", "a", "test.dat", "--format", "zip", "file"].as_slice(),
+            ["dat3", "a", "test.dat", "--dat1", "file"].as_slice(),
+            ["dat3", "a", "test.dat", "--arcanum", "file"].as_slice(),
+        ] {
+            assert!(
+                crate::Cli::try_parse_from(args.iter().copied()).is_err(),
+                "{args:?} should be rejected"
+            );
+        }
+    }
 }

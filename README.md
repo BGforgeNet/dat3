@@ -234,6 +234,19 @@ dat3 d master.dat @files_to_delete.txt
 - Names are matched, listed, extracted and added in lowercase unless `--case-sensitive` is given (see [Letter case in
   entry names](#letter-case-in-entry-names)).
 
+## Using dat3-core as a library
+
+The archive code is the `dat3-core` crate in this repository. It is not published on crates.io; depend on it
+through git, pinned to a release tag:
+
+```toml
+[dependencies]
+dat3-core = { git = "https://github.com/BGforgeNet/dat3", tag = "<release tag>" }
+```
+
+Its API may still change between releases. The optional `clap` feature derives `clap::ValueEnum` on
+`ArchiveFormat`.
+
 ## Verifying a release
 
 Every release ships a `SHA256SUMS` file covering its binaries. Download it

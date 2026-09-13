@@ -139,6 +139,12 @@ pub fn is_toee_format(data: &[u8]) -> bool {
     expected == Some(table_from_end as u64)
 }
 
+impl Default for ToeeArchive {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ToeeArchive {
     pub fn new() -> Self {
         Self {

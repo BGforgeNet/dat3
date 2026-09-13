@@ -56,6 +56,12 @@ pub struct Dat2Archive {
     data: Vec<u8>,
 }
 
+impl Default for Dat2Archive {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dat2Archive {
     /// Create a new empty DAT2 archive
     pub fn new() -> Self {

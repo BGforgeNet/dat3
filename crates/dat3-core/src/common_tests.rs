@@ -602,51 +602,6 @@ mod tests {
         }
     }
 
-    // ── CLI argument parsing ───────────────────────────────────────
-
-    mod cli_args {
-        use clap::Parser;
-
-        #[test]
-        fn rejects_out_of_range_compression_at_parse_time() {
-            let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "10", "file"]);
-            assert!(
-                result.is_err(),
-                "compression level 10 should be rejected during argument parsing"
-            );
-        }
-
-        #[test]
-        fn accepts_maximum_compression_level() {
-            let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "9", "file"]);
-            assert!(result.is_ok());
-        }
-
-        #[test]
-        fn accepts_each_archive_format() {
-            for format in ["dat1", "dat2", "arcanum", "toee"] {
-                let result = crate::Cli::try_parse_from([
-                    "dat3", "a", "test.dat", "--format", format, "file",
-                ]);
-                assert!(result.is_ok(), "--format {format} should parse");
-            }
-        }
-
-        #[test]
-        fn rejects_unknown_format_and_removed_format_flags() {
-            for args in [
-                ["dat3", "a", "test.dat", "--format", "zip", "file"].as_slice(),
-                ["dat3", "a", "test.dat", "--dat1", "file"].as_slice(),
-                ["dat3", "a", "test.dat", "--arcanum", "file"].as_slice(),
-            ] {
-                assert!(
-                    crate::Cli::try_parse_from(args.iter().copied()).is_err(),
-                    "{args:?} should be rejected"
-                );
-            }
-        }
-    }
-
     // ── normalize_path_for_display ─────────────────────────────────
 
     mod normalize_path_for_display {

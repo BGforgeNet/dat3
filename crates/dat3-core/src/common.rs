@@ -1072,11 +1072,13 @@ pub mod utils {
     /// A pattern with glob metacharacters is a glob; one without a path separator
     /// matches the file name alone. Any other pattern matches as a substring, for
     /// backward compatibility. Both ignore case unless the `CaseMode` is sensitive.
+    #[derive(Debug)]
     pub struct NamePattern {
         source: String,
         kind: PatternKind,
     }
 
+    #[derive(Debug)]
     enum PatternKind {
         Glob {
             glob: glob::Pattern,
