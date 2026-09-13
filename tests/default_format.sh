@@ -31,7 +31,7 @@ is_dat2() {
 	[ "$size" -eq "$stored" ]
 }
 
-printf 'dat3:\n  default_format: arcanum\n' >.bgforge.yml
+printf 'dat3.default_format: arcanum\n' >.bgforge.yml
 
 "$DAT3" a from_config.dat file.txt
 if ! is_arcanum from_config.dat; then
@@ -45,7 +45,7 @@ if is_arcanum from_flag.dat || ! is_dat2 from_flag.dat; then
 	exit 1
 fi
 
-printf 'dat3:\n  default_format: zip\n' >.bgforge.yml
+printf 'dat3.default_format: zip\n' >.bgforge.yml
 warning=$("$DAT3" a from_bad_config.dat file.txt 2>&1 >/dev/null)
 if [[ "$warning" != *'unsupported dat3.default_format "zip"'* ]]; then
 	echo "Error: an unsupported default_format was not reported: $warning"

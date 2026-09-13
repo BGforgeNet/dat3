@@ -19,6 +19,7 @@
 - Saving an archive now flushes it to disk before replacing the old file, and on Linux and macOS keeps the old file's permissions. Two dat3 runs saving the same archive at once no longer write into each other's temporary file, though the one that finishes last still replaces the other's changes. Archives with very long file names, which could not be saved, now save.
 - New: the archive code is available to other Rust programs as the `dat3-core` library, used as a git dependency on this repository. Its API may still change between releases.
 - New: releases ship `dat3-wasm.tgz`, an npm package of the same library for Node.js and Electron: open archives from bytes, list, read, add and remove entries, and write the result back out. It runs on every platform, with TypeScript types.
+- Changed: `.bgforge.yml` sets the default format with a single flat key, `dat3.default_format: arcanum`. The nested form (`dat3:` with `default_format:` under it) is no longer read, so a config using it falls back to `dat2` until it is rewritten.
 
 ## v0.10.1
 

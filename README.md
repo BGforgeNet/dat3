@@ -203,8 +203,7 @@ dat3 a master.dat /tmp/patch000/file.txt
 When `a` creates a new archive and no `--format` is given, an optional `.bgforge.yml` in the current directory picks the default:
 
 ```yaml
-dat3:
-  default_format: arcanum
+dat3.default_format: arcanum
 ```
 
 Supported values: `dat1`, `dat2`, `arcanum`, `toee`. An unrecognized value prints a warning and `dat2` is used. An explicit `--format` always wins, and existing archives always keep their format.
