@@ -226,7 +226,8 @@ mod tests {
 
     mod dat1_detection {
         use super::dat1_bytes;
-        use crate::common::{DatArchive, ExtractionMode, MissingFiles};
+        use crate::archive::DatArchive;
+        use crate::common::{ExtractionMode, MissingFiles};
 
         /// Opens `bytes` and reports whether the format detector chose DAT1.
         /// A blob the detector rejects fails to open at all - nothing else in
@@ -745,6 +746,7 @@ mod tests {
 
     mod path_traversal {
         use super::*;
+        use crate::archive::DatArchive;
 
         #[test]
         fn rejects_dot_dot_in_path() {

@@ -15,7 +15,7 @@ the built-in default, so a foreign or broken config never blocks the tool.
 
 use std::path::Path;
 
-use crate::ArchiveFormat;
+use crate::archive::ArchiveFormat;
 
 /// Config file name, looked up in the process working directory
 pub const CONFIG_FILE: &str = ".bgforge.yml";

@@ -534,17 +534,17 @@ mod tests {
         let archive = build_archive(&[("A.TXT", FLAG_RAW, b"hi".to_vec(), 2)]);
         let path = ScratchPath::new("arc_open");
         std::fs::write(&path, &archive).unwrap();
-        let opened = crate::common::DatArchive::open(&path);
+        let opened = crate::archive::DatArchive::open(&path);
 
         let mut opened = opened.unwrap();
-        assert!(matches!(opened, crate::common::DatArchive::Arcanum(_)));
+        assert!(matches!(opened, crate::archive::DatArchive::Arcanum(_)));
         opened.delete_file("A.TXT").unwrap();
         opened.save(&path).unwrap();
 
-        let reopened = crate::common::DatArchive::open(&path);
+        let reopened = crate::archive::DatArchive::open(&path);
         assert!(matches!(
             reopened.unwrap(),
-            crate::common::DatArchive::Arcanum(_)
+            crate::archive::DatArchive::Arcanum(_)
         ));
     }
 

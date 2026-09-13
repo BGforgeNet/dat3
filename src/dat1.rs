@@ -541,9 +541,9 @@ mod tests {
 
         let path = ScratchPath::new("emptyre");
         archive.save(&path).unwrap();
-        let reopened = crate::common::DatArchive::open(&path);
+        let reopened = crate::archive::DatArchive::open(&path);
         assert!(
-            matches!(reopened.unwrap(), crate::common::DatArchive::Dat1(_)),
+            matches!(reopened.unwrap(), crate::archive::DatArchive::Dat1(_)),
             "an empty DAT1 archive could not be reopened"
         );
     }
@@ -721,9 +721,9 @@ mod tests {
         let archive = wide_archive(12);
         let path = ScratchPath::new("wide");
         archive.save(&path).unwrap();
-        let reopened = crate::common::DatArchive::open(&path);
+        let reopened = crate::archive::DatArchive::open(&path);
         assert!(
-            matches!(reopened.unwrap(), crate::common::DatArchive::Dat1(_)),
+            matches!(reopened.unwrap(), crate::archive::DatArchive::Dat1(_)),
             "a 13-directory archive dat3 wrote was not detected as DAT1"
         );
     }

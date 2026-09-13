@@ -860,8 +860,8 @@ mod tests {
         let open_path = ScratchPath::new("toee_v0_open");
         std::fs::write(&open_path, &empty).unwrap();
         assert!(matches!(
-            crate::common::DatArchive::open(&open_path).unwrap(),
-            crate::common::DatArchive::Toee(_)
+            crate::archive::DatArchive::open(&open_path).unwrap(),
+            crate::archive::DatArchive::Toee(_)
         ));
 
         let parsed = ToeeArchive::from_bytes(empty).unwrap();

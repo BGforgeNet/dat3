@@ -5,7 +5,7 @@ A cross-platform tool for managing Fallout and Troika DAT archive files.
 */
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
 // Use a faster memory allocator on Linux
@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod arcanum; // Arcanum (Troika) DAT format implementation
-mod common; // Shared utilities and the main DatArchive interface
+mod archive; // ArchiveFormat and the unified DatArchive interface
+mod common; // Shared types, archive operations, and path utilities
 mod config; // Optional .bgforge.yml defaults
 mod dat1; // Fallout 1 DAT format implementation
 mod dat2; // Fallout 2 DAT format implementation
@@ -26,7 +27,8 @@ mod common_tests;
 #[cfg(test)]
 mod test_support; // Self-cleaning scratch paths for the test modules
 
-use common::{CompressionLevel, DatArchive, ExtractionMode, ListFormat, MissingFiles, utils};
+use archive::{ArchiveFormat, DatArchive};
+use common::{CompressionLevel, ExtractionMode, ListFormat, MissingFiles, utils};
 
 /// Command-line interface definition.
 /// The `clap` crate uses these derive macros to automatically parse arguments.
@@ -108,31 +110,6 @@ enum Commands {
         dat_file: PathBuf,
         files: Vec<String>,
     },
-}
-
-/// Archive format selector for the `a` command
-#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
-enum ArchiveFormat {
-    /// Fallout 1 (big-endian, LZSS; created uncompressed)
-    Dat1,
-    /// Fallout 2 (little-endian, zlib) - the default for new archives
-    Dat2,
-    /// Arcanum (little-endian, zlib)
-    Arcanum,
-    /// The Temple of Elemental Evil (hierarchical Troika DAT, zlib)
-    Toee,
-}
-
-impl ArchiveFormat {
-    /// The value as typed on the command line, for error messages
-    fn arg_name(self) -> &'static str {
-        match self {
-            Self::Dat1 => "dat1",
-            Self::Dat2 => "dat2",
-            Self::Arcanum => "arcanum",
-            Self::Toee => "toee",
-        }
-    }
 }
 
 /// Map the `--ignore-missing` flag to the policy the archive operations take.
@@ -251,17 +228,12 @@ fn main() -> Result<()> {
                 // Open existing archive - format is fixed, can't change it
                 let archive = DatArchive::open(&dat_file)?;
                 if let Some(requested) = format {
-                    let actual = match archive {
-                        DatArchive::Dat1(_) => ArchiveFormat::Dat1,
-                        DatArchive::Dat2(_) => ArchiveFormat::Dat2,
-                        DatArchive::Arcanum(_) => ArchiveFormat::Arcanum,
-                        DatArchive::Toee(_) => ArchiveFormat::Toee,
-                    };
+                    let actual = archive.format();
                     if requested != actual {
                         bail!(
                             "{}: archive format is {}, but --format {} was specified. Cannot change the format of an existing archive.",
                             dat_file.display(),
-                            archive.format_name(),
+                            actual.display_name(),
                             requested.arg_name()
                         );
                     }
@@ -272,15 +244,13 @@ fn main() -> Result<()> {
                 let format = format
                     .or_else(|| config::default_format(Path::new(".")))
                     .unwrap_or(ArchiveFormat::Dat2);
-                match format {
-                    ArchiveFormat::Dat1 => DatArchive::new_dat1(),
-                    ArchiveFormat::Dat2 => DatArchive::new_dat2(),
-                    ArchiveFormat::Arcanum => DatArchive::new_arcanum(),
-                    ArchiveFormat::Toee => DatArchive::new_toee(),
-                }
+                DatArchive::new(format)
             };
 
-            if archive.is_dat1() && compression_explicitly_set && compression > 0 {
+            if archive.format() == ArchiveFormat::Dat1
+                && compression_explicitly_set
+                && compression > 0
+            {
                 eprintln!(
                     "Warning: DAT1 format does not support compression, files will be stored uncompressed"
                 );
