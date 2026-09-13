@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.10.1
 
-- New: `--ignore-missing` for `l`, `x` and `e`. Requested names or globs that are not in the archive are reported as a warning instead of failing the command: whatever matched is listed or extracted, and the exit status stays 0.
+- New: `--ignore-missing` for `l`, `x` and `e` reports requested names and globs that are not in the archive as a warning instead of failing: whatever matched is still listed or extracted, and the exit status stays 0.
 
 ## v0.10.0
 
