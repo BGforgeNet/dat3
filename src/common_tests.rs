@@ -151,6 +151,29 @@ mod tests {
         }
     }
 
+    // ── progress_line ──────────────────────────────────────────────
+
+    mod progress_line {
+        use super::*;
+        use std::time::Duration;
+
+        #[test]
+        fn omits_the_rate_when_no_time_has_passed() {
+            assert_eq!(
+                progress_line(2, 2, Duration::ZERO),
+                "Progress: 2/2 files extracted"
+            );
+        }
+
+        #[test]
+        fn reports_the_rate_in_files_per_second() {
+            assert_eq!(
+                progress_line(3, 10, Duration::from_millis(1500)),
+                "Progress: 3/10 files extracted (2.0 files/sec)"
+            );
+        }
+    }
+
     // ── flat extraction ────────────────────────────────────────────
 
     mod flat_extraction {

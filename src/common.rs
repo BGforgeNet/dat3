@@ -238,6 +238,17 @@ pub fn filter_files_by_patterns<'a, T: AsRef<FileEntry>>(
     Ok(filtered.into_iter().map(|file| file.as_ref()).collect())
 }
 
+/// Extraction progress, with a rate only once any time has measurably passed
+pub fn progress_line(count: usize, total: usize, elapsed: std::time::Duration) -> String {
+    let seconds = elapsed.as_secs_f64();
+    if seconds > 0.0 {
+        let rate = count as f64 / seconds;
+        format!("Progress: {count}/{total} files extracted ({rate:.1} files/sec)")
+    } else {
+        format!("Progress: {count}/{total} files extracted")
+    }
+}
+
 /// Warn that flat extraction skips entries whose file name a later entry reuses
 fn report_flat_name_collisions(replaced: &[&FileEntry]) {
     const SHOWN: usize = 5;
@@ -294,16 +305,6 @@ pub fn extract_archive_parallel(
         .try_for_each(|file| -> Result<()> {
             utils::validate_archive_path(&file.name)?;
 
-            // Progress reporting every 1000 files
-            let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
-            if count.is_multiple_of(1000) || count == total_files {
-                let elapsed = start.elapsed().as_millis();
-                let files_per_sec = count as f64 / elapsed as f64 * 1000.0;
-                print_stdout(format_args!(
-                    "Progress: {count}/{total_files} files extracted ({files_per_sec:.1} files/sec)"
-                ));
-            }
-
             let output_path = utils::resolve_output_path(output_dir, &file.name, mode);
 
             utils::ensure_dir_exists(&output_path)?;
@@ -320,6 +321,15 @@ pub fn extract_archive_parallel(
 
             fs::write(&output_path, final_data)
                 .with_context(|| format!("Failed to write {}", output_path.display()))?;
+
+            // Counted once written, every 1000 files and at the end
+            let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            if count.is_multiple_of(1000) || count == total_files {
+                print_stdout(format_args!(
+                    "{}",
+                    progress_line(count, total_files, start.elapsed())
+                ));
+            }
 
             Ok(())
         })?;
@@ -485,7 +495,8 @@ pub fn decompress_zlib(data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
 
 /// Delete a file from a list by normalized name.
 ///
-/// Shared by DAT1 and DAT2 delete implementations.
+/// Shared by the DAT2, Arcanum, and ToEE delete implementations; DAT1 keeps its
+/// files per directory and deletes through its own.
 pub fn delete_file_from_list(files: &mut Vec<FileEntry>, file_name: &str) -> Result<()> {
     let normalized_name = utils::normalize_user_path(file_name).into_owned();
 
@@ -570,7 +581,7 @@ pub mod utils {
     use std::borrow::Cow;
 
     /// Print formatted file listing to stdout.
-    /// Exits cleanly on broken pipe (e.g., when piped to `head`).
+    /// Output goes through `print_stdout`, so a closed pipe (e.g. `| head`) silences it.
     pub fn print_file_listing<T: AsRef<FileEntry>>(files: &[T]) {
         print_stdout(format_args!(
             "{:>11} {:>11}  {:>4}  Name",
