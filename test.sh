@@ -46,6 +46,7 @@ cd tests
 ./path_consistency.sh
 ./glob_handling.sh
 ./extract_missing.sh
+./default_format.sh
 # TypeScript: the assertions are about a parsed document, so a real parser runs them
 node ./json_listing.ts
 
