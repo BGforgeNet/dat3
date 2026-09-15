@@ -79,51 +79,51 @@ import { Archive, type Entry } from "dat3-wasm";
 // Open an archive. `using` frees its memory at the end of the block; where `using` is unavailable, call
 // archive.free() when done, or the memory is released only at garbage collection.
 {
-  using archive = Archive.fromBytes(readFileSync("patch000.dat"));
-  console.log(archive.format); // "dat2", detected from the bytes
+    using archive = Archive.fromBytes(readFileSync("patch000.dat"));
+    console.log(archive.format); // "dat2", detected from the bytes
 
-  const entries: Entry[] = archive.entries();
-  for (const entry of entries) {
-    console.log(entry.name, entry.size, entry.packedSize, entry.compressed); // names use "/"
-  }
-
-  // Extract every file, keeping its directories. Names come from the archive, so refuse any that would land
-  // outside the output directory.
-  const outDir = path.resolve("out");
-  for (const { name } of entries) {
-    const target = path.resolve(outDir, name);
-    if (!target.startsWith(outDir + path.sep)) {
-      throw new Error(`refusing to extract ${name} outside ${outDir}`);
+    const entries: Entry[] = archive.entries();
+    for (const entry of entries) {
+        console.log(entry.name, entry.size, entry.packedSize, entry.compressed); // names use "/"
     }
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, archive.read(name));
-  }
 
-  const frm: Uint8Array = archive.read("art/critters/haenroaa.frm"); // any letter case
-  console.log(frm.length);
-  archive.insert("text/english/game/new.msg", readFileSync("new.msg"), 9); // compression 0-9
-  const removed: boolean = archive.remove("data/old.txt");
-  console.log(removed);
-  writeFileSync("patch000.dat", archive.toBytes());
+    // Extract every file, keeping its directories. Names come from the archive, so refuse any that would land
+    // outside the output directory.
+    const outDir = path.resolve("out");
+    for (const { name } of entries) {
+        const target = path.resolve(outDir, name);
+        if (!target.startsWith(outDir + path.sep)) {
+            throw new Error(`refusing to extract ${name} outside ${outDir}`);
+        }
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, archive.read(name));
+    }
+
+    const frm: Uint8Array = archive.read("art/critters/haenroaa.frm"); // any letter case
+    console.log(frm.length);
+    archive.insert("text/english/game/new.msg", readFileSync("new.msg"), 9); // compression 0-9
+    const removed: boolean = archive.remove("data/old.txt");
+    console.log(removed);
+    writeFileSync("patch000.dat", archive.toBytes());
 }
 
 // Build a new archive from a directory tree
 {
-  using built = new Archive("arcanum"); // "dat1", "dat2", "arcanum" or "toee"
-  for (const file of readdirSync("mod", { recursive: true, withFileTypes: true })) {
-    if (file.isFile()) {
-      const source = path.join(file.parentPath, file.name);
-      built.insert(path.relative("mod", source), readFileSync(source), 9); // "/" or "\" separators
+    using built = new Archive("arcanum"); // "dat1", "dat2", "arcanum" or "toee"
+    for (const file of readdirSync("mod", { recursive: true, withFileTypes: true })) {
+        if (file.isFile()) {
+            const source = path.join(file.parentPath, file.name);
+            built.insert(path.relative("mod", source), readFileSync(source), 9); // "/" or "\" separators
+        }
     }
-  }
-  writeFileSync("mod.dat", built.toBytes());
+    writeFileSync("mod.dat", built.toBytes());
 }
 
 // Failures throw an Error carrying the reason
 try {
-  Archive.fromBytes(new Uint8Array([1, 2, 3]));
+    Archive.fromBytes(new Uint8Array([1, 2, 3]));
 } catch (error) {
-  console.error(error instanceof Error ? error.message : error);
+    console.error(error instanceof Error ? error.message : error);
 }
 ```
 
