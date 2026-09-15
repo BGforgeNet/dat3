@@ -7,7 +7,7 @@ Crossplatform, static Rust re-implementation of DAT2, with minor differences. Al
 - [Usage](#usage)
 - [Differences from DAT2](#differences-from-dat2)
 - [Using dat3 as a library](#using-dat3-as-a-library)
-- [Verifying a release](#verifying-a-release)
+- [Release assets](#release-assets)
 - [Building](#building)
 
 ## Usage
@@ -239,17 +239,10 @@ dat3 d master.dat @files_to_delete.txt
 Other Rust programs can use the archive code as the `dat3-core` crate, and Node.js and Electron applications as the
 `dat3-wasm` npm package. See [docs/api.md](docs/api.md).
 
-## Verifying a release
+## Release assets
 
-Every release ships a `SHA256SUMS` file covering its assets. Download it
-alongside the assets and check them:
-
-```bash
-sha256sum -c SHA256SUMS
-```
-
-Only the files you downloaded need to be present; `sha256sum` reports the rest
-as missing.
+What each release file is, how to run `dat3.wasm`, and how to verify a download: see
+[docs/release-assets.md](docs/release-assets.md).
 
 ## Building
 
