@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.11.0
 
 - New: releases ship a macOS binary (`dat3-macos`), a universal binary that runs natively on Intel and Apple Silicon Macs. It is not notarized, so a copy downloaded in a browser has to be allowed in System Settings, or cleared with `xattr -d com.apple.quarantine dat3-macos`, before its first run.
 - Fixed: a crafted Fallout 2 or Arcanum archive could make dat3 reserve gigabytes of memory for a single file name, and a crafted entry in any format could expand on extraction far past the size it declares. Entry paths are now limited to 1024 bytes, and an entry must decompress to exactly its declared size.

@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "dat3-core"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "dat3-wasm"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "dat3-core",
  "js-sys",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "fallout-dat3"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "clap",

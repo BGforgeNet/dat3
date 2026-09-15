@@ -6,7 +6,7 @@ default-members = ["crates/dat3", "crates/dat3-core"]
 resolver = "3"
 
 [workspace.package]
-version = "0.10.1"
+version = "0.11.0"
 edition = "2024"
 # Floor set by u32::is_multiple_of (stabilized 1.87); 1.85 fails to compile, 1.87 verified clean.
 rust-version = "1.87"
