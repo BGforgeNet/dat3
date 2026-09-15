@@ -13,9 +13,11 @@ CARGO_TARGETS=(
 )
 
 # mimalloc is C, and no aarch64-musl C compiler ships in apt; zig provides one.
-# Only this target needs it, so the others stay on plain cargo.
+# macOS needs a Mach-O linker, which zig also provides, and cargo-zigbuild's
+# universal2 target merges the x86_64 and arm64 builds into one binary.
 ZIG_TARGETS=(
 	aarch64-unknown-linux-musl
+	universal2-apple-darwin
 )
 
 ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}")
@@ -25,7 +27,11 @@ ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}")
 # fails loudly at the cargo build below.
 # wasm32-unknown-unknown is the npm package's target, built by its own script below.
 for target in "${ALL_TARGETS[@]}" wasm32-unknown-unknown; do
-	rustup target add "$target" 2>/dev/null || true
+	case "$target" in
+	# Not a rustup target: the two it merges are
+	universal2-apple-darwin) rustup target add x86_64-apple-darwin aarch64-apple-darwin 2>/dev/null || true ;;
+	*) rustup target add "$target" 2>/dev/null || true ;;
+	esac
 done
 
 # Build all targets in parallel - both debug and release.
