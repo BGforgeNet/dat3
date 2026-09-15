@@ -16,12 +16,18 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.98.1
+  NODE_VERSION: "24.19.0"
 
+# Jobs fan out so no single runner does everything in sequence: one build job per
+# target, and the test jobs run against those builds' artifacts, so what is tested
+# is exactly what ships. tests-complete fails a run in which some test.sh test
+# ran in no job.
 jobs:
-  ci:
-    name: build
+  lint:
+    name: lint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -32,78 +38,245 @@ jobs:
         with:
           persist-credentials: false
 
+      # wasm32-unknown-unknown for clippy on dat3-wasm, which builds only for it
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
-          toolchain: 1.98.1
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
-          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-gnu, i686-pc-windows-gnu, wasm32-wasip1, wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-directories: ~/.cargo/bin
-          # The cache is only written on a key miss, so without this it would
-          # keep serving a target/ dir built before build.sh's target list grew.
-          key: ${{ hashFiles('build.sh') }}
 
-      # tests/json_listing.ts runs through Node's own type stripping rather than
-      # a build step, so the Node version is what decides whether it runs at
-      # all. Pinned so the runner image's default cannot change that silently.
       - name: Install Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24.19.0"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Pre-test
+      - name: Lint and unit tests
         run: ./ci.sh
 
-      - name: Install wine
-        uses: devopsx/gha-ubuntu-i386-fix@857a708773e426df64597ec43c9cd3d5bb85abee # master (no tagged releases)
-
-      - name: Install dependencies
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools p7zip-full qemu-user-static
-
-      # zig, because mimalloc is C and apt has no aarch64-musl compiler and the
-      # macOS build needs a Mach-O linker, plus cargo-zigbuild for those
-      # cross-builds, wasmtime for tests/wasm.sh and
-      # wasm-bindgen for the npm package.
-      # Versions and digests live in the script; ci.sh has already installed the
-      # gate tools it shares with this step.
-      - name: Install build tools
-        run: ./install-tools.sh
-
-      - name: Cache test fixtures
-        id: test-fixtures
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+  # The declared rust-version is a promise to users, and nothing checked it: the
+  # build jobs pin a toolchain many releases newer, so code using a feature
+  # stabilised after 1.87 would compile there and fail for anyone honouring
+  # docs/building.md. The version is read from Cargo.toml rather than repeated here.
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: |
-            tests/rpu_v2.4.33.zip
-            tests/ArcanumDemo.dat
-            tests/FalloutDemo.dat
-            tests/tpgamefiles.dat
-            tests/toee-demo
-          key: test-fixtures-rpu-v2.4.33-arcanum-demo-fallout-demo-templeplus-v1.0.98-toee-demo-v1
+          persist-credentials: false
 
-      - name: Install ToEE demo extractor
-        if: steps.test-fixtures.outputs.cache-hit != 'true'
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: sudo apt-get install -y --no-install-recommends unshield
+      - name: Read the declared MSRV
+        id: msrv
+        run: sed -n 's/^rust-version = "\(.*\)"/version=\1/p' Cargo.toml >> "$GITHUB_OUTPUT"
 
-      - name: Build binaries
-        run: ./build.sh
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+          targets: wasm32-unknown-unknown
 
-      - name: Test
-        run: ./test.sh
+      # --locked so the committed lockfile is what gets checked, and --all-targets
+      # so the test code is covered too.
+      - name: Check against the declared MSRV
+        run: cargo check --all-targets --locked
 
-      - name: Test ToEE demo archives
-        run: ./tests/toee-demo.sh
+      # Not a default workspace member: it builds only for its wasm target
+      - name: Check the wasm library against the declared MSRV
+        run: cargo check -p dat3-wasm --target wasm32-unknown-unknown --locked
+
+  # Its own job rather than a build matrix entry: most tests need only this
+  # binary, and a job needing a matrix waits for every entry of it.
+  build-linux:
+    name: build (x86_64-unknown-linux-musl)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+        with:
+          targets: x86_64-unknown-linux-musl
+          rust-targets: x86_64-unknown-linux-musl
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          apt-packages: musl-tools
+          artifact: build-x86_64-unknown-linux-musl
+
+  build:
+    name: build (${{ matrix.targets }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          # zig, because mimalloc is C and apt has no aarch64-musl compiler, and
+          # the macOS build needs a Mach-O linker; cargo-zigbuild drives it.
+          - targets: aarch64-unknown-linux-musl
+            rust-targets: aarch64-unknown-linux-musl
+            tools: zig cargo-zigbuild
+            artifact: build-aarch64-unknown-linux-musl
+          - targets: universal2-apple-darwin
+            rust-targets: x86_64-apple-darwin, aarch64-apple-darwin
+            tools: zig cargo-zigbuild
+            artifact: build-universal2-apple-darwin
+          - targets: x86_64-pc-windows-gnu
+            rust-targets: x86_64-pc-windows-gnu
+            apt-packages: gcc-mingw-w64
+            artifact: build-x86_64-pc-windows-gnu
+          - targets: i686-pc-windows-gnu
+            rust-targets: i686-pc-windows-gnu
+            apt-packages: gcc-mingw-w64
+            artifact: build-i686-pc-windows-gnu
+          # wasm-bindgen and npm for the npm package
+          - targets: wasm32-wasip1 npm
+            rust-targets: wasm32-wasip1, wasm32-unknown-unknown
+            tools: wasm-bindgen
+            node: true
+            artifact: build-wasm32-wasip1-npm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+        with:
+          targets: ${{ matrix.targets }}
+          rust-targets: ${{ matrix.rust-targets }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          apt-packages: ${{ matrix.apt-packages }}
+          tools: ${{ matrix.tools }}
+          node-version: ${{ matrix.node && env.NODE_VERSION || '' }}
+          artifact: ${{ matrix.artifact }}
+
+  # The test.sh tests needing only the native binary. The only job that saves the
+  # fixture cache, since its tests fetch every fixture.
+  test-native:
+    name: test (native)
+    needs: build-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+        with:
+          artifacts: build-x86_64-unknown-linux-musl
+          tests: >-
+            non-ascii.sh rpu.sh arcanum.sh toee.sh f1.sh broken_pipe.sh response_file.sh add_validation.sh
+            duplicate_paths.sh path_consistency.sh glob_handling.sh extract_missing.sh default_format.sh
+            case_handling.sh readme_help.sh json_listing.ts toee-demo.sh
+          node-version: ${{ env.NODE_VERSION }}
+          save-fixtures: "true"
+          id: native
+
+  # The cross-checks against the original Windows tools that need only the native
+  # binary. Each large extraction under wine takes about half a minute, so they
+  # are spread across jobs.
+  test-wine:
+    name: test (${{ matrix.tests }})
+    needs: build-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        tests:
+          - rpu_wine.sh
+          - arcanum_wine.sh arcanum_demo_wine.sh f1_wine.sh
+          - arcanum_demo_mod_wine.sh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+        with:
+          artifacts: build-x86_64-unknown-linux-musl
+          tests: ${{ matrix.tests }}
+          node-version: ${{ env.NODE_VERSION }}
+          tools: wine
+          id: wine-${{ strategy.job-index }}
+
+  # The tests of the other builds, each checked against the native one
+  test-targets:
+    name: test (other targets)
+    needs: [build-linux, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+        with:
+          artifacts: build-*
+          tests: wasm_library.sh wasm.sh arm64.sh glob_handling_wine.sh
+          node-version: ${{ env.NODE_VERSION }}
+          apt-packages: qemu-user-static
+          tools: wasmtime wine
+          id: targets
+
+  tests-complete:
+    name: tests complete
+    needs: [test-native, test-wine, test-targets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the tests that passed
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: tests-ran-*
+          path: tests-ran
+          merge-multiple: true
+
+      - name: Check every test ran
+        run: diff <(./test.sh --list | sort) <(sort -u tests-ran/*)
+
+  assets:
+    name: assets
+    needs: [build-linux, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: build-*
+          path: ${{ runner.temp }}/builds
+
+      - name: Unpack builds
+        run: find "$RUNNER_TEMP/builds" -name build.tar -exec tar -xf {} \;
 
       - name: Prepare release assets
         run: |
@@ -156,45 +329,11 @@ jobs:
             dat3-debug.wasm
           if-no-files-found: error
 
-  # The declared rust-version is a promise to users, and nothing checked it: the
-  # build job pins a toolchain many releases newer, so code using a feature
-  # stabilised after 1.87 would compile there and fail for anyone honouring
-  # docs/building.md. The version is read from Cargo.toml rather than repeated here.
-  msrv:
-    name: msrv
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Read the declared MSRV
-        id: msrv
-        run: sed -n 's/^rust-version = "\(.*\)"/version=\1/p' Cargo.toml >> "$GITHUB_OUTPUT"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
-          targets: wasm32-unknown-unknown
-
-      # --locked so the committed lockfile is what gets checked, and --all-targets
-      # so the test code is covered too.
-      - name: Check against the declared MSRV
-        run: cargo check --all-targets --locked
-
-      # Not a default workspace member: it builds only for its wasm target
-      - name: Check the wasm library against the declared MSRV
-        run: cargo check -p dat3-wasm --target wasm32-unknown-unknown --locked
-
   # The macOS binary is cross-built on Linux, where nothing can run it. One
   # runner per architecture, so each slice of the universal binary is run.
   macos:
     name: macos (${{ matrix.runner }})
-    needs: ci
+    needs: assets
     strategy:
       matrix:
         runner: [macos-26, macos-26-intel]
@@ -220,11 +359,11 @@ jobs:
         run: chmod +x "$MACOS_DAT3" && ./tests/macos.sh
 
   # Separate job so contents:write exists only on a tag run, and only for the
-  # step that publishes. It builds nothing: the binaries come from the build
+  # step that publishes. It builds nothing: the binaries come from the assets
   # job's artifact.
   release:
     name: release
-    needs: [ci, macos]
+    needs: [lint, assets, tests-complete, macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10

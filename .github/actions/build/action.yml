@@ -1,0 +1,92 @@
+name: Build
+description: Builds build.sh targets and uploads their outputs as one artifact
+
+inputs:
+  targets:
+    description: build.sh targets, space-separated
+    required: true
+  rust-targets:
+    description: rustup targets those builds need, comma-separated
+    required: true
+  toolchain:
+    description: Rust toolchain
+    required: true
+  apt-packages:
+    description: apt packages the builds need, space-separated
+    default: ""
+  tools:
+    description: install-tools.sh tools the builds need, space-separated
+    default: ""
+  node-version:
+    description: Node to install, for a build that runs npm
+    default: ""
+  artifact:
+    description: Name of the uploaded artifact
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        targets: ${{ inputs.rust-targets }}
+
+    # Keyed on the target list: the cache is only written on a key miss, so
+    # without it a job whose targets grew would keep serving the old target/ dir.
+    - name: Cache key
+      id: cache-key
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+      run: echo "key=${TARGETS// /-}" >>"$GITHUB_OUTPUT"
+
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        cache-directories: ~/.cargo/bin
+        key: ${{ steps.cache-key.outputs.key }}
+
+    - name: Install Node
+      if: inputs.node-version != ''
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install packages
+      if: inputs.apt-packages != ''
+      shell: bash
+      env:
+        APT_PACKAGES: ${{ inputs.apt-packages }}
+      run: |
+        read -ra packages <<<"$APT_PACKAGES"
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+
+    - name: Install build tools
+      if: inputs.tools != ''
+      shell: bash
+      env:
+        TOOLS: ${{ inputs.tools }}
+      run: |
+        read -ra tools <<<"$TOOLS"
+        ./install-tools.sh "${tools[@]}"
+
+    # A tarball rather than the files themselves: an artifact drops the
+    # executable bit and the target/ prefix of its paths, and tar keeps both.
+    - name: Build
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+      run: |
+        read -ra targets <<<"$TARGETS"
+        DAT3_BUILD_OUTPUTS="$RUNNER_TEMP/outputs.txt" ./build.sh "${targets[@]}"
+        tar -cf "$RUNNER_TEMP/build.tar" -T "$RUNNER_TEMP/outputs.txt"
+
+    - name: Upload
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ runner.temp }}/build.tar
+        if-no-files-found: error

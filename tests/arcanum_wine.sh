@@ -2,9 +2,10 @@
 
 set -xeu -o pipefail
 
-# Cross-check the Arcanum format against Troika's own dbmaker.exe
-# (usage: dbmaker [option] output input; -r recurse, -u unpack, -cN level).
-# The dat3-only checks live in arcanum.sh.
+# Cross-check the Arcanum format against Troika's own dbmaker.exe on a small
+# synthetic tree. The real-data cross-checks live in arcanum_demo_wine.sh and
+# arcanum_demo_mod_wine.sh, each a separate script so CI can run them in
+# parallel; the dat3-only checks live in arcanum.sh.
 
 # Work inside tests directory
 cd "$(dirname "$0")"
@@ -14,13 +15,6 @@ cd "$(dirname "$0")"
 source ./common.sh
 
 require_wine
-
-# Absolute path: the helper is called from working directories other than
-# this script's own, where a bare dbmaker.exe would not resolve.
-DBMAKER_EXE="$PWD/dbmaker.exe"
-dbmaker() {
-	WINEDEBUG=-all wine "$DBMAKER_EXE" "$@" 2>/dev/null
-}
 
 SRC_DIR="arcanum_src"
 DAT3_DAT="arcanum_dat3.dat"
@@ -64,33 +58,5 @@ if [ -e "$DB_OUT/data/sub/zeros.bin" ]; then
 	exit 1
 fi
 
-# -- Real game data: both tools extract the demo archive --
-
-fetch_arcanum_demo
-
-# dbmaker keeps the demo's stored mixed-case names (WorldMap), so dat3 does too
-# for every step compared against it.
-rm -rf demo_dat3 demo_db
-$DAT3 x --case-sensitive "$ARCANUM_DEMO_DAT" -o demo_dat3
-mkdir demo_db
-(cd demo_db && dbmaker -u "../$ARCANUM_DEMO_DAT")
-diff -r demo_dat3 demo_db
-
-# dat3 modifies the real archive; dbmaker reads the result
-DEMO_MOD="demo_mod.dat"
-cp "$ARCANUM_DEMO_DAT" "$DEMO_MOD"
-$DAT3 d --case-sensitive "$DEMO_MOD" "WorldMap/WorldMap.mes"
-echo "demo test file" >demo_add.txt
-$DAT3 a --case-sensitive "$DEMO_MOD" -t WorldMap demo_add.txt
-rm -rf demo_db
-mkdir demo_db
-(cd demo_db && dbmaker -u "../$DEMO_MOD")
-diff demo_db/WorldMap/demo_add.txt demo_add.txt
-if [ -e demo_db/WorldMap/WorldMap.mes ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
-fi
-
-# Clean up (keep the extracted DAT for the CI cache)
-rm -rf "$SRC_DIR" "$DB_OUT" "$DAT3_OUT" "$DAT3_DAT" "$DB_DAT" added.txt \
-	demo_dat3 demo_db "$DEMO_MOD" demo_add.txt
+# Clean up
+rm -rf "$SRC_DIR" "$DB_OUT" "$DAT3_OUT" "$DAT3_DAT" "$DB_DAT" added.txt

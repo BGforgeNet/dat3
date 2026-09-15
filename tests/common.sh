@@ -188,6 +188,14 @@ require_wine() {
 	require_runtime wine "cross-checks against the original Windows binaries"
 }
 
+# Troika's own dbmaker.exe (usage: dbmaker [option] output input; -r recurse,
+# -u unpack, -cN level). Absolute path: it is called from working directories
+# other than tests/, where a bare dbmaker.exe would not resolve. stderr carries
+# only wine's startup noise, which WINEDEBUG=-all does not silence.
+dbmaker() {
+	WINEDEBUG=-all wine "$SCRIPT_DIR/dbmaker.exe" "$@" 2>/dev/null
+}
+
 require_wasmtime() {
 	require_runtime wasmtime "runs the WebAssembly build"
 }

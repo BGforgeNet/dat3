@@ -2,7 +2,11 @@
 
 set -xeu -o pipefail
 
-echo "Cross-compiling static binaries for all platforms..."
+# Usage: ./build.sh [target...]   (default: every target below and the npm package)
+# "npm" names the npm package, whose own target is wasm32-unknown-unknown. CI
+# splits the targets across jobs, so they build in parallel on separate runners.
+
+echo "Cross-compiling static binaries..."
 
 # Targets whose toolchain is either bundled with rustc or already on PATH.
 CARGO_TARGETS=(
@@ -22,16 +26,40 @@ ZIG_TARGETS=(
 
 ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}")
 
+targets=()
+build_npm=""
+if [ $# -eq 0 ]; then
+	targets=("${ALL_TARGETS[@]}")
+	build_npm=1
+fi
+for arg in "$@"; do
+	if [ "$arg" = npm ]; then
+		build_npm=1
+	elif [[ " ${ALL_TARGETS[*]} " == *" $arg "* ]]; then
+		targets+=("$arg")
+	else
+		echo "Error: no such target: $arg (known: ${ALL_TARGETS[*]} npm)" >&2
+		exit 1
+	fi
+done
+
 # Install targets if not already installed. Tolerated failure: a distro rustc has
 # no rustup, and its targets come from packages instead. A missing target still
 # fails loudly at the cargo build below.
-# wasm32-unknown-unknown is the npm package's target, built by its own script below.
-for target in "${ALL_TARGETS[@]}" wasm32-unknown-unknown; do
+rustup_targets=()
+for target in "${targets[@]}"; do
 	case "$target" in
 	# Not a rustup target: the two it merges are
-	universal2-apple-darwin) rustup target add x86_64-apple-darwin aarch64-apple-darwin 2>/dev/null || true ;;
-	*) rustup target add "$target" 2>/dev/null || true ;;
+	universal2-apple-darwin) rustup_targets+=(x86_64-apple-darwin aarch64-apple-darwin) ;;
+	*) rustup_targets+=("$target") ;;
 	esac
+done
+# wasm32-unknown-unknown is the npm package's target, built by its own script below.
+if [ -n "$build_npm" ]; then
+	rustup_targets+=(wasm32-unknown-unknown)
+fi
+for target in "${rustup_targets[@]}"; do
+	rustup target add "$target" 2>/dev/null || true
 done
 
 # Build all targets in parallel - both debug and release.
@@ -48,13 +76,14 @@ start_build() {
 }
 
 echo "Building debug and release targets..."
-for target in "${CARGO_TARGETS[@]}"; do
-	start_build "debug $target" cargo build --target "$target"
-	start_build "release $target" cargo build --release --target "$target"
-done
-for target in "${ZIG_TARGETS[@]}"; do
-	start_build "debug $target" cargo zigbuild --target "$target"
-	start_build "release $target" cargo zigbuild --release --target "$target"
+for target in "${targets[@]}"; do
+	if [[ " ${ZIG_TARGETS[*]} " == *" $target "* ]]; then
+		start_build "debug $target" cargo zigbuild --target "$target"
+		start_build "release $target" cargo zigbuild --release --target "$target"
+	else
+		start_build "debug $target" cargo build --target "$target"
+		start_build "release $target" cargo build --release --target "$target"
+	fi
 done
 
 # Waited per pid, not with a bare `wait`: that reports 0 whatever the jobs did,
@@ -78,16 +107,29 @@ binary_name() {
 }
 
 # The npm package for Node and Electron
-crates/dat3-wasm/package.sh
+if [ -n "$build_npm" ]; then
+	crates/dat3-wasm/package.sh
+fi
+
+# Lists an output and, when DAT3_BUILD_OUTPUTS names a file, appends its path
+# there; CI packs exactly those paths into the job's artifact.
+output() {
+	ls -lh "$1"
+	if [ -n "${DAT3_BUILD_OUTPUTS:-}" ]; then
+		echo "$1" >>"$DAT3_BUILD_OUTPUTS"
+	fi
+}
 
 echo ""
 echo "Cross-compile completed. Static binaries:"
 for profile in debug release; do
 	echo "$profile builds:"
-	for target in "${ALL_TARGETS[@]}"; do
-		ls -lh "target/$target/$profile/$(binary_name "$target")"
+	for target in "${targets[@]}"; do
+		output "target/$target/$profile/$(binary_name "$target")"
 	done
 	echo ""
 done
-echo "npm package:"
-ls -lh target/dat3-wasm.tgz
+if [ -n "$build_npm" ]; then
+	echo "npm package:"
+	output target/dat3-wasm.tgz
+fi

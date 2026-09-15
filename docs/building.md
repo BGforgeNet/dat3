@@ -6,7 +6,7 @@
 - Target-specific toolchains (install as needed)
 - `./install-tools.sh` for the pinned tooling, including [Zig](https://ziglang.org/), which the aarch64
   target needs: mimalloc is C, and no aarch64-musl C compiler is packaged for common distros. It also links the
-  macOS build
+  macOS build. The wine it installs runs the integration suite's cross-checks against the original Windows tools
 - Node 24 or newer, to run the integration suite (`./test.sh`): its helpers under `tests/` are TypeScript, run
   by Node's own type stripping. `npm ci && npm run typecheck` typechecks them. Neither is needed to build dat3
 
@@ -15,6 +15,8 @@
 ```bash
 ./build.sh
 ```
+
+`./build.sh <target>...` builds only the named targets; `npm` names the npm package.
 
 Builds are static, except for macOS, where every program links the system library dynamically.
 

@@ -2,8 +2,9 @@
 
 set -xeu -o pipefail
 
-# CI-only coverage for every ToEE DAT in the official 218 MB demo. The smaller
-# TemplePlus fixture remains in test.sh so local runs do not fetch this installer.
+# CI-only coverage for every ToEE DAT in the official 218 MB demo: test.sh skips
+# it outside CI, and the smaller TemplePlus fixture covers local runs, so they do
+# not fetch this installer.
 
 cd "$(dirname "$0")"
 

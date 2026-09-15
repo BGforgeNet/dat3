@@ -9,7 +9,8 @@ set -xeu -o pipefail
 # that is a style note preferring `gh release` over the pinned release action,
 # which the project keeps for its fail_on_unmatched_files check.
 actionlint
-zizmor --min-severity low .github/workflows/
+# .github/ rather than its workflows/ alone, so the local composite actions are audited too
+zizmor --min-severity low .github/
 
 # Shell scripts: lint at shellcheck's default severity, and fail on any formatting drift
 git ls-files -z '*.sh' | xargs -0 shellcheck

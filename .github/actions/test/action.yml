@@ -1,0 +1,111 @@
+name: Test
+description: Runs test.sh tests against build artifacts and uploads the names of those that passed
+
+inputs:
+  artifacts:
+    description: Pattern naming the build artifacts the tests need
+    required: true
+  tests:
+    description: test.sh tests, space-separated
+    required: true
+  node-version:
+    description: Node, which runs the TypeScript tests
+    required: true
+  apt-packages:
+    description: apt packages the tests need, space-separated
+    default: ""
+  tools:
+    description: install-tools.sh tools the tests need, space-separated
+    default: ""
+  save-fixtures:
+    description: >-
+      "true" in the one job that saves the fixture cache on a miss. Any other job
+      saving it would store only the fixtures its own tests fetched, and every
+      later run would hit that key and download the rest again.
+    default: "false"
+  id:
+    description: Unique per job, naming the list of tests that passed
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download builds
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: ${{ inputs.artifacts }}
+        path: ${{ runner.temp }}/builds
+
+    - name: Unpack builds
+      shell: bash
+      run: find "$RUNNER_TEMP/builds" -name build.tar -exec tar -xf {} \;
+
+    # One definition for both the restore and the save below
+    - name: Fixture cache
+      id: fixture-cache
+      shell: bash
+      run: |
+        echo "key=test-fixtures-rpu-v2.4.33-arcanum-demo-fallout-demo-templeplus-v1.0.98-toee-demo-v1" >>"$GITHUB_OUTPUT"
+        printf 'paths<<EOF\n%s\n%s\n%s\n%s\n%s\nEOF\n' tests/rpu_v2.4.33.zip tests/ArcanumDemo.dat \
+          tests/FalloutDemo.dat tests/tpgamefiles.dat tests/toee-demo >>"$GITHUB_OUTPUT"
+
+    - name: Restore test fixtures
+      id: fixtures
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.fixture-cache.outputs.paths }}
+        key: ${{ steps.fixture-cache.outputs.key }}
+
+    # tests/json_listing.ts runs through Node's own type stripping rather than
+    # a build step, so the Node version is what decides whether it runs at
+    # all. Pinned so the runner image's default cannot change that silently.
+    - name: Install Node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # The fetchers unpack with 7z and the ToEE demo with unshield, needed only
+    # when the fixtures were not restored
+    - name: Install packages
+      if: inputs.apt-packages != '' || steps.fixtures.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        APT_PACKAGES: ${{ inputs.apt-packages }} ${{ steps.fixtures.outputs.cache-hit != 'true' && 'p7zip-full unshield' || '' }}
+      run: |
+        read -ra packages <<<"$APT_PACKAGES"
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+
+    - name: Install test tools
+      if: inputs.tools != ''
+      shell: bash
+      env:
+        TOOLS: ${{ inputs.tools }}
+      run: |
+        read -ra tools <<<"$TOOLS"
+        ./install-tools.sh "${tools[@]}"
+
+    # PATH set here rather than through GITHUB_PATH, which later steps would inherit
+    - name: Test
+      shell: bash
+      env:
+        TESTS: ${{ inputs.tests }}
+        DAT3_PREBUILT: "1"
+        DAT3_TESTS_RAN: ${{ runner.temp }}/tests-ran-${{ inputs.id }}.txt
+      run: |
+        read -ra tests <<<"$TESTS"
+        PATH="$HOME/.cargo/bin:$PATH" ./test.sh "${tests[@]}"
+
+    - name: Save test fixtures
+      if: inputs.save-fixtures == 'true' && steps.fixtures.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.fixture-cache.outputs.paths }}
+        key: ${{ steps.fixture-cache.outputs.key }}
+
+    - name: Upload the tests that passed
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: tests-ran-${{ inputs.id }}
+        path: ${{ runner.temp }}/tests-ran-${{ inputs.id }}.txt
+        if-no-files-found: error
