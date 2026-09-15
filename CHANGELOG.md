@@ -2,8 +2,9 @@
 
 ## Unreleased
 
+- New: releases ship a macOS binary (`dat3-macos`), a universal binary that runs natively on Intel and Apple Silicon Macs. It is not notarized, so a copy downloaded in a browser has to be allowed in System Settings, or cleared with `xattr -d com.apple.quarantine dat3-macos`, before its first run.
 - Fixed: a crafted Fallout 2 or Arcanum archive could make dat3 reserve gigabytes of memory for a single file name, and a crafted entry in any format could expand on extraction far past the size it declares. Entry paths are now limited to 1024 bytes, and an entry must decompress to exactly its declared size.
-- Errors for damaged Fallout 1, Fallout 2 and Arcanum archives now report missing data in bytes rather than bits, and name the Fallout 2 entry that failed.
+- Errors for damaged Fallout 1, Fallout 2 and Arcanum archives now report missing data in bytes rather than bits, and name the Fallout 1 or Fallout 2 entry that failed.
 - Fixed: `l`, `x` and `e` reported a requested name as not found, and failed, when an earlier glob in the same command had already selected that file.
 - Fixed: adding a file whose name or directory is longer than 255 bytes to a Fallout 1 archive wrote an archive that could not be opened again. The add now fails and leaves the archive untouched.
 - Fixed: adding a file of 4 GiB or more wrote a corrupt archive. Such files are now refused.
@@ -16,7 +17,11 @@
 - Entry names Windows cannot create as named are now refused on every platform, both when extracting and when adding: a `:` inside a name (which writes an NTFS alternate data stream), device names such as `CON`, `NUL`, `COM1` or `LPT1` with or without an extension, and names ending in a dot or space. Extraction checks every name first, so a refused name leaves nothing half-extracted.
 - Fixed: when `e` met several files of the same name (ignoring case) in different directories, which copy ended up on disk varied from run to run. The last one in archive order now wins, and `e` warns how many were skipped.
 - Fixed: `a` printed each "Skipping symlink" warning twice.
+- Fixed: `x` and `e` wrote through a symlink already present at a file's destination, overwriting the file the link pointed to. The link is now replaced by the extracted file.
 - Saving an archive now flushes it to disk before replacing the old file, and on Linux and macOS keeps the old file's permissions. Two dat3 runs saving the same archive at once no longer write into each other's temporary file, though the one that finishes last still replaces the other's changes. Archives with very long file names, which could not be saved, now save.
+- New: the archive code is available to other Rust programs as the `dat3-core` library, used as a git dependency on this repository. Its API may still change between releases.
+- New: releases ship `dat3-wasm.tgz`, an npm package of the same library for Node.js and Electron: open archives from bytes, list, read, add and remove entries, and write the result back out. It runs on every platform, with TypeScript types.
+- Changed: `.bgforge.yml` sets the default format with a single flat key, `dat3.default_format: arcanum`. The nested form (`dat3:` with `default_format:` under it) is no longer read, so a config using it falls back to `dat2` until it is rewritten.
 
 ## v0.10.1
 

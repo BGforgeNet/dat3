@@ -25,9 +25,14 @@ cargo fmt --all -- --check
 # Clippy lints, test targets included - without --all-targets the #[cfg(test)]
 # modules are never compiled under clippy
 cargo clippy --all-targets -- -D warnings
+# dat3-wasm is not a default member: it builds only for its wasm target
+cargo clippy -p dat3-wasm --target wasm32-unknown-unknown -- -D warnings
 
 # Tests
 cargo test --verbose
+
+# Library API docs: a broken doc link or other rustdoc warning fails the build
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --package dat3-core
 
 # License, advisory (RustSec) and duplicate-dependency checks
 cargo deny check -D parse-error licenses

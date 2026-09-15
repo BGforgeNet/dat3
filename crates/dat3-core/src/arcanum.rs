@@ -17,6 +17,7 @@ little-endian, flat entry table at the end of the file, zlib compression.
 use anyhow::{Context, Result, bail};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use deku::prelude::*;
+use std::borrow::Cow;
 use std::io::{Cursor, Write};
 use std::path::Path;
 
@@ -91,6 +92,12 @@ pub struct ArcanumArchive {
 /// accurate error instead of falling through to a misleading DAT2 one.
 pub fn is_arcanum_format(data: &[u8]) -> bool {
     data.len() >= FOOTER_SIZE + 4 && data[data.len() - 12..data.len() - 8] == MAGIC
+}
+
+impl Default for ArcanumArchive {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ArcanumArchive {
@@ -228,22 +235,46 @@ impl ArcanumArchive {
         )
     }
 
-    /// Delete a file from the archive by name
-    pub fn delete_file(&mut self, file_name: &str) -> Result<()> {
-        common::delete_file_from_list(&mut self.files, file_name)
+    /// An entry's contents, decompressed
+    pub fn contents<'a>(&'a self, file: &'a FileEntry) -> Result<Cow<'a, [u8]>> {
+        common::entry_contents(&self.data, file, common::decompress_zlib)
     }
 
-    /// Save the archive to an Arcanum DAT file.
-    ///
-    /// Layout: file data, table marker, entry table, 28-byte footer.
+    /// Add a prepared entry, replacing the entries of its name as `case` compares
+    pub fn insert_entry(&mut self, entry: FileEntry, case: CaseMode) {
+        common::merge_entries(&mut self.files, vec![entry], case);
+    }
+
+    /// Remove the entry named exactly `file_name`, reporting whether there was one
+    pub fn remove_entry(&mut self, file_name: &str) -> bool {
+        common::remove_from_list(&mut self.files, file_name)
+    }
+
+    /// Save the archive to an Arcanum DAT file
     pub fn save(&self, path: &Path) -> Result<()> {
+        self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(out)).context(WRITE_CONTEXT)
+    }
+
+    /// Write the archive as an Arcanum DAT file to `out`
+    pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
+        self.prepare_save()?;
+        self.write_prepared(out).context(WRITE_CONTEXT)
+    }
+
+    /// Checks that fail before any output exists, so a refused save leaves no temp file
+    fn prepare_save(&self) -> Result<()> {
         // Offsets are u32 and the table marker adds 4 bytes past the data.
         // Entries keep data.len() == packed_size, bounding the accumulation.
         let total_payload: u64 = self.files.iter().map(|f| f.packed_size as u64).sum();
         if total_payload > u32::MAX as u64 - 4 {
             bail!("Arcanum archive would exceed the format's 4 GiB offset limit");
         }
+        Ok(())
+    }
 
+    /// Layout: file data, table marker, entry table, 28-byte footer.
+    fn write_prepared(&self, out: &mut dyn Write) -> Result<()> {
         // The table stores explicit directory entries interleaved with files
         // in one flat case-insensitive path order, matching the original
         // tool's layout. Directories are synthesized from file paths, so
@@ -275,84 +306,81 @@ impl ArcanumArchive {
         // dominant cost on a large table.
         table.sort_by_cached_key(|(name, _)| name.to_lowercase());
 
-        utils::write_atomically(path, |out| {
-            // Step 1: file data, written in table order like the original tool
-            let mut file_offsets = vec![0u32; self.files.len()];
-            let mut current_offset = 0u32;
-            for (_, index) in &table {
-                if let Some(i) = index {
-                    let file = &self.files[*i];
+        // Step 1: file data, written in table order like the original tool
+        let mut file_offsets = vec![0u32; self.files.len()];
+        let mut current_offset = 0u32;
+        for (_, index) in &table {
+            if let Some(i) = index {
+                let file = &self.files[*i];
 
-                    let data = self.read_file_data(file)?;
+                let data = self.read_file_data(file)?;
 
-                    file_offsets[*i] = current_offset;
-                    out.write_all(data)?;
-                    current_offset += data.len() as u32;
-                }
+                file_offsets[*i] = current_offset;
+                out.write_all(data)?;
+                current_offset += data.len() as u32;
             }
+        }
 
-            // Step 2: table marker - the entry table's absolute offset,
-            // which sits just past this u32
-            out.write_u32::<LittleEndian>(current_offset + 4)?;
+        // Step 2: table marker - the entry table's absolute offset,
+        // which sits just past this u32
+        out.write_u32::<LittleEndian>(current_offset + 4)?;
 
-            // Step 3: entry table, tracking its size for the footer
-            out.write_u32::<LittleEndian>(table.len() as u32)?;
-            let mut table_size: u64 = 4;
-            let mut names_len: u64 = 0;
+        // Step 3: entry table, tracking its size for the footer
+        out.write_u32::<LittleEndian>(table.len() as u32)?;
+        let mut table_size: u64 = 4;
+        let mut names_len: u64 = 0;
 
-            for (name, index) in &table {
-                let mut name_bytes = name.as_bytes().to_vec();
-                name_bytes.push(0);
-                // unknown is 0: shipped archives carry junk there (see the
-                // field's doc) and no reader is known to use it
-                let entry = match index {
-                    Some(i) => {
-                        let f = &self.files[*i];
-                        ArcanumFileEntry {
-                            name_len: name.len() as u32 + 1,
-                            name_bytes,
-                            unknown: 0,
-                            flags: if f.compressed { FLAG_ZLIB } else { FLAG_RAW },
-                            real_size: f.size,
-                            packed_size: f.packed_size,
-                            offset: file_offsets[*i],
-                        }
-                    }
-                    None => ArcanumFileEntry {
+        for (name, index) in &table {
+            let mut name_bytes = name.as_bytes().to_vec();
+            name_bytes.push(0);
+            // unknown is 0: shipped archives carry junk there (see the
+            // field's doc) and no reader is known to use it
+            let entry = match index {
+                Some(i) => {
+                    let f = &self.files[*i];
+                    ArcanumFileEntry {
                         name_len: name.len() as u32 + 1,
                         name_bytes,
                         unknown: 0,
-                        flags: FLAG_DIR,
-                        real_size: 0,
-                        packed_size: 0,
-                        offset: 0,
-                    },
-                };
-
-                let entry_bytes = entry.to_bytes()?;
-                out.write_all(&entry_bytes)?;
-                table_size += entry_bytes.len() as u64;
-                names_len += name.len() as u64 + 1;
-            }
-
-            // Step 4: footer
-            let footer = ArcanumFooter {
-                guid: self.guid,
-                magic: MAGIC,
-                filename_total_bytes: u32::try_from(names_len)
-                    .context("Arcanum archive filenames exceed the format's u32 limit")?,
-                table_from_end: u32::try_from(table_size + FOOTER_SIZE as u64)
-                    .context("Arcanum entry table would exceed the format's u32 limit")?,
+                        flags: if f.compressed { FLAG_ZLIB } else { FLAG_RAW },
+                        real_size: f.size,
+                        packed_size: f.packed_size,
+                        offset: file_offsets[*i],
+                    }
+                }
+                None => ArcanumFileEntry {
+                    name_len: name.len() as u32 + 1,
+                    name_bytes,
+                    unknown: 0,
+                    flags: FLAG_DIR,
+                    real_size: 0,
+                    packed_size: 0,
+                    offset: 0,
+                },
             };
-            out.write_all(&footer.to_bytes()?)?;
 
-            Ok(())
-        })
-        .context("Failed to write Arcanum DAT file")?;
+            let entry_bytes = entry.to_bytes()?;
+            out.write_all(&entry_bytes)?;
+            table_size += entry_bytes.len() as u64;
+            names_len += name.len() as u64 + 1;
+        }
+
+        // Step 4: footer
+        let footer = ArcanumFooter {
+            guid: self.guid,
+            magic: MAGIC,
+            filename_total_bytes: u32::try_from(names_len)
+                .context("Arcanum archive filenames exceed the format's u32 limit")?,
+            table_from_end: u32::try_from(table_size + FOOTER_SIZE as u64)
+                .context("Arcanum entry table would exceed the format's u32 limit")?,
+        };
+        out.write_all(&footer.to_bytes()?)?;
 
         Ok(())
     }
 }
+
+const WRITE_CONTEXT: &str = "Failed to write Arcanum DAT file";
 
 #[cfg(test)]
 mod tests {

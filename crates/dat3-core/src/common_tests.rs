@@ -350,6 +350,37 @@ mod tests {
             .unwrap();
             assert_eq!(std::fs::read(out.join("SAME.TXT")).unwrap(), b"second");
         }
+
+        /// A link already sitting at an entry's destination is replaced, not
+        /// written through: following it would overwrite its target, outside the
+        /// output directory.
+        #[cfg(unix)]
+        #[test]
+        fn replaces_a_symlink_at_the_destination_instead_of_writing_through_it() {
+            let entries = [entry("SUB\\EVIL.TXT", b"from archive")];
+            let refs: Vec<&FileEntry> = entries.iter().collect();
+            let victim = crate::test_support::ScratchPath::new("link_victim");
+            std::fs::write(&victim, b"original").unwrap();
+            let out = crate::test_support::ScratchPath::dir("link_destination");
+            let destination = out.join("SUB").join("EVIL.TXT");
+            std::fs::create_dir(out.join("SUB")).unwrap();
+            std::os::unix::fs::symlink(victim.path(), &destination).unwrap();
+
+            extract_archive_parallel(
+                &[],
+                &refs,
+                &out,
+                ExtractionMode::PreserveStructure,
+                &NameView::new(CaseMode::Sensitive, []),
+                |d, _| Ok(d.to_vec()),
+            )
+            .unwrap();
+
+            assert_eq!(std::fs::read(&victim).unwrap(), b"original");
+            let metadata = std::fs::symlink_metadata(&destination).unwrap();
+            assert!(metadata.is_file(), "the destination is still a link");
+            assert_eq!(std::fs::read(&destination).unwrap(), b"from archive");
+        }
     }
 
     // ── read_file_slice ────────────────────────────────────────────
@@ -582,13 +613,10 @@ mod tests {
         #[test]
         fn round_trips_a_detected_archive() {
             let bytes = dat1_bytes(46, 1, "A.TXT");
-            let path =
-                std::env::temp_dir().join(format!("dat3_detect_rt_{}.dat", std::process::id()));
+            let path = crate::test_support::ScratchPath::new("detect_rt");
             std::fs::write(&path, &bytes).unwrap();
             let archive = DatArchive::open(&path).unwrap();
-            std::fs::remove_file(&path).ok();
-            let dir = std::env::temp_dir().join(format!("dat3_detect_x_{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
+            let dir = crate::test_support::ScratchPath::new("detect_x");
             archive
                 .extract(
                     &dir,
@@ -596,54 +624,7 @@ mod tests {
                     &crate::test_support::exact(&[], MissingFiles::Fail),
                 )
                 .unwrap();
-            let got = std::fs::read(dir.join("A.TXT")).unwrap();
-            std::fs::remove_dir_all(&dir).unwrap();
-            assert_eq!(got, b"hi");
-        }
-    }
-
-    // ── CLI argument parsing ───────────────────────────────────────
-
-    mod cli_args {
-        use clap::Parser;
-
-        #[test]
-        fn rejects_out_of_range_compression_at_parse_time() {
-            let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "10", "file"]);
-            assert!(
-                result.is_err(),
-                "compression level 10 should be rejected during argument parsing"
-            );
-        }
-
-        #[test]
-        fn accepts_maximum_compression_level() {
-            let result = crate::Cli::try_parse_from(["dat3", "a", "test.dat", "-c", "9", "file"]);
-            assert!(result.is_ok());
-        }
-
-        #[test]
-        fn accepts_each_archive_format() {
-            for format in ["dat1", "dat2", "arcanum", "toee"] {
-                let result = crate::Cli::try_parse_from([
-                    "dat3", "a", "test.dat", "--format", format, "file",
-                ]);
-                assert!(result.is_ok(), "--format {format} should parse");
-            }
-        }
-
-        #[test]
-        fn rejects_unknown_format_and_removed_format_flags() {
-            for args in [
-                ["dat3", "a", "test.dat", "--format", "zip", "file"].as_slice(),
-                ["dat3", "a", "test.dat", "--dat1", "file"].as_slice(),
-                ["dat3", "a", "test.dat", "--arcanum", "file"].as_slice(),
-            ] {
-                assert!(
-                    crate::Cli::try_parse_from(args.iter().copied()).is_err(),
-                    "{args:?} should be rejected"
-                );
-            }
+            assert_eq!(std::fs::read(dir.join("A.TXT")).unwrap(), b"hi");
         }
     }
 
@@ -760,6 +741,20 @@ mod tests {
         #[test]
         fn null_only_input() {
             assert_eq!(utils::decode_filename(b"\0\0").unwrap(), "");
+        }
+
+        /// The other formats name the entry whose name failed to decode; DAT1
+        /// names it by directory, since its entries are numbered per directory.
+        #[test]
+        fn a_dat1_error_names_the_entry_with_the_bad_name() {
+            let error =
+                crate::dat1::Dat1Archive::from_bytes(super::dat1_bytes(46, 1, "\u{e9}.TXT"))
+                    .unwrap_err();
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("Failed to decode name for file entry 0 in directory '.'"),
+                "got: {message}"
+            );
         }
     }
 
@@ -1236,19 +1231,15 @@ mod tests {
         /// prove the extract path calls it.
         #[test]
         fn extraction_writes_nothing_outside_the_output_directory() {
-            let pid = std::process::id();
-            let escape = std::env::temp_dir().join(format!("dat3_escape_{pid}.txt"));
-            std::fs::remove_file(&escape).ok();
-            assert!(!escape.exists(), "stale probe file from an earlier run");
+            let escape = crate::test_support::ScratchPath::new("escape");
 
-            // Stored the way a hostile archive would: a leading separator, which
-            // is what makes Path::join discard the output directory.
-            let entry = format!("\\tmp\\dat3_escape_{pid}.txt");
-            let archive_path = std::env::temp_dir().join(format!("dat3_escape_src_{pid}.dat"));
+            // Stored the way a hostile archive would: the absolute path, which is
+            // what makes Path::join discard the output directory.
+            let entry = escape.display().to_string().replace('/', "\\");
+            let archive_path = crate::test_support::ScratchPath::new("escape_src");
             std::fs::write(&archive_path, super::dat1_bytes(46, 1, &entry)).unwrap();
 
-            let out = std::env::temp_dir().join(format!("dat3_escape_out_{pid}"));
-            let _ = std::fs::remove_dir_all(&out);
+            let out = crate::test_support::ScratchPath::new("escape_out");
             let archive = DatArchive::open(&archive_path).unwrap();
             let result = archive.extract(
                 &out,
@@ -1256,12 +1247,10 @@ mod tests {
                 &crate::test_support::exact(&[], MissingFiles::Fail),
             );
 
-            let escaped = escape.exists();
-            std::fs::remove_file(&archive_path).ok();
-            std::fs::remove_file(&escape).ok();
-            let _ = std::fs::remove_dir_all(&out);
-
-            assert!(!escaped, "extraction wrote outside the output directory");
+            assert!(
+                !escape.exists(),
+                "extraction wrote outside the output directory"
+            );
             assert!(result.is_err(), "extraction of a hostile entry should fail");
         }
 

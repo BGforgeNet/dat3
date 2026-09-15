@@ -6,6 +6,7 @@ Crossplatform, static Rust re-implementation of DAT2, with minor differences. Al
 
 - [Usage](#usage)
 - [Differences from DAT2](#differences-from-dat2)
+- [Using dat3 as a library](#using-dat3-as-a-library)
 - [Verifying a release](#verifying-a-release)
 - [Building](#building)
 
@@ -202,8 +203,7 @@ dat3 a master.dat /tmp/patch000/file.txt
 When `a` creates a new archive and no `--format` is given, an optional `.bgforge.yml` in the current directory picks the default:
 
 ```yaml
-dat3:
-  default_format: arcanum
+dat3.default_format: arcanum
 ```
 
 Supported values: `dat1`, `dat2`, `arcanum`, `toee`. An unrecognized value prints a warning and `dat2` is used. An explicit `--format` always wins, and existing archives always keep their format.
@@ -234,9 +234,14 @@ dat3 d master.dat @files_to_delete.txt
 - Names are matched, listed, extracted and added in lowercase unless `--case-sensitive` is given (see [Letter case in
   entry names](#letter-case-in-entry-names)).
 
+## Using dat3 as a library
+
+Other Rust programs can use the archive code as the `dat3-core` crate, and Node.js and Electron applications as the
+`dat3-wasm` npm package. See [docs/api.md](docs/api.md).
+
 ## Verifying a release
 
-Every release ships a `SHA256SUMS` file covering its binaries. Download it
+Every release ships a `SHA256SUMS` file covering its assets. Download it
 alongside the assets and check them:
 
 ```bash
@@ -248,29 +253,4 @@ as missing.
 
 ## Building
 
-### Requirements
-
-- Rust 1.87 or newer
-- Target-specific toolchains (install as needed)
-- `./install-tools.sh` for the pinned tooling, including [Zig](https://ziglang.org/), which the aarch64
-  target needs: mimalloc is C, and no aarch64-musl C compiler is packaged for common distros
-- Node 24 or newer, to run the integration suite (`./test.sh`): its helpers under `tests/` are TypeScript, run
-  by Node's own type stripping. `npm ci && npm run typecheck` typechecks them. Neither is needed to build dat3
-
-### Build
-
-```bash
-./build.sh
-```
-
-Builds are static.
-
-Binaries will be at:
-
-```bash
-target/x86_64-unknown-linux-musl/release/dat3
-target/aarch64-unknown-linux-musl/release/dat3
-target/x86_64-pc-windows-gnu/release/dat3.exe
-target/i686-pc-windows-gnu/release/dat3.exe
-target/wasm32-wasip1/release/dat3.wasm
-```
+See [docs/building.md](docs/building.md).

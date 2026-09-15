@@ -1,0 +1,13 @@
+{
+  "name": "dat3-wasm",
+  "version": "0.0.0",
+  "description": "Read and write Fallout and Troika DAT archives from Node.js and Electron.",
+  "license": "LGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BGforgeNet/dat3.git"
+  },
+  "main": "dat3_wasm.js",
+  "types": "dat3_wasm.d.ts",
+  "files": ["dat3_wasm.js", "dat3_wasm.d.ts", "dat3_wasm_bg.wasm", "dat3_wasm_bg.wasm.d.ts"]
+}

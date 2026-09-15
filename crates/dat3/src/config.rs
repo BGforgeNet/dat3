@@ -4,8 +4,7 @@
 Optional `.bgforge.yml` in the current directory. Only one key is read:
 
 ```yaml
-dat3:
-  default_format: arcanum
+dat3.default_format: arcanum
 ```
 
 It sets the format used when `a` creates a new archive and no `--format`
@@ -15,7 +14,7 @@ the built-in default, so a foreign or broken config never blocks the tool.
 
 use std::path::Path;
 
-use crate::archive::ArchiveFormat;
+use dat3_core::ArchiveFormat;
 
 /// Config file name, looked up in the process working directory
 pub const CONFIG_FILE: &str = ".bgforge.yml";
@@ -53,16 +52,13 @@ fn parse_default_format(text: &str) -> Result<Option<ArchiveFormat>, String> {
         return Ok(None);
     };
 
-    let value = &doc["dat3"]["default_format"];
+    // One flat top-level key; a nested `dat3:` mapping is not read
+    let value = &doc["dat3.default_format"];
     match value {
         yaml_rust2::Yaml::BadValue => Ok(None),
-        yaml_rust2::Yaml::String(s) => <ArchiveFormat as clap::ValueEnum>::from_str(s, false)
-            .map(Some)
-            .map_err(|_| {
-                format!(
-                    "unsupported dat3.default_format {s:?} (expected dat1, dat2, arcanum, or toee)"
-                )
-            }),
+        yaml_rust2::Yaml::String(s) => ArchiveFormat::from_arg_name(s).map(Some).ok_or_else(|| {
+            format!("unsupported dat3.default_format {s:?} (expected dat1, dat2, arcanum, or toee)")
+        }),
         other @ (yaml_rust2::Yaml::Real(_)
         | yaml_rust2::Yaml::Integer(_)
         | yaml_rust2::Yaml::Boolean(_)
@@ -87,7 +83,7 @@ mod tests {
             ("arcanum", ArchiveFormat::Arcanum),
             ("toee", ArchiveFormat::Toee),
         ] {
-            let text = format!("dat3:\n  default_format: {name}\n");
+            let text = format!("dat3.default_format: {name}\n");
             assert_eq!(parse_default_format(&text), Ok(Some(expected)));
         }
     }
@@ -95,37 +91,45 @@ mod tests {
     #[test]
     fn ignores_missing_key_and_unrelated_content() {
         assert_eq!(parse_default_format(""), Ok(None));
-        assert_eq!(parse_default_format("other_tool:\n  key: 1\n"), Ok(None));
-        assert_eq!(parse_default_format("dat3:\n  other: x\n"), Ok(None));
+        assert_eq!(parse_default_format("other_tool.key: 1\n"), Ok(None));
+        assert_eq!(parse_default_format("dat3.other: x\n"), Ok(None));
+    }
+
+    #[test]
+    fn ignores_the_nested_form() {
+        assert_eq!(
+            parse_default_format("dat3:\n  default_format: arcanum\n"),
+            Ok(None)
+        );
     }
 
     #[test]
     fn warns_on_unsupported_value() {
-        let err = parse_default_format("dat3:\n  default_format: zip\n").unwrap_err();
+        let err = parse_default_format("dat3.default_format: zip\n").unwrap_err();
         assert!(err.contains("unsupported"), "got: {err}");
         assert!(err.contains("zip"), "got: {err}");
     }
 
     #[test]
     fn warns_on_non_string_value() {
-        let err = parse_default_format("dat3:\n  default_format: 2\n").unwrap_err();
+        let err = parse_default_format("dat3.default_format: 2\n").unwrap_err();
         assert!(err.contains("must be a string"), "got: {err}");
     }
 
     #[test]
     fn warns_on_invalid_yaml() {
-        let err = parse_default_format("dat3: [unclosed\n").unwrap_err();
+        let err = parse_default_format("dat3.default_format: [unclosed\n").unwrap_err();
         assert!(err.contains("not valid YAML"), "got: {err}");
     }
 
     #[test]
     fn missing_file_is_silent_none() {
-        let dir = crate::test_support::ScratchPath::new("cfg");
+        let dir = dat3_core::test_support::ScratchPath::new("cfg");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(default_format(&dir), None);
 
-        std::fs::write(dir.join(CONFIG_FILE), "dat3:\n  default_format: arcanum\n").unwrap();
+        std::fs::write(dir.join(CONFIG_FILE), "dat3.default_format: arcanum\n").unwrap();
         assert_eq!(default_format(&dir), Some(ArchiveFormat::Arcanum));
         std::fs::remove_dir_all(&dir).unwrap();
     }

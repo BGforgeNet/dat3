@@ -13,7 +13,7 @@ set -xeu -o pipefail
 
 BIN_DIR="$HOME/.cargo/bin"
 
-ALL_TOOLS=(actionlint cargo-deny cargo-machete cargo-zigbuild shellcheck shfmt wasmtime zig zizmor)
+ALL_TOOLS=(actionlint cargo-deny cargo-machete cargo-zigbuild shellcheck shfmt wasm-bindgen wasmtime zig zizmor)
 
 # zig lives as a whole tree; only a symlink to it goes in BIN_DIR
 ZIG_DIR="$HOME/.local/share/zig"
@@ -48,6 +48,11 @@ ZIGBUILD_SHA256="9e3cf73485edbd45905c8aadbc0fdf869c7ddc3848f0c898229f2680db52e44
 # 47.0.4 rather than the older 47.0.3: it fixes a sandbox escape (GHSA-vqjp-4c8c-hfgg).
 WASMTIME_VERSION="47.0.4"
 WASMTIME_SHA256="446e8641ba372333670ba0373d5d3083e5cf0dd001b66088afbb3983db0f768f"
+
+# Must equal the wasm-bindgen version crates/dat3-wasm pins: the glue it
+# generates only works with the matching crate.
+WASM_BINDGEN_VERSION="0.2.127"
+WASM_BINDGEN_SHA256="61d4a7dc85acfa0d2354ccc0b8361928c7e52a746d17f28ebaa795ed3dc1614a"
 
 # Digest as published in ziglang.org's download index
 ZIG_VERSION="0.16.0"
@@ -98,6 +103,12 @@ tool_spec() {
 			"https://github.com/rust-cross/cargo-zigbuild/releases/download/v${ZIGBUILD_VERSION}/cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz" \
 			"$ZIGBUILD_SHA256" \
 			"cargo-zigbuild-x86_64-unknown-linux-musl/cargo-zigbuild"
+		;;
+	wasm-bindgen)
+		printf '%s|%s|%s|%s' "$WASM_BINDGEN_VERSION" \
+			"https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+			"$WASM_BINDGEN_SHA256" \
+			"wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl/wasm-bindgen"
 		;;
 	wasmtime)
 		printf '%s|%s|%s|%s' "$WASMTIME_VERSION" \

@@ -37,7 +37,7 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy
-          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-pc-windows-gnu, i686-pc-windows-gnu, wasm32-wasip1
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-gnu, i686-pc-windows-gnu, wasm32-wasip1, wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -69,8 +69,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends gcc-mingw-w64 musl-tools p7zip-full qemu-user-static
 
-      # zig, because mimalloc is C and apt has no aarch64-musl compiler, plus
-      # cargo-zigbuild for that cross-build and wasmtime for tests/wasm.sh.
+      # zig, because mimalloc is C and apt has no aarch64-musl compiler and the
+      # macOS build needs a Mach-O linker, plus cargo-zigbuild for those
+      # cross-builds, wasmtime for tests/wasm.sh and
+      # wasm-bindgen for the npm package.
       # Versions and digests live in the script; ci.sh has already installed the
       # gate tools it shares with this step.
       - name: Install build tools
@@ -107,15 +109,18 @@ jobs:
         run: |
           cp target/x86_64-unknown-linux-musl/release/dat3 dat3
           cp target/aarch64-unknown-linux-musl/release/dat3 dat3-arm64
+          cp target/universal2-apple-darwin/release/dat3 dat3-macos
           cp target/x86_64-pc-windows-gnu/release/dat3.exe dat3.exe
           cp target/i686-pc-windows-gnu/release/dat3.exe dat3-win32.exe
           cp target/wasm32-wasip1/release/dat3.wasm dat3.wasm
+          cp target/dat3-wasm.tgz dat3-wasm.tgz
 
       - name: Prepare debug assets
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
           cp target/x86_64-unknown-linux-musl/debug/dat3 dat3-debug
           cp target/aarch64-unknown-linux-musl/debug/dat3 dat3-arm64-debug
+          cp target/universal2-apple-darwin/debug/dat3 dat3-macos-debug
           cp target/x86_64-pc-windows-gnu/debug/dat3.exe dat3-debug.exe
           cp target/i686-pc-windows-gnu/debug/dat3.exe dat3-win32-debug.exe
           cp target/wasm32-wasip1/debug/dat3.wasm dat3-debug.wasm
@@ -130,9 +135,11 @@ jobs:
           path: |
             dat3
             dat3-arm64
+            dat3-macos
             dat3.exe
             dat3-win32.exe
             dat3.wasm
+            dat3-wasm.tgz
           if-no-files-found: error
 
       - name: Upload debug artifacts
@@ -143,6 +150,7 @@ jobs:
           path: |
             dat3-debug
             dat3-arm64-debug
+            dat3-macos-debug
             dat3-debug.exe
             dat3-win32-debug.exe
             dat3-debug.wasm
@@ -150,8 +158,8 @@ jobs:
 
   # The declared rust-version is a promise to users, and nothing checked it: the
   # build job pins a toolchain many releases newer, so code using a feature
-  # stabilised after 1.87 would compile there and fail for anyone honouring the
-  # README. The version is read from Cargo.toml rather than repeated here.
+  # stabilised after 1.87 would compile there and fail for anyone honouring
+  # docs/building.md. The version is read from Cargo.toml rather than repeated here.
   msrv:
     name: msrv
     runs-on: ubuntu-latest
@@ -171,18 +179,52 @@ jobs:
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
+          targets: wasm32-unknown-unknown
 
       # --locked so the committed lockfile is what gets checked, and --all-targets
       # so the test code is covered too.
       - name: Check against the declared MSRV
         run: cargo check --all-targets --locked
 
+      # Not a default workspace member: it builds only for its wasm target
+      - name: Check the wasm library against the declared MSRV
+        run: cargo check -p dat3-wasm --target wasm32-unknown-unknown --locked
+
+  # The macOS binary is cross-built on Linux, where nothing can run it. One
+  # runner per architecture, so each slice of the universal binary is run.
+  macos:
+    name: macos (${{ matrix.runner }})
+    needs: ci
+    strategy:
+      matrix:
+        runner: [macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dat3
+          path: assets
+
+      # Artifacts do not keep the executable bit
+      - name: Test the macOS binary
+        env:
+          MACOS_DAT3: assets/dat3-macos
+        run: chmod +x "$MACOS_DAT3" && ./tests/macos.sh
+
   # Separate job so contents:write exists only on a tag run, and only for the
   # step that publishes. It builds nothing: the binaries come from the build
   # job's artifact.
   release:
     name: release
-    needs: ci
+    needs: [ci, macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -208,9 +250,11 @@ jobs:
           files: |
             assets/dat3
             assets/dat3-arm64
+            assets/dat3-macos
             assets/dat3.exe
             assets/dat3-win32.exe
             assets/dat3.wasm
+            assets/dat3-wasm.tgz
             assets/SHA256SUMS
           fail_on_unmatched_files: true
         env:

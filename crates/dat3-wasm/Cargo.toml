@@ -1,0 +1,26 @@
+[package]
+name = "dat3-wasm"
+description = "Read and write Fallout and Troika DAT archives from Node.js and Electron."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+# Same license as the dat3-core library it exposes.
+license = "LGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dat3-core = { path = "../dat3-core" }
+# Builds entries() as plain JS objects; released with wasm-bindgen, whose exact
+# version it requires.
+js-sys = "0.3"
+# Exact: the JS glue comes from the wasm-bindgen CLI, which must be this same
+# version; install-tools.sh pins it. 0.2.127, not 0.2.128: 0.2.128's macros moved
+# to syn 3 while deku's are on syn 2, the conflict behind the workspace's clap cap.
+wasm-bindgen = "=0.2.127"
+
+[lints]
+workspace = true
