@@ -20,7 +20,7 @@ RPU2_DIR="rpu2"
 
 # Helper function to run wine dat2.exe quietly
 dat2() {
-	WINEDEBUG=-all wine dat2.exe "$@" 2>/dev/null
+    WINEDEBUG=-all wine dat2.exe "$@" 2>/dev/null
 }
 
 fetch_rpu_dat
@@ -62,17 +62,17 @@ $DAT3 d "$RPU2_DAT" "$DUMMY2_LINUX"
 # Verify files are no longer present with both dat3 and wine+dat2.exe
 echo "Checking both tools no longer show deleted files..."
 if $DAT3 l "$RPU2_DAT" "$DUMMY1_LINUX" "$DUMMY2_LINUX" 2>/dev/null; then
-	echo "Error: Files should have been deleted but are still present"
-	exit 1
+    echo "Error: Files should have been deleted but are still present"
+    exit 1
 fi
 dat2 l "$RPU2_DAT" >dat2_listing.txt
 if grep -q "$DUMMY1_WINDOWS" dat2_listing.txt; then
-	echo "Error: $DUMMY1_WINDOWS should have been deleted but is still present"
-	exit 1
+    echo "Error: $DUMMY1_WINDOWS should have been deleted but is still present"
+    exit 1
 fi
 if grep -q "$DUMMY2_WINDOWS" dat2_listing.txt; then
-	echo "Error: $DUMMY2_WINDOWS should have been deleted but is still present"
-	exit 1
+    echo "Error: $DUMMY2_WINDOWS should have been deleted but is still present"
+    exit 1
 fi
 
 # Clean up

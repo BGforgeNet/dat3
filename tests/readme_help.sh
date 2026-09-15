@@ -19,10 +19,10 @@ readme_help=$(awk 'copying && /^```$/ { exit } copying { print } /^dat3$/ { copy
 help=$("$DAT3" --help)
 
 if [ "$readme_help" != "$help" ]; then
-	echo "Error: the --help block in README.md differs from dat3 --help:"
-	# diff exits 1 on the difference it is here to show; the exit below reports it
-	diff <(printf '%s\n' "$readme_help") <(printf '%s\n' "$help") || true
-	exit 1
+    echo "Error: the --help block in README.md differs from dat3 --help:"
+    # diff exits 1 on the difference it is here to show; the exit below reports it
+    diff <(printf '%s\n' "$readme_help") <(printf '%s\n' "$help") || true
+    exit 1
 fi
 
 echo "README help block test passed"

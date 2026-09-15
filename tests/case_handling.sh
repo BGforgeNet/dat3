@@ -21,21 +21,21 @@ cd "$TEST_DIR"
 # Listings and warnings go to files: grep reading a pipe under pipefail would
 # report dat3's or the writer's status, not whether the text was found.
 expect_line() {
-	local file="$1" name="$2"
-	if ! grep -q " $name\$" "$file"; then
-		echo "Error: expected $name in $file"
-		cat "$file"
-		exit 1
-	fi
+    local file="$1" name="$2"
+    if ! grep -q " $name\$" "$file"; then
+        echo "Error: expected $name in $file"
+        cat "$file"
+        exit 1
+    fi
 }
 
 reject_line() {
-	local file="$1" name="$2"
-	if grep -q " $name\$" "$file"; then
-		echo "Error: did not expect $name in $file"
-		cat "$file"
-		exit 1
-	fi
+    local file="$1" name="$2"
+    if grep -q " $name\$" "$file"; then
+        echo "Error: did not expect $name in $file"
+        cat "$file"
+        exit 1
+    fi
 }
 
 mkdir -p src/Art
@@ -61,9 +61,9 @@ reject_line mixed.list Art/Hero.FRM
 "$DAT3" l --json mixed.dat >mixed.json
 grep -q '"name": "art/hero.frm"' mixed.json
 if [ -s mixed.err ]; then
-	echo "Error: an archive without case-only twins should not warn"
-	cat mixed.err
-	exit 1
+    echo "Error: an archive without case-only twins should not warn"
+    cat mixed.err
+    exit 1
 fi
 
 # Test 4: default extraction writes lowercase paths; --case-sensitive keeps them
@@ -71,8 +71,8 @@ fi
 verify_file out_lower/art/hero.frm
 verify_file out_lower/readme.txt
 if [ -e out_lower/Art ]; then
-	echo "Error: default extraction should not create the stored-case directory"
-	exit 1
+    echo "Error: default extraction should not create the stored-case directory"
+    exit 1
 fi
 "$DAT3" e mixed.dat -o out_flat
 verify_file out_flat/hero.frm
@@ -86,19 +86,19 @@ expect_line match_plain.list art/hero.frm
 "$DAT3" l mixed.dat '*.frm' >match_glob.list
 expect_line match_glob.list art/hero.frm
 if "$DAT3" l --case-sensitive mixed.dat art/hero.frm; then
-	echo "Error: --case-sensitive should not match a name in another case"
-	exit 1
+    echo "Error: --case-sensitive should not match a name in another case"
+    exit 1
 fi
 if "$DAT3" l --case-sensitive mixed.dat '*.frm'; then
-	echo "Error: --case-sensitive should not match a glob in another case"
-	exit 1
+    echo "Error: --case-sensitive should not match a glob in another case"
+    exit 1
 fi
 
 # Test 6: delete by a name in another case works by default only
 cp mixed.dat delete.dat
 if "$DAT3" d --case-sensitive delete.dat readme.txt; then
-	echo "Error: --case-sensitive delete should need the exact case"
-	exit 1
+    echo "Error: --case-sensitive delete should need the exact case"
+    exit 1
 fi
 "$DAT3" d delete.dat readme.txt
 "$DAT3" l --case-sensitive delete.dat >delete.list
@@ -123,12 +123,12 @@ cp twins.dat twins_mod.dat
 "$DAT3" a twins_mod.dat -C src/Art Hero.FRM 2>twins_a.err
 "$DAT3" d twins_mod.dat art/hero.frm 2>twins_d.err
 for err in twins_l.err twins_x.err twins_e.err twins_a.err twins_d.err; do
-	if ! grep -q 'Warning: .*differ only in case' "$err"; then
-		echo "Error: $err should carry the case-only duplicate warning"
-		cat "$err"
-		exit 1
-	fi
-	grep -q 'README.TXT / readme.txt' "$err"
+    if ! grep -q 'Warning: .*differ only in case' "$err"; then
+        echo "Error: $err should carry the case-only duplicate warning"
+        cat "$err"
+        exit 1
+    fi
+    grep -q 'README.TXT / readme.txt' "$err"
 done
 
 # Test 9: the twins keep their stored case in listings and on disk
@@ -147,9 +147,9 @@ expect_line twins_match.list readme.txt
 # Test 11: --case-sensitive does not warn
 "$DAT3" l --case-sensitive twins.dat >/dev/null 2>twins_exact.err
 if [ -s twins_exact.err ]; then
-	echo "Error: --case-sensitive should not warn about case-only twins"
-	cat twins_exact.err
-	exit 1
+    echo "Error: --case-sensitive should not warn about case-only twins"
+    cat twins_exact.err
+    exit 1
 fi
 
 echo "All case handling tests passed!"

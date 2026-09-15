@@ -41,31 +41,11 @@ can use them, and change with it.
 - The path-based operations print as the `dat3` command line does: listings and
   progress to stdout, warnings and patterns that matched nothing to stderr.
 - [`DatArchive::open`] and [`DatArchive::from_bytes`] hold the whole archive in memory.
-
-## Example
-
-```no_run
-use dat3_core::common::{CaseMode, CompressionLevel, ExtractionMode, MissingFiles, Selection};
-use dat3_core::{ArchiveFormat, DatArchive};
-
-// Build a Fallout 2 archive from the `art` directory
-let mut archive = DatArchive::new(ArchiveFormat::Dat2);
-archive.add_file("art", CompressionLevel::new(9)?, None, None, CaseMode::Insensitive)?;
-archive.save("patch000.dat")?;
-
-// Open it again and extract the FRM files, keeping their directories
-let archive = DatArchive::open("patch000.dat")?;
-let patterns = ["*.frm".to_string()];
-let selection = Selection {
-    patterns: &patterns,
-    on_missing: MissingFiles::Fail,
-    case: CaseMode::Insensitive,
-};
-archive.extract("out", ExtractionMode::PreserveStructure, &selection)?;
-# anyhow::Ok(())
-```
 */
-
+// The usage guide, examples included, has one home in docs/api.md, where it also renders on GitHub; including it
+// here shows it in rustdoc and compiles its Rust example as a doctest. The path leaves the crate, which a git
+// dependency's checkout satisfies but `cargo package` would not.
+#![doc = include_str!("../../../docs/api.md")]
 #![warn(missing_docs)]
 
 mod arcanum; // Arcanum (Troika) DAT format implementation

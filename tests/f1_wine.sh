@@ -28,34 +28,34 @@ DAT2="wine ./dat2.exe"
 
 archives="$(present_f1_archives)"
 if [ -z "$archives" ]; then
-	echo "SKIPPED (no retail archives in f1/): ${F1_ARCHIVES[*]}"
-	exit 0
+    echo "SKIPPED (no retail archives in f1/): ${F1_ARCHIVES[*]}"
+    exit 0
 fi
 
 for archive in $archives; do
-	prefix="f1_$(basename "$archive" .dat)"
-	ref_dir="${prefix}_ref"
-	dat3_dir="${prefix}_dat3"
-	repacked="${prefix}_repacked.dat"
-	repacked_dir="${prefix}_repacked_out"
+    prefix="f1_$(basename "$archive" .dat)"
+    ref_dir="${prefix}_ref"
+    dat3_dir="${prefix}_dat3"
+    repacked="${prefix}_repacked.dat"
+    repacked_dir="${prefix}_repacked_out"
 
-	# dat2.exe's extraction is the reference both halves compare against; it is
-	# the slow step, so it is kept between runs.
-	if [ ! -d "$ref_dir" ]; then
-		$DAT2 x -d "$ref_dir" "$archive" 2>/dev/null
-	fi
+    # dat2.exe's extraction is the reference both halves compare against; it is
+    # the slow step, so it is kept between runs.
+    if [ ! -d "$ref_dir" ]; then
+        $DAT2 x -d "$ref_dir" "$archive" 2>/dev/null
+    fi
 
-	# Test 1: dat3 must extract what dat2.exe extracts. dat2.exe keeps the
-	# stored case, so both dat3 steps here do too.
-	rm -rf "$dat3_dir"
-	$DAT3 x --case-sensitive "$archive" -o "$dat3_dir"
-	diff -qr "$ref_dir" "$dat3_dir"
+    # Test 1: dat3 must extract what dat2.exe extracts. dat2.exe keeps the
+    # stored case, so both dat3 steps here do too.
+    rm -rf "$dat3_dir"
+    $DAT3 x --case-sensitive "$archive" -o "$dat3_dir"
+    diff -qr "$ref_dir" "$dat3_dir"
 
-	# Test 2: dat2.exe must read back an archive dat3 wrote
-	rm -rf "$repacked" "$repacked_dir"
-	(cd "$dat3_dir" && $DAT3 a --case-sensitive --format dat1 "../$repacked" -- *)
-	$DAT2 x -d "$repacked_dir" "$repacked" 2>/dev/null
-	diff -qr "$ref_dir" "$repacked_dir"
+    # Test 2: dat2.exe must read back an archive dat3 wrote
+    rm -rf "$repacked" "$repacked_dir"
+    (cd "$dat3_dir" && $DAT3 a --case-sensitive --format dat1 "../$repacked" -- *)
+    $DAT2 x -d "$repacked_dir" "$repacked" 2>/dev/null
+    diff -qr "$ref_dir" "$repacked_dir"
 
-	rm -rf "$dat3_dir" "$repacked" "$repacked_dir"
+    rm -rf "$dat3_dir" "$repacked" "$repacked_dir"
 done

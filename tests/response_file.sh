@@ -54,12 +54,12 @@ verify_file "response_test/test_data/dir1/subdir/file3.txt"
 
 # Verify files NOT in response file were NOT extracted
 if [ -f "response_test/test_data/dir2/file4.txt" ]; then
-	echo "Error: file4.txt should not have been extracted"
-	exit 1
+    echo "Error: file4.txt should not have been extracted"
+    exit 1
 fi
 if [ -f "response_test/test_data/file5.txt" ]; then
-	echo "Error: file5.txt should not have been extracted"
-	exit 1
+    echo "Error: file5.txt should not have been extracted"
+    exit 1
 fi
 
 # Test flat extraction with response file
@@ -74,8 +74,8 @@ verify_file "response_flat/file3.txt"
 
 # Test error case - mixing @response-file with explicit files
 if $DAT3 l test_response.dat @test_response.txt test_data/file5.txt 2>/dev/null; then
-	echo "Error: Command should have failed when mixing @response-file with explicit files"
-	exit 1
+    echo "Error: Command should have failed when mixing @response-file with explicit files"
+    exit 1
 fi
 
 # Test response file with mixed path separators

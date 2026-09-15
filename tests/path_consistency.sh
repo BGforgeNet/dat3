@@ -32,16 +32,16 @@ echo "Listing archive contents..."
 # Check for path consistency - look for paths that don't start with patch000/
 echo "Checking path consistency..."
 if "$DAT3" l patch000.dat | awk 'NR>2 {print $4}' | grep -v "^patch000/"; then
-	echo "ERROR: Found paths that don't start with 'patch000/'"
-	exit 1
+    echo "ERROR: Found paths that don't start with 'patch000/'"
+    exit 1
 fi
 
 # Verify all paths start with patch000/
 count=$("$DAT3" l patch000.dat | grep -c "patch000/" || true)
 if [ "$count" -ne 3 ]; then
-	echo "ERROR: Expected 3 files with patch000/ prefix, found $count"
-	"$DAT3" l patch000.dat
-	exit 1
+    echo "ERROR: Expected 3 files with patch000/ prefix, found $count"
+    "$DAT3" l patch000.dat
+    exit 1
 fi
 
 echo "Path consistency test passed!"

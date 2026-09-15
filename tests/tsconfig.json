@@ -17,6 +17,8 @@
     // fail at runtime. This rejects it at typecheck time instead.
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
+    // Node resolves a relative import only by its full file name, extension included
+    "allowImportingTsExtensions": true,
 
     "noEmit": true,
     "skipLibCheck": true

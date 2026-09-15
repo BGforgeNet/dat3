@@ -16,8 +16,8 @@ cd "$ROOT"
 # or missing CLI fails here rather than producing a package that breaks at load.
 wanted="$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' crates/dat3-wasm/Cargo.toml)"
 if [[ "$(wasm-bindgen --version)" != "wasm-bindgen $wanted" ]]; then
-	echo "Error: wasm-bindgen $wanted is required (./install-tools.sh wasm-bindgen)" >&2
-	exit 1
+    echo "Error: wasm-bindgen $wanted is required (./install-tools.sh wasm-bindgen)" >&2
+    exit 1
 fi
 
 cargo build --release --target wasm32-unknown-unknown -p dat3-wasm
@@ -25,12 +25,12 @@ cargo build --release --target wasm32-unknown-unknown -p dat3-wasm
 rm -rf "$PKG_DIR"
 # --weak-refs frees wasm memory held by an Archive once JS garbage-collects it
 wasm-bindgen --target nodejs --weak-refs --out-dir "$PKG_DIR" \
-	target/wasm32-unknown-unknown/release/dat3_wasm.wasm
+    target/wasm32-unknown-unknown/release/dat3_wasm.wasm
 
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
 if [ -z "$version" ]; then
-	echo "Error: no version found in the workspace Cargo.toml" >&2
-	exit 1
+    echo "Error: no version found in the workspace Cargo.toml" >&2
+    exit 1
 fi
 cp crates/dat3-wasm/package.json "$PKG_DIR/package.json"
 (cd "$PKG_DIR" && npm pkg set "version=$version")

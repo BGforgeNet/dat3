@@ -54,8 +54,8 @@ $DAT3 d "$RPU2_DAT" "$DUMMY2"
 
 echo "Checking deleted files are gone..."
 if $DAT3 l "$RPU2_DAT" "$DUMMY1" "$DUMMY2" 2>/dev/null; then
-	echo "Error: Files should have been deleted but are still present"
-	exit 1
+    echo "Error: Files should have been deleted but are still present"
+    exit 1
 fi
 
 # Clean up

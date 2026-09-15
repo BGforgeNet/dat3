@@ -1,0 +1,23 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+max_line_length = 120
+
+# shfmt reads this file too, so ci.sh's shfmt -d check follows these indent settings for *.sh
+
+# rustfmt's default width; rustfmt itself does not read this file
+[*.rs]
+max_line_length = 100
+
+[*.{json,yml,yaml,md}]
+indent_size = 2
+
+# One line per entry
+[CHANGELOG.md]
+max_line_length = off

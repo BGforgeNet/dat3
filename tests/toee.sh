@@ -48,16 +48,16 @@ rm -rf "$TOEE_MOD_OUT"
 "$DAT3" x "$TOEE_MOD" -o "$TOEE_MOD_OUT"
 diff "$TOEE_MOD_OUT/rules/toee_add.txt" toee_add.txt
 if [ -e "$TOEE_MOD_OUT/$TOEE_DELETED" ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 
 # The deleted name must now be rejected rather than silently ignored.
 if "$DAT3" l "$TOEE_MOD" "$TOEE_DELETED" 2>/dev/null; then
-	echo "Error: l should fail for a file that is not in the archive"
-	exit 1
+    echo "Error: l should fail for a file that is not in the archive"
+    exit 1
 fi
 
 # Keep the downloaded DAT for local and CI caches.
 rm -rf "$TOEE_OUT" "$TOEE_MANIFEST" "$TOEE_REPACKED" \
-	"$TOEE_REPACKED_OUT" "$TOEE_MOD" "$TOEE_MOD_OUT" toee_add.txt
+    "$TOEE_REPACKED_OUT" "$TOEE_MOD" "$TOEE_MOD_OUT" toee_add.txt

@@ -27,8 +27,8 @@ mkdir demo_mod_db
 (cd demo_mod_db && dbmaker -u "../$DEMO_MOD")
 diff demo_mod_db/WorldMap/demo_add.txt demo_add.txt
 if [ -e demo_mod_db/WorldMap/WorldMap.mes ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 
 # Clean up (keep the extracted DAT for the CI cache)

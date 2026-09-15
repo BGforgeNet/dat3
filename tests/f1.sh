@@ -24,10 +24,10 @@ dat1_round_trip "$FALLOUT_DEMO_DAT" f1_demo
 
 archives="$(present_f1_archives)"
 if [ -z "$archives" ]; then
-	echo "SKIPPED (no retail archives in f1/): ${F1_ARCHIVES[*]}"
-	exit 0
+    echo "SKIPPED (no retail archives in f1/): ${F1_ARCHIVES[*]}"
+    exit 0
 fi
 
 for archive in $archives; do
-	dat1_round_trip "$archive" "f1_$(basename "$archive" .dat)"
+    dat1_round_trip "$archive" "f1_$(basename "$archive" .dat)"
 done

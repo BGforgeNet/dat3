@@ -34,8 +34,8 @@ rm -rf "$DAT3_OUT"
 $DAT3 x "$DAT3_DAT" -o "$DAT3_OUT"
 diff "$DAT3_OUT/data/added.txt" added.txt
 if [ -e "$DAT3_OUT/data/sub/zeros.bin" ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 
 # -- Real game data: the Arcanum demo's 30 MB archive (13k files) --
@@ -69,16 +69,16 @@ rm -rf "$MOD_OUT"
 $DAT3 x "$DEMO_MOD" -o "$MOD_OUT"
 diff "$MOD_OUT/worldmap/demo_add.txt" demo_add.txt
 if [ ! -d "$MOD_OUT/worldmap" ] || [ -e "$MOD_OUT/worldmap/worldmap.mes" ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 
 # The deleted name must now be rejected rather than silently ignored
 if $DAT3 l "$DEMO_MOD" "WorldMap/WorldMap.mes" 2>/dev/null; then
-	echo "Error: l should fail for a file that is not in the archive"
-	exit 1
+    echo "Error: l should fail for a file that is not in the archive"
+    exit 1
 fi
 
 # Clean up (keep the extracted DAT for the CI cache)
 rm -rf "$SRC_DIR" "$DAT3_OUT" "$DAT3_DAT" added.txt \
-	"$DEMO_OUT" "$DEMO_REPACKED" "$DEMO_REPACKED_OUT" "$DEMO_MOD" "$MOD_OUT" demo_add.txt
+    "$DEMO_OUT" "$DEMO_REPACKED" "$DEMO_REPACKED_OUT" "$DEMO_MOD" "$MOD_OUT" demo_add.txt

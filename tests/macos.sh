@@ -19,8 +19,8 @@ ARCHIVE="test.dat"
 # x86_64 one instead and still pass
 ARCH="$(uname -m)"
 if ! lipo "$MACOS_BIN" -verify_arch "$ARCH"; then
-	echo "Error: $MACOS_BIN has no $ARCH slice" >&2
-	exit 1
+    echo "Error: $MACOS_BIN has no $ARCH slice" >&2
+    exit 1
 fi
 
 rm -rf "$TEST_DIR"
@@ -40,8 +40,8 @@ diff -r data out/data
 rm -rf out
 "$MACOS_BIN" x "$ARCHIVE" -o out
 if [ -e "out/data/a.txt" ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 diff data/sub/text.txt out/data/sub/text.txt
 

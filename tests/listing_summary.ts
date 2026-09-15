@@ -6,21 +6,15 @@
  */
 
 import { readFileSync } from "node:fs";
-
-interface ListingEntry {
-	name: string;
-	size: number;
-	packed_size: number;
-	compressed: boolean;
-}
+import { parseListing } from "./listing.ts";
 
 const [listing] = process.argv.slice(2);
 if (listing === undefined) {
-	console.error("usage: listing_summary.ts <listing.json>");
-	process.exit(2);
+    console.error("usage: listing_summary.ts <listing.json>");
+    process.exit(2);
 }
 
-const entries: ListingEntry[] = JSON.parse(readFileSync(listing, "utf8"));
+const entries = parseListing(readFileSync(listing, "utf8"));
 const compressed = entries.filter((entry) => entry.compressed).length;
 const unpacked = entries.reduce((sum, entry) => sum + entry.size, 0);
 process.stdout.write(`${entries.length}|${compressed}|${unpacked}`);

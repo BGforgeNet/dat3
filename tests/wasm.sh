@@ -24,7 +24,7 @@ ARCHIVE="test.dat"
 # The guest only sees the directories granted here, so the whole test runs
 # inside TEST_DIR with the cwd as its single preopen.
 dat3_wasm() {
-	wasmtime run --dir . "$WASM" "$@"
+    wasmtime run --dir . "$WASM" "$@"
 }
 
 rm -rf "$TEST_DIR"
@@ -49,8 +49,8 @@ dat3_wasm d "$ARCHIVE" "data/a.txt"
 rm -rf out
 dat3_wasm x "$ARCHIVE" -o out
 if [ -e "out/data/a.txt" ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 diff data/sub/text.txt out/data/sub/text.txt
 

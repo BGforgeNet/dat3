@@ -21,7 +21,7 @@ TEST_DIR="test_arm64"
 ARCHIVE="test.dat"
 
 dat3_arm64() {
-	qemu-aarch64-static "$ARM_DAT3" "$@"
+    qemu-aarch64-static "$ARM_DAT3" "$@"
 }
 
 rm -rf "$TEST_DIR"
@@ -46,8 +46,8 @@ dat3_arm64 d "$ARCHIVE" "data/a.txt"
 rm -rf out
 dat3_arm64 x "$ARCHIVE" -o out
 if [ -e "out/data/a.txt" ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 diff data/sub/text.txt out/data/sub/text.txt
 

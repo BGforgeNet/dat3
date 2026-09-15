@@ -54,8 +54,8 @@ mkdir "$DB_OUT"
 (cd "$DB_OUT" && dbmaker -u "../$DB_DAT")
 diff "$DB_OUT/data/added.txt" added.txt
 if [ -e "$DB_OUT/data/sub/zeros.bin" ]; then
-	echo "Error: deleted file still present in archive"
-	exit 1
+    echo "Error: deleted file still present in archive"
+    exit 1
 fi
 
 # Clean up

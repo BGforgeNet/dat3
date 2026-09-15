@@ -27,12 +27,12 @@ rm -f test.dat
 # Test 2: Non-ASCII filename should fail
 echo "test content" >"tëst.txt"
 if $DAT3 a test.dat "tëst.txt" >/dev/null 2>&1; then
-	exit 1
+    exit 1
 fi
 
 # Test 3: Directory with non-ASCII filename should fail
 mkdir -p "tëst_dir"
 echo "test content" >"tëst_dir/file.txt"
 if $DAT3 a test2.dat "tëst_dir" >/dev/null 2>&1; then
-	exit 1
+    exit 1
 fi

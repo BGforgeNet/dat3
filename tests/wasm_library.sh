@@ -19,6 +19,6 @@ fetch_templeplus_dat
 fetch_fallout_demo
 
 if [ -z "${DAT3_PREBUILT:-}" ]; then
-	../crates/dat3-wasm/package.sh
+    ../crates/dat3-wasm/package.sh
 fi
 node ./wasm_library.ts

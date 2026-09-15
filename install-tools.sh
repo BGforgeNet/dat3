@@ -61,100 +61,100 @@ ZIG_SHA256="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 # Prints "version|url|sha256|path-of-the-binary-inside-the-archive" for a tool;
 # an empty path means the download is the binary itself.
 tool_spec() {
-	case "$1" in
-	actionlint)
-		printf '%s|%s|%s|%s' "$ACTIONLINT_VERSION" \
-			"https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-			"$ACTIONLINT_SHA256" \
-			"actionlint"
-		;;
-	zizmor)
-		printf '%s|%s|%s|%s' "$ZIZMOR_VERSION" \
-			"https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
-			"$ZIZMOR_SHA256" \
-			"zizmor"
-		;;
-	shellcheck)
-		printf '%s|%s|%s|%s' "$SHELLCHECK_VERSION" \
-			"https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
-			"$SHELLCHECK_SHA256" \
-			"shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
-		;;
-	shfmt)
-		printf '%s|%s|%s|%s' "$SHFMT_VERSION" \
-			"https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" \
-			"$SHFMT_SHA256" \
-			""
-		;;
-	cargo-deny)
-		printf '%s|%s|%s|%s' "$DENY_VERSION" \
-			"https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-			"$DENY_SHA256" \
-			"cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny"
-		;;
-	cargo-machete)
-		printf '%s|%s|%s|%s' "$MACHETE_VERSION" \
-			"https://github.com/bnjbvr/cargo-machete/releases/download/v${MACHETE_VERSION}/cargo-machete-v${MACHETE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-			"$MACHETE_SHA256" \
-			"cargo-machete-v${MACHETE_VERSION}-x86_64-unknown-linux-musl/cargo-machete"
-		;;
-	cargo-zigbuild)
-		printf '%s|%s|%s|%s' "$ZIGBUILD_VERSION" \
-			"https://github.com/rust-cross/cargo-zigbuild/releases/download/v${ZIGBUILD_VERSION}/cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz" \
-			"$ZIGBUILD_SHA256" \
-			"cargo-zigbuild-x86_64-unknown-linux-musl/cargo-zigbuild"
-		;;
-	wasm-bindgen)
-		printf '%s|%s|%s|%s' "$WASM_BINDGEN_VERSION" \
-			"https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-			"$WASM_BINDGEN_SHA256" \
-			"wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl/wasm-bindgen"
-		;;
-	wasmtime)
-		printf '%s|%s|%s|%s' "$WASMTIME_VERSION" \
-			"https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz" \
-			"$WASMTIME_SHA256" \
-			"wasmtime-v${WASMTIME_VERSION}-x86_64-linux/wasmtime"
-		;;
-	*)
-		echo "Error: no such tool: $1 (known: ${ALL_TOOLS[*]})" >&2
-		exit 1
-		;;
-	esac
+    case "$1" in
+    actionlint)
+        printf '%s|%s|%s|%s' "$ACTIONLINT_VERSION" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            "$ACTIONLINT_SHA256" \
+            "actionlint"
+        ;;
+    zizmor)
+        printf '%s|%s|%s|%s' "$ZIZMOR_VERSION" \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
+            "$ZIZMOR_SHA256" \
+            "zizmor"
+        ;;
+    shellcheck)
+        printf '%s|%s|%s|%s' "$SHELLCHECK_VERSION" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+            "$SHELLCHECK_SHA256" \
+            "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+        ;;
+    shfmt)
+        printf '%s|%s|%s|%s' "$SHFMT_VERSION" \
+            "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" \
+            "$SHFMT_SHA256" \
+            ""
+        ;;
+    cargo-deny)
+        printf '%s|%s|%s|%s' "$DENY_VERSION" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            "$DENY_SHA256" \
+            "cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny"
+        ;;
+    cargo-machete)
+        printf '%s|%s|%s|%s' "$MACHETE_VERSION" \
+            "https://github.com/bnjbvr/cargo-machete/releases/download/v${MACHETE_VERSION}/cargo-machete-v${MACHETE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            "$MACHETE_SHA256" \
+            "cargo-machete-v${MACHETE_VERSION}-x86_64-unknown-linux-musl/cargo-machete"
+        ;;
+    cargo-zigbuild)
+        printf '%s|%s|%s|%s' "$ZIGBUILD_VERSION" \
+            "https://github.com/rust-cross/cargo-zigbuild/releases/download/v${ZIGBUILD_VERSION}/cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz" \
+            "$ZIGBUILD_SHA256" \
+            "cargo-zigbuild-x86_64-unknown-linux-musl/cargo-zigbuild"
+        ;;
+    wasm-bindgen)
+        printf '%s|%s|%s|%s' "$WASM_BINDGEN_VERSION" \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            "$WASM_BINDGEN_SHA256" \
+            "wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl/wasm-bindgen"
+        ;;
+    wasmtime)
+        printf '%s|%s|%s|%s' "$WASMTIME_VERSION" \
+            "https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz" \
+            "$WASMTIME_SHA256" \
+            "wasmtime-v${WASMTIME_VERSION}-x86_64-linux/wasmtime"
+        ;;
+    *)
+        echo "Error: no such tool: $1 (known: ${ALL_TOOLS[*]})" >&2
+        exit 1
+        ;;
+    esac
 }
 
 # True when the pinned version is already on PATH, so a restored cache is reused
 # and a stale one is replaced.
 has_version() {
-	local cmd="$1" want="$2" version_arg="$3" reported
-	command -v "$cmd" >/dev/null || return 1
-	# stderr is captured, not discarded: a binary that is present but broken
-	# reports its error in the trace and then gets reinstalled.
-	reported="$("$cmd" "$version_arg" 2>&1 || true)"
-	[[ "$reported" == *"$want"* ]]
+    local cmd="$1" want="$2" version_arg="$3" reported
+    command -v "$cmd" >/dev/null || return 1
+    # stderr is captured, not discarded: a binary that is present but broken
+    # reports its error in the trace and then gets reinstalled.
+    reported="$("$cmd" "$version_arg" 2>&1 || true)"
+    [[ "$reported" == *"$want"* ]]
 }
 
 # Downloads to $3 and checks its digest
 fetch_archive() {
-	local url="$1" sha256="$2" dest="$3"
-	curl -sfL -o "$dest" "$url"
-	echo "$sha256  $dest" | sha256sum -c -
+    local url="$1" sha256="$2" dest="$3"
+    curl -sfL -o "$dest" "$url"
+    echo "$sha256  $dest" | sha256sum -c -
 }
 
 # Fetches an archive and puts one binary from it in BIN_DIR
 install_tool() {
-	local name="$1" url="$2" sha256="$3" path_in_archive="$4" tmp
-	tmp="$(mktemp -d)"
-	fetch_archive "$url" "$sha256" "$tmp/archive"
-	if [ -z "$path_in_archive" ]; then
-		install -m 0755 "$tmp/archive" "$BIN_DIR/$name"
-	else
-		# --no-same-owner: extracting as root would otherwise try to restore the
-		# archive's uid/gid, which fails outside a full-privileged container.
-		tar --no-same-owner -xf "$tmp/archive" -C "$tmp" "$path_in_archive"
-		install -m 0755 "$tmp/$path_in_archive" "$BIN_DIR/$name"
-	fi
-	rm -rf "$tmp"
+    local name="$1" url="$2" sha256="$3" path_in_archive="$4" tmp
+    tmp="$(mktemp -d)"
+    fetch_archive "$url" "$sha256" "$tmp/archive"
+    if [ -z "$path_in_archive" ]; then
+        install -m 0755 "$tmp/archive" "$BIN_DIR/$name"
+    else
+        # --no-same-owner: extracting as root would otherwise try to restore the
+        # archive's uid/gid, which fails outside a full-privileged container.
+        tar --no-same-owner -xf "$tmp/archive" -C "$tmp" "$path_in_archive"
+        install -m 0755 "$tmp/$path_in_archive" "$BIN_DIR/$name"
+    fi
+    rm -rf "$tmp"
 }
 
 # zig ships a lib/ tree that has to sit beside the binary, so the tree is kept
@@ -162,48 +162,48 @@ install_tool() {
 # lib/. Relinking an already-extracted tree costs nothing, which is what makes
 # this safe to rerun.
 install_zig() {
-	local dir="$ZIG_DIR/$ZIG_VERSION" unpacked="zig-x86_64-linux-${ZIG_VERSION}" tmp
-	if [ ! -x "$dir/zig" ]; then
-		tmp="$(mktemp -d)"
-		fetch_archive "https://ziglang.org/download/${ZIG_VERSION}/${unpacked}.tar.xz" \
-			"$ZIG_SHA256" "$tmp/archive"
-		tar --no-same-owner -xf "$tmp/archive" -C "$tmp"
-		mkdir -p "$ZIG_DIR"
-		rm -rf "${ZIG_DIR:?}/$ZIG_VERSION"
-		mv "$tmp/$unpacked" "$dir"
-		rm -rf "$tmp"
-	fi
-	ln -sfn "$dir/zig" "$BIN_DIR/zig"
+    local dir="$ZIG_DIR/$ZIG_VERSION" unpacked="zig-x86_64-linux-${ZIG_VERSION}" tmp
+    if [ ! -x "$dir/zig" ]; then
+        tmp="$(mktemp -d)"
+        fetch_archive "https://ziglang.org/download/${ZIG_VERSION}/${unpacked}.tar.xz" \
+            "$ZIG_SHA256" "$tmp/archive"
+        tar --no-same-owner -xf "$tmp/archive" -C "$tmp"
+        mkdir -p "$ZIG_DIR"
+        rm -rf "${ZIG_DIR:?}/$ZIG_VERSION"
+        mv "$tmp/$unpacked" "$dir"
+        rm -rf "$tmp"
+    fi
+    ln -sfn "$dir/zig" "$BIN_DIR/zig"
 }
 
 ensure_tool() {
-	local name="$1" spec version url sha256 path_in_archive
-	# zig is the one tool that is a tree rather than a lone binary, and it
-	# reports its version through a subcommand instead of a flag.
-	if [ "$name" = zig ]; then
-		if ! has_version zig "$ZIG_VERSION" version; then
-			install_zig
-		fi
-		return 0
-	fi
-	# Assigned on its own line: tool_spec runs in a subshell, so its exit status
-	# for an unknown name only propagates through the assignment. Inlined into
-	# the here-string below it would be lost, and the install would run with an
-	# empty URL.
-	spec="$(tool_spec "$name")"
-	IFS='|' read -r version url sha256 path_in_archive <<<"$spec"
-	if has_version "$name" "$version" --version; then
-		return 0
-	fi
-	install_tool "$name" "$url" "$sha256" "$path_in_archive"
+    local name="$1" spec version url sha256 path_in_archive
+    # zig is the one tool that is a tree rather than a lone binary, and it
+    # reports its version through a subcommand instead of a flag.
+    if [ "$name" = zig ]; then
+        if ! has_version zig "$ZIG_VERSION" version; then
+            install_zig
+        fi
+        return 0
+    fi
+    # Assigned on its own line: tool_spec runs in a subshell, so its exit status
+    # for an unknown name only propagates through the assignment. Inlined into
+    # the here-string below it would be lost, and the install would run with an
+    # empty URL.
+    spec="$(tool_spec "$name")"
+    IFS='|' read -r version url sha256 path_in_archive <<<"$spec"
+    if has_version "$name" "$version" --version; then
+        return 0
+    fi
+    install_tool "$name" "$url" "$sha256" "$path_in_archive"
 }
 
 tools=("$@")
 if [ ${#tools[@]} -eq 0 ]; then
-	tools=("${ALL_TOOLS[@]}")
+    tools=("${ALL_TOOLS[@]}")
 fi
 
 mkdir -p "$BIN_DIR"
 for tool in "${tools[@]}"; do
-	ensure_tool "$tool"
+    ensure_tool "$tool"
 done

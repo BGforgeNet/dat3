@@ -238,6 +238,8 @@ jobs:
           apt-packages: qemu-user-static
           tools: wasmtime
           wine: "true"
+          # wasm_library.sh typechecks the docs/api.md example with the repository's TypeScript
+          npm-ci: "true"
           id: targets
 
   tests-complete:

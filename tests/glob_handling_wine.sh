@@ -38,80 +38,80 @@ cp "$WIN_BINARY" dat3.exe
 
 # Helper function to run Windows command via Wine
 run_wine() {
-	WINEDEBUG=-all wine dat3.exe "$@"
+    WINEDEBUG=-all wine dat3.exe "$@"
 }
 
 # Helper function to verify file exists in archive
 verify_file_exists() {
-	local archive="$1"
-	local file="$2"
+    local archive="$1"
+    local file="$2"
 
-	if ! run_wine l "$archive" "$file" >/dev/null 2>&1; then
-		printf "ERROR: %s not found in archive\n" "$file"
-		exit 1
-	fi
+    if ! run_wine l "$archive" "$file" >/dev/null 2>&1; then
+        printf "ERROR: %s not found in archive\n" "$file"
+        exit 1
+    fi
 }
 
 # Helper function to verify file does NOT exist in archive
 verify_file_missing() {
-	local archive="$1"
-	local file="$2"
+    local archive="$1"
+    local file="$2"
 
-	if run_wine l "$archive" "$file" >/dev/null 2>&1; then
-		printf "ERROR: %s should not be in archive\n" "$file"
-		exit 1
-	fi
+    if run_wine l "$archive" "$file" >/dev/null 2>&1; then
+        printf "ERROR: %s should not be in archive\n" "$file"
+        exit 1
+    fi
 }
 
 # Test function for a glob pattern
 test_glob_pattern() {
-	local test_num="$1"
-	local test_name="$2"
-	local pattern="$3"
-	local verify_files="$4"   # space-separated list of files that should exist
-	local verify_missing="$5" # space-separated list of files that should NOT exist
-	local file win_file
+    local test_num="$1"
+    local test_name="$2"
+    local pattern="$3"
+    local verify_files="$4"   # space-separated list of files that should exist
+    local verify_missing="$5" # space-separated list of files that should NOT exist
+    local file win_file
 
-	echo ""
-	echo "=== Test $test_num: $test_name ==="
-	echo "Testing $test_name: $pattern"
-	run_wine a "test${test_num}.dat" "$pattern"
-	echo "$test_name archive contents:"
-	run_wine l "test${test_num}.dat"
+    echo ""
+    echo "=== Test $test_num: $test_name ==="
+    echo "Testing $test_name: $pattern"
+    run_wine a "test${test_num}.dat" "$pattern"
+    echo "$test_name archive contents:"
+    run_wine l "test${test_num}.dat"
 
-	# Verify files (convert forward slashes to backslashes)
-	echo "Verifying $test_name..."
-	for file in $verify_files; do
-		win_file=${file//\//\\}
-		verify_file_exists "test${test_num}.dat" "$win_file"
-	done
-	for file in $verify_missing; do
-		win_file=${file//\//\\}
-		verify_file_missing "test${test_num}.dat" "$win_file"
-	done
-	echo "$test_name verification passed!"
+    # Verify files (convert forward slashes to backslashes)
+    echo "Verifying $test_name..."
+    for file in $verify_files; do
+        win_file=${file//\//\\}
+        verify_file_exists "test${test_num}.dat" "$win_file"
+    done
+    for file in $verify_missing; do
+        win_file=${file//\//\\}
+        verify_file_missing "test${test_num}.dat" "$win_file"
+    done
+    echo "$test_name verification passed!"
 }
 
 # Run all glob pattern tests
 test_glob_pattern "1" "Basic glob pattern" \
-	'patch000\*.txt' \
-	"patch000/1.txt patch000/2.txt" \
-	"patch000/xxx/3.txt"
+    'patch000\*.txt' \
+    "patch000/1.txt patch000/2.txt" \
+    "patch000/xxx/3.txt"
 
 test_glob_pattern "2" "Recursive glob pattern" \
-	'patch000\**\*.txt' \
-	"patch000/1.txt patch000/2.txt patch000/xxx/3.txt patch000/yyy/nested.txt" \
-	""
+    'patch000\**\*.txt' \
+    "patch000/1.txt patch000/2.txt patch000/xxx/3.txt patch000/yyy/nested.txt" \
+    ""
 
 test_glob_pattern "3" "Character range glob pattern" \
-	'patch000\[12].txt' \
-	"patch000/1.txt patch000/2.txt" \
-	""
+    'patch000\[12].txt' \
+    "patch000/1.txt patch000/2.txt" \
+    ""
 
 test_glob_pattern "4" "Question mark glob pattern" \
-	'patch000\?.txt' \
-	"patch000/1.txt patch000/2.txt" \
-	""
+    'patch000\?.txt' \
+    "patch000/1.txt patch000/2.txt" \
+    ""
 
 # Test 5: Dot-prefix normalization with .\ prefix
 echo ""
@@ -125,7 +125,7 @@ run_wine l test5.dat
 # Files should keep their patch000\ prefix
 echo "Verifying dot-prefix normalization..."
 for file in patch000\\1.txt patch000\\2.txt patch000\\data.bin patch000\\test.dat patch000\\xxx\\3.txt patch000\\yyy\\nested.txt; do
-	verify_file_exists "test5.dat" "$file"
+    verify_file_exists "test5.dat" "$file"
 done
 echo "Dot-prefix normalization verification passed!"
 
@@ -140,7 +140,7 @@ run_wine l test6.dat
 
 echo "Verifying mixed file types..."
 for file in patch000\\1.txt patch000\\2.txt patch000\\data.bin patch000\\test.dat; do
-	verify_file_exists "test6.dat" "$file"
+    verify_file_exists "test6.dat" "$file"
 done
 echo "Mixed file type glob pattern verification passed!"
 
