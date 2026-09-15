@@ -241,7 +241,7 @@ Other Rust programs can use the archive code as the `dat3-core` crate, and Node.
 
 ## Verifying a release
 
-Every release ships a `SHA256SUMS` file covering its binaries. Download it
+Every release ships a `SHA256SUMS` file covering its assets. Download it
 alongside the assets and check them:
 
 ```bash
