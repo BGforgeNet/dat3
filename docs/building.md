@@ -16,7 +16,8 @@
 ./build.sh
 ```
 
-`./build.sh <target>...` builds only the named targets; `npm` names the npm package.
+`./build.sh <target>...` builds only the named targets; `npm` names the npm package. `./build.sh --debug` builds
+debug binaries instead, under `target/<target>/debug/`; the npm package is always a release build.
 
 Builds are static, except for macOS, where every program links the system library dynamically.
 

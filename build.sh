@@ -2,9 +2,10 @@
 
 set -xeu -o pipefail
 
-# Usage: ./build.sh [target...]   (default: every target below and the npm package)
-# "npm" names the npm package, whose own target is wasm32-unknown-unknown. CI
-# splits the targets across jobs, so they build in parallel on separate runners.
+# Usage: ./build.sh [--debug] [target...]   (default: every target below and the npm package)
+# Release builds, or debug builds with --debug. "npm" names the npm package, whose
+# own target is wasm32-unknown-unknown, and is always a release build. CI splits
+# the targets across jobs, so they build in parallel on separate runners.
 
 echo "Cross-compiling static binaries..."
 
@@ -25,6 +26,12 @@ ZIG_TARGETS=(
 )
 
 ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}")
+
+profile=release
+if [ "${1:-}" = --debug ]; then
+	profile=debug
+	shift
+fi
 
 targets=()
 build_npm=""
@@ -62,7 +69,7 @@ for target in "${rustup_targets[@]}"; do
 	rustup target add "$target" 2>/dev/null || true
 done
 
-# Build all targets in parallel - both debug and release.
+# Build all targets in parallel.
 # pids and labels stay global on purpose: start_build appends to them.
 pids=()
 labels=()
@@ -75,14 +82,17 @@ start_build() {
 	labels+=("$label")
 }
 
-echo "Building debug and release targets..."
+profile_args=()
+if [ "$profile" = release ]; then
+	profile_args=(--release)
+fi
+
+echo "Building $profile targets..."
 for target in "${targets[@]}"; do
 	if [[ " ${ZIG_TARGETS[*]} " == *" $target "* ]]; then
-		start_build "debug $target" cargo zigbuild --target "$target"
-		start_build "release $target" cargo zigbuild --release --target "$target"
+		start_build "$profile $target" cargo zigbuild "${profile_args[@]}" --target "$target"
 	else
-		start_build "debug $target" cargo build --target "$target"
-		start_build "release $target" cargo build --release --target "$target"
+		start_build "$profile $target" cargo build "${profile_args[@]}" --target "$target"
 	fi
 done
 
@@ -121,14 +131,11 @@ output() {
 }
 
 echo ""
-echo "Cross-compile completed. Static binaries:"
-for profile in debug release; do
-	echo "$profile builds:"
-	for target in "${targets[@]}"; do
-		output "target/$target/$profile/$(binary_name "$target")"
-	done
-	echo ""
+echo "Cross-compile completed. Static $profile binaries:"
+for target in "${targets[@]}"; do
+	output "target/$target/$profile/$(binary_name "$target")"
 done
+echo ""
 if [ -n "$build_npm" ]; then
 	echo "npm package:"
 	output target/dat3-wasm.tgz

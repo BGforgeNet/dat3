@@ -288,16 +288,6 @@ jobs:
           cp target/wasm32-wasip1/release/dat3.wasm dat3.wasm
           cp target/dat3-wasm.tgz dat3-wasm.tgz
 
-      - name: Prepare debug assets
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: |
-          cp target/x86_64-unknown-linux-musl/debug/dat3 dat3-debug
-          cp target/aarch64-unknown-linux-musl/debug/dat3 dat3-arm64-debug
-          cp target/universal2-apple-darwin/debug/dat3 dat3-macos-debug
-          cp target/x86_64-pc-windows-gnu/debug/dat3.exe dat3-debug.exe
-          cp target/i686-pc-windows-gnu/debug/dat3.exe dat3-win32-debug.exe
-          cp target/wasm32-wasip1/debug/dat3.wasm dat3-debug.wasm
-
       # Always uploaded, tags included: the release job downloads these rather
       # than rebuilding, which is what lets it run without a checkout or a
       # toolchain and hold contents:write for nothing else.
@@ -313,20 +303,6 @@ jobs:
             dat3-win32.exe
             dat3.wasm
             dat3-wasm.tgz
-          if-no-files-found: error
-
-      - name: Upload debug artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: dat3-debug
-          path: |
-            dat3-debug
-            dat3-arm64-debug
-            dat3-macos-debug
-            dat3-debug.exe
-            dat3-win32-debug.exe
-            dat3-debug.wasm
           if-no-files-found: error
 
   # The macOS binary is cross-built on Linux, where nothing can run it. One
