@@ -1,8 +1,8 @@
 # DAT3 - Fallout DAT Tool
 
-Fallout and Troika .dat management CLI.
+Fallout and Troika .dat management CLI and library.
 
-Crossplatform, static Rust re-implementation of DAT2, with minor differences. Also supports Arcanum and The Temple of Elemental Evil .dat archives.
+Crossplatform, static Rust re-implementation of DAT2, with minor differences. Also supports Arcanum and The Temple of Elemental Evil .dat archives. A [library](docs/api.md) is available for Rust and Node.
 
 - [Usage](#usage)
 - [Differences from DAT2](#differences-from-dat2)
