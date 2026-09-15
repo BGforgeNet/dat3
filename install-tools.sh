@@ -13,11 +13,10 @@ set -xeu -o pipefail
 
 BIN_DIR="$HOME/.cargo/bin"
 
-ALL_TOOLS=(actionlint cargo-deny cargo-machete cargo-zigbuild shellcheck shfmt wasm-bindgen wasmtime wine zig zizmor)
+ALL_TOOLS=(actionlint cargo-deny cargo-machete cargo-zigbuild shellcheck shfmt wasm-bindgen wasmtime zig zizmor)
 
-# zig and wine live as whole trees under TREE_ROOT/<tool>/<version>; only a
-# symlink to each goes in BIN_DIR
-TREE_ROOT="$HOME/.local/share"
+# zig lives as a whole tree; only a symlink to it goes in BIN_DIR
+ZIG_DIR="$HOME/.local/share/zig"
 
 # Digests are of the immutable release assets; refresh them when bumping a
 # version. Where the vendor publishes its own checksum file the two agree; the
@@ -58,12 +57,6 @@ WASM_BINDGEN_SHA256="61d4a7dc85acfa0d2354ccc0b8361928c7e52a746d17f28ebaa795ed3dc
 # Digest as published in ziglang.org's download index
 ZIG_VERSION="0.16.0"
 ZIG_SHA256="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
-
-# For the cross-checks against the original Windows tools. A WoW64 build runs
-# their 32-bit executables without i386 system libraries, which distro wine
-# needs installed through multiarch. Digest as published on the release.
-WINE_VERSION="11.0"
-WINE_SHA256="39574efa1132c3ca0d5c77dd2eddbe4a49cca0d6cc2c290ff4924493a1c40314"
 
 # Prints "version|url|sha256|path-of-the-binary-inside-the-archive" for a tool;
 # an empty path means the download is the binary itself.
@@ -164,49 +157,35 @@ install_tool() {
 	rm -rf "$tmp"
 }
 
-# zig and wine ship trees (zig's lib/, wine's lib/ and share/) that have to sit
-# beside the binary, so only a symlink goes on PATH; each resolves the link to
-# find its tree. Relinking an already-extracted tree costs nothing, which is what
-# makes this safe to rerun.
-# Usage: install_tree <tool> <version> <url> <sha256> <top dir in archive> <binary path in tree>
-install_tree() {
-	local name="$1" version="$2" url="$3" sha256="$4" unpacked="$5" binary="$6"
-	local dir="$TREE_ROOT/$name/$version" tmp
-	if [ ! -x "$dir/$binary" ]; then
+# zig ships a lib/ tree that has to sit beside the binary, so the tree is kept
+# under ZIG_DIR and only a symlink goes on PATH; zig resolves the link to find
+# lib/. Relinking an already-extracted tree costs nothing, which is what makes
+# this safe to rerun.
+install_zig() {
+	local dir="$ZIG_DIR/$ZIG_VERSION" unpacked="zig-x86_64-linux-${ZIG_VERSION}" tmp
+	if [ ! -x "$dir/zig" ]; then
 		tmp="$(mktemp -d)"
-		fetch_archive "$url" "$sha256" "$tmp/archive"
+		fetch_archive "https://ziglang.org/download/${ZIG_VERSION}/${unpacked}.tar.xz" \
+			"$ZIG_SHA256" "$tmp/archive"
 		tar --no-same-owner -xf "$tmp/archive" -C "$tmp"
-		mkdir -p "$TREE_ROOT/$name"
-		rm -rf "$dir"
+		mkdir -p "$ZIG_DIR"
+		rm -rf "${ZIG_DIR:?}/$ZIG_VERSION"
 		mv "$tmp/$unpacked" "$dir"
 		rm -rf "$tmp"
 	fi
-	ln -sfn "$dir/$binary" "$BIN_DIR/$name"
+	ln -sfn "$dir/zig" "$BIN_DIR/zig"
 }
 
 ensure_tool() {
-	local name="$1" spec version url sha256 path_in_archive unpacked
-	# zig and wine are trees rather than lone binaries, and zig reports its
-	# version through a subcommand instead of a flag.
-	case "$name" in
-	zig)
-		unpacked="zig-x86_64-linux-${ZIG_VERSION}"
+	local name="$1" spec version url sha256 path_in_archive
+	# zig is the one tool that is a tree rather than a lone binary, and it
+	# reports its version through a subcommand instead of a flag.
+	if [ "$name" = zig ]; then
 		if ! has_version zig "$ZIG_VERSION" version; then
-			install_tree zig "$ZIG_VERSION" "https://ziglang.org/download/${ZIG_VERSION}/${unpacked}.tar.xz" \
-				"$ZIG_SHA256" "$unpacked" zig
+			install_zig
 		fi
 		return 0
-		;;
-	wine)
-		unpacked="wine-${WINE_VERSION}-amd64-wow64"
-		if ! has_version wine "wine-$WINE_VERSION" --version; then
-			install_tree wine "$WINE_VERSION" \
-				"https://github.com/Kron4ek/Wine-Builds/releases/download/${WINE_VERSION}/${unpacked}.tar.xz" \
-				"$WINE_SHA256" "$unpacked" bin/wine
-		fi
-		return 0
-		;;
-	esac
+	fi
 	# Assigned on its own line: tool_spec runs in a subshell, so its exit status
 	# for an unknown name only propagates through the assignment. Inlined into
 	# the here-string below it would be lost, and the install would run with an

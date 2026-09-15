@@ -17,6 +17,9 @@ inputs:
   tools:
     description: install-tools.sh tools the tests need, space-separated
     default: ""
+  wine:
+    description: '"true" to install wine, for the cross-checks against the original Windows tools'
+    default: "false"
   save-fixtures:
     description: >-
       "true" in the one job that saves the fixture cache on a miss. Any other job
@@ -75,6 +78,12 @@ runs:
         read -ra packages <<<"$APT_PACKAGES"
         sudo apt-get update -qq
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+
+    # Ubuntu's wine, through i386 multiarch for the 32-bit tools. A portable WoW64
+    # wine installed faster but extracted the large fixtures markedly slower.
+    - name: Install wine
+      if: inputs.wine == 'true'
+      uses: devopsx/gha-ubuntu-i386-fix@857a708773e426df64597ec43c9cd3d5bb85abee # master (no tagged releases)
 
     - name: Install test tools
       if: inputs.tools != ''
