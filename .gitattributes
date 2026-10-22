@@ -1,0 +1,2 @@
+# bash fails on CRLF, which Git on Windows checks out by default; CI runs these there
+*.sh text eol=lf

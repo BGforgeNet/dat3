@@ -337,12 +337,36 @@ jobs:
           MACOS_DAT3: assets/dat3-macos
         run: chmod +x "$MACOS_DAT3" && ./tests/macos.sh
 
+  # Real Windows rather than wine, whose own C runtime says nothing about how the
+  # binaries load the Universal C Runtime. The 32-bit build runs under WoW64.
+  windows:
+    name: windows
+    needs: assets
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dat3
+          path: assets
+
+      - name: Test the Windows binaries
+        shell: bash
+        run: ./tests/smoke.sh assets/dat3.exe && ./tests/smoke.sh assets/dat3-win32.exe
+
   # Separate job so contents:write exists only on a tag run, and only for the
   # step that publishes. It builds nothing: the binaries come from the assets
   # job's artifact.
   release:
     name: release
-    needs: [lint, assets, tests-complete, macos]
+    needs: [lint, assets, tests-complete, macos, windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
