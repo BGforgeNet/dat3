@@ -18,13 +18,7 @@ cd "$(dirname "$0")"
 # shellcheck source=tests/common.sh
 source ./common.sh
 
-require_wine
-
-export WINEDEBUG=-all
-# wine writes startup noise to stderr even with WINEDEBUG=-all, so the dat2.exe
-# calls below discard it. Their exit status still gates under set -e, and every
-# extraction is checked by the diff that follows it.
-DAT2="wine ./dat2.exe"
+require_windows
 
 archives="$(present_f1_archives)"
 if [ -z "$archives" ]; then
@@ -42,7 +36,7 @@ for archive in $archives; do
     # dat2.exe's extraction is the reference both halves compare against; it is
     # the slow step, so it is kept between runs.
     if [ ! -d "$ref_dir" ]; then
-        $DAT2 x -d "$ref_dir" "$archive" 2>/dev/null
+        dat2 x -d "$ref_dir" "$archive"
     fi
 
     # Test 1: dat3 must extract what dat2.exe extracts. dat2.exe keeps the
@@ -54,7 +48,7 @@ for archive in $archives; do
     # Test 2: dat2.exe must read back an archive dat3 wrote
     rm -rf "$repacked" "$repacked_dir"
     (cd "$dat3_dir" && $DAT3 a --case-sensitive --format dat1 "../$repacked" -- *)
-    $DAT2 x -d "$repacked_dir" "$repacked" 2>/dev/null
+    dat2 x -d "$repacked_dir" "$repacked"
     diff -qr "$ref_dir" "$repacked_dir"
 
     rm -rf "$dat3_dir" "$repacked" "$repacked_dir"

@@ -1,2 +1,4 @@
-# bash fails on CRLF, which Git on Windows checks out by default; CI runs these there
-*.sh text eol=lf
+# Git on Windows checks text out with CRLF by default, which CI's Windows job
+# would trip on: bash fails on it, and tests compare files such as rpu.md5 byte
+# for byte
+* text=auto eol=lf

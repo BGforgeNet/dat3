@@ -4,7 +4,7 @@ set -xeu -o pipefail
 
 # Glob pattern handling for the Linux build: adding files by pattern, and
 # filtering list/extract by pattern. The Windows-build checks live in
-# glob_handling_wine.sh.
+# glob_handling_windows.sh.
 
 # shellcheck source=tests/common.sh
 source "$(dirname "$0")/common.sh"

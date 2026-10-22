@@ -17,9 +17,6 @@ inputs:
   tools:
     description: install-tools.sh tools the tests need, space-separated
     default: ""
-  wine:
-    description: '"true" to install wine, for the cross-checks against the original Windows tools'
-    default: "false"
   npm-ci:
     description: '"true" to install the repository''s npm dev dependencies, for tests that run the TypeScript compiler'
     default: "false"
@@ -42,9 +39,11 @@ runs:
         pattern: ${{ inputs.artifacts }}
         path: ${{ runner.temp }}/builds
 
+    # --force-local: on Windows the path starts with a drive letter, which tar
+    # would otherwise take for a remote host
     - name: Unpack builds
       shell: bash
-      run: find "$RUNNER_TEMP/builds" -name build.tar -exec tar -xf {} \;
+      run: find "$RUNNER_TEMP/builds" -name build.tar -exec tar --force-local -xf {} \;
 
     # One definition for both the restore and the save below
     - name: Fixture cache
@@ -55,12 +54,15 @@ runs:
         printf 'paths<<EOF\n%s\n%s\n%s\n%s\n%s\nEOF\n' tests/rpu_v2.4.33.zip tests/ArcanumDemo.dat \
           tests/FalloutDemo.dat tests/tpgamefiles.dat tests/toee-demo >>"$GITHUB_OUTPUT"
 
+    # Cross-OS so the Windows job restores what a Linux job saved: the fetchers
+    # need wget, which the Windows image lacks
     - name: Restore test fixtures
       id: fixtures
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.fixture-cache.outputs.paths }}
         key: ${{ steps.fixture-cache.outputs.key }}
+        enableCrossOsArchive: true
 
     # tests/json_listing.ts runs through Node's own type stripping rather than
     # a build step, so the Node version is what decides whether it runs at
@@ -78,7 +80,7 @@ runs:
     # The fetchers unpack with 7z and the ToEE demo with unshield, needed only
     # when the fixtures were not restored
     - name: Install packages
-      if: inputs.apt-packages != '' || steps.fixtures.outputs.cache-hit != 'true'
+      if: runner.os == 'Linux' && (inputs.apt-packages != '' || steps.fixtures.outputs.cache-hit != 'true')
       shell: bash
       env:
         APT_PACKAGES: ${{ inputs.apt-packages }} ${{ steps.fixtures.outputs.cache-hit != 'true' && 'p7zip-full unshield' || '' }}
@@ -86,12 +88,6 @@ runs:
         read -ra packages <<<"$APT_PACKAGES"
         sudo apt-get update -qq
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
-
-    # Ubuntu's wine, through i386 multiarch for the 32-bit tools. A portable WoW64
-    # wine installed faster but extracted the large fixtures markedly slower.
-    - name: Install wine
-      if: inputs.wine == 'true'
-      uses: devopsx/gha-ubuntu-i386-fix@857a708773e426df64597ec43c9cd3d5bb85abee # master (no tagged releases)
 
     - name: Install test tools
       if: inputs.tools != ''
@@ -119,6 +115,7 @@ runs:
       with:
         path: ${{ steps.fixture-cache.outputs.paths }}
         key: ${{ steps.fixture-cache.outputs.key }}
+        enableCrossOsArchive: true
 
     - name: Upload the tests that passed
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

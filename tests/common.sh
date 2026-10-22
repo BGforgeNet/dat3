@@ -4,9 +4,24 @@ set -xeu -o pipefail
 
 # Common variables and functions for test scripts
 
-# Use static build - get absolute path relative to this script's location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAT3="$SCRIPT_DIR/../target/x86_64-unknown-linux-musl/release/dat3"
+
+# Git Bash and its kin on Windows, where the Windows programs below run natively
+on_windows() {
+    case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+# The build native to the platform: the static Linux one, or on Windows the
+# 64-bit Windows one, so the cross-checks there exercise that build as well
+WIN_DAT3="$SCRIPT_DIR/../target/x86_64-pc-windows-gnu/release/dat3.exe"
+if on_windows; then
+    DAT3="$WIN_DAT3"
+else
+    DAT3="$SCRIPT_DIR/../target/x86_64-unknown-linux-musl/release/dat3"
+fi
 export DAT3
 
 # Helper function to verify a file exists and has content
@@ -171,7 +186,9 @@ dat1_round_trip() {
 # -print0 throughout: some archive entries contain spaces ("rifle bb.frm").
 hash_tree() {
     local dir="$1" out="$2"
-    (cd "$dir" && LC_ALL=C find . -type f -print0 | LC_ALL=C sort -z | xargs -0 md5sum) >"$out"
+    # md5sum on Windows marks each name with * for binary mode; the hash, which
+    # has no spaces, ends at the first space, so only that marker can match
+    (cd "$dir" && LC_ALL=C find . -type f -print0 | LC_ALL=C sort -z | xargs -0 md5sum | sed 's/ \*/  /') >"$out"
 }
 
 # Tests needing an external runtime call one of these first: a missing runtime is
@@ -184,16 +201,34 @@ require_runtime() {
     fi
 }
 
-require_wine() {
-    require_runtime wine "cross-checks against the original Windows binaries"
+require_windows() {
+    if ! on_windows; then
+        require_runtime wine "runs Windows programs"
+    fi
 }
 
+# Runs a Windows program natively on Windows, elsewhere under wine. Under wine
+# stderr is discarded: it carries wine's startup noise, which WINEDEBUG=-all
+# does not silence, mixed with the program's own.
+run_windows() {
+    if on_windows; then
+        "$@"
+    else
+        WINEDEBUG=-all wine "$@" 2>/dev/null
+    fi
+}
+
+# The original tools, by absolute path: they are called from working
+# directories other than tests/, where a bare name would not resolve.
 # Troika's own dbmaker.exe (usage: dbmaker [option] output input; -r recurse,
-# -u unpack, -cN level). Absolute path: it is called from working directories
-# other than tests/, where a bare dbmaker.exe would not resolve. stderr carries
-# only wine's startup noise, which WINEDEBUG=-all does not silence.
+# -u unpack, -cN level).
 dbmaker() {
-    WINEDEBUG=-all wine "$SCRIPT_DIR/dbmaker.exe" "$@" 2>/dev/null
+    run_windows "$SCRIPT_DIR/dbmaker.exe" "$@"
+}
+
+# The original Fallout dat2.exe (x: extract, -d: into this directory; l: list)
+dat2() {
+    run_windows "$SCRIPT_DIR/dat2.exe" "$@"
 }
 
 require_wasmtime() {

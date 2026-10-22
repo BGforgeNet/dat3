@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 # shellcheck source=tests/common.sh
 source ./common.sh
 
-require_wine
+require_windows
 
 fetch_arcanum_demo
 

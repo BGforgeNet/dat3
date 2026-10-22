@@ -4,7 +4,7 @@ set -xeu -o pipefail
 
 # dat3 against the DAT1 format: round-trip the Fallout 1 demo's archive, plus
 # any retail archive the user has dropped into f1/. The dat2.exe cross-checks
-# live in f1_wine.sh.
+# live in f1_windows.sh.
 
 # Work inside tests directory
 cd "$(dirname "$0")"

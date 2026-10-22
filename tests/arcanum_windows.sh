@@ -3,9 +3,8 @@
 set -xeu -o pipefail
 
 # Cross-check the Arcanum format against Troika's own dbmaker.exe on a small
-# synthetic tree. The real-data cross-checks live in arcanum_demo_wine.sh and
-# arcanum_demo_mod_wine.sh, each a separate script so CI can run them in
-# parallel; the dat3-only checks live in arcanum.sh.
+# synthetic tree. The real-data cross-checks live in arcanum_demo_windows.sh
+# and arcanum_demo_mod_windows.sh; the dat3-only checks live in arcanum.sh.
 
 # Work inside tests directory
 cd "$(dirname "$0")"
@@ -14,7 +13,7 @@ cd "$(dirname "$0")"
 # shellcheck source=tests/common.sh
 source ./common.sh
 
-require_wine
+require_windows
 
 SRC_DIR="arcanum_src"
 DAT3_DAT="arcanum_dat3.dat"

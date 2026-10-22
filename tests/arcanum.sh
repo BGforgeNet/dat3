@@ -4,7 +4,7 @@ set -xeu -o pipefail
 
 # dat3 against the Arcanum format: round-trip a small tree, then list,
 # extract, repack and modify the demo's real 30 MB archive.
-# The dbmaker.exe cross-checks live in arcanum_wine.sh.
+# The dbmaker.exe cross-checks live in arcanum_windows.sh.
 
 # Work inside tests directory
 cd "$(dirname "$0")"

@@ -44,16 +44,22 @@ TESTS=(
     # qemu. The arm64 binary comes from build.sh, which needs zig to produce it.
     "wasm.sh|wasmtime"
     "arm64.sh|qemu-aarch64-static"
-    # Cross-checks against the original Windows tools. glob_handling_wine.sh needs
-    # the cross-compiled dat3.exe from build.sh. f1_wine.sh needs retail Fallout 1
-    # archives in tests/f1 and says so when it finds none.
-    "rpu_wine.sh|wine"
-    "arcanum_wine.sh|wine"
-    "arcanum_demo_wine.sh|wine"
-    "arcanum_demo_mod_wine.sh|wine"
-    "glob_handling_wine.sh|wine"
-    "f1_wine.sh|wine"
+    # Cross-checks against the original Windows tools, and the Windows build's own
+    # path handling: native on Windows, elsewhere under wine. Elsewhere
+    # glob_handling_windows.sh needs the cross-compiled dat3.exe from build.sh.
+    # f1_windows.sh needs retail Fallout 1 archives in tests/f1 and says so when it
+    # finds none.
+    "rpu_windows.sh|windows"
+    "arcanum_windows.sh|windows"
+    "arcanum_demo_windows.sh|windows"
+    "arcanum_demo_mod_windows.sh|windows"
+    "glob_handling_windows.sh|windows"
+    "f1_windows.sh|windows"
 )
+
+# For on_windows
+# shellcheck source=tests/common.sh
+source "$(dirname "$0")/tests/common.sh"
 
 # Prints the runtime a test needs, or nothing for an unknown name
 runtime_of() {
@@ -111,6 +117,13 @@ for name in "${selected[@]}"; do
     runtime="$(runtime_of "$name")"
     if [ -n "${DAT3_PREBUILT:-}" ] && [ "$runtime" = wasm-bindgen ]; then
         runtime=node
+    fi
+    if [ "$runtime" = windows ]; then
+        if on_windows; then
+            runtime=-
+        else
+            runtime=wine
+        fi
     fi
     if [ "$runtime" = ci ]; then
         if [ -z "${CI:-}" ]; then

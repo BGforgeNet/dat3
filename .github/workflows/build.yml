@@ -188,35 +188,6 @@ jobs:
           save-fixtures: "true"
           id: native
 
-  # The cross-checks against the original Windows tools that need only the native
-  # binary. Each large extraction under wine takes about half a minute, so they
-  # are spread across jobs.
-  test-wine:
-    name: test (${{ matrix.tests }})
-    needs: build-linux
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    strategy:
-      matrix:
-        tests:
-          - rpu_wine.sh
-          - arcanum_wine.sh arcanum_demo_wine.sh f1_wine.sh
-          - arcanum_demo_mod_wine.sh
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
-        with:
-          artifacts: build-x86_64-unknown-linux-musl
-          tests: ${{ matrix.tests }}
-          node-version: ${{ env.NODE_VERSION }}
-          wine: "true"
-          id: wine-${{ strategy.job-index }}
-
   # The tests of the other builds, each checked against the native one
   test-targets:
     name: test (other targets)
@@ -233,18 +204,17 @@ jobs:
       - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
         with:
           artifacts: build-*
-          tests: wasm_library.sh wasm.sh arm64.sh glob_handling_wine.sh
+          tests: wasm_library.sh wasm.sh arm64.sh
           node-version: ${{ env.NODE_VERSION }}
           apt-packages: qemu-user-static
           tools: wasmtime
-          wine: "true"
           # wasm_library.sh typechecks the docs/api.md example with the repository's TypeScript
           npm-ci: "true"
           id: targets
 
   tests-complete:
     name: tests complete
-    needs: [test-native, test-wine, test-targets]
+    needs: [test-native, test-targets, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -339,11 +309,13 @@ jobs:
 
   # Real Windows rather than wine, whose own C runtime says nothing about how the
   # binaries load the Universal C Runtime. The 32-bit build runs under WoW64.
+  # Also the cross-checks against the original Windows tools, run natively. It
+  # waits for test-native, which saves the fixture cache this job restores.
   windows:
     name: windows
-    needs: assets
+    needs: [assets, test-native]
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -360,6 +332,15 @@ jobs:
       - name: Test the Windows binaries
         shell: bash
         run: ./tests/smoke.sh assets/dat3.exe && ./tests/smoke.sh assets/dat3-win32.exe
+
+      - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+        with:
+          artifacts: build-x86_64-pc-windows-gnu
+          tests: >-
+            rpu_windows.sh arcanum_windows.sh arcanum_demo_windows.sh arcanum_demo_mod_windows.sh
+            glob_handling_windows.sh f1_windows.sh
+          node-version: ${{ env.NODE_VERSION }}
+          id: windows
 
   # Separate job so contents:write exists only on a tag run, and only for the
   # step that publishes. It builds nothing: the binaries come from the assets

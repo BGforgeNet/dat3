@@ -3,7 +3,7 @@
 set -xeu -o pipefail
 
 # dat3 against the real RPU archive: list, extract, repack, modify.
-# The dat2.exe cross-checks live in rpu_wine.sh.
+# The dat2.exe cross-checks live in rpu_windows.sh.
 
 # Work inside tests directory
 cd "$(dirname "$0")"

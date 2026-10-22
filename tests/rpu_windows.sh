@@ -12,16 +12,11 @@ cd "$(dirname "$0")"
 # shellcheck source=tests/common.sh
 source ./common.sh
 
-require_wine
+require_windows
 
 RPU2_DAT="rpu2.dat"
 RPU_DIR="rpu"
 RPU2_DIR="rpu2"
-
-# Helper function to run wine dat2.exe quietly
-dat2() {
-    WINEDEBUG=-all wine dat2.exe "$@" 2>/dev/null
-}
 
 fetch_rpu_dat
 
@@ -46,7 +41,7 @@ DUMMY1_WINDOWS="dummy1.txt"
 DUMMY2_LINUX="subdir/dummy2.txt"
 DUMMY2_WINDOWS="subdir\\\\dummy2.txt"
 
-# Verify files are present with both dat3 and wine+dat2.exe.
+# Verify files are present with both dat3 and dat2.exe.
 # dat2.exe's listing goes to a file first: piping it into an early-exiting
 # reader would report that reader's signal, not whether the name was found.
 echo "Checking both tools show added files..."
@@ -59,7 +54,7 @@ grep -q "$DUMMY2_WINDOWS" dat2_listing.txt
 $DAT3 d "$RPU2_DAT" "$DUMMY1_LINUX"
 $DAT3 d "$RPU2_DAT" "$DUMMY2_LINUX"
 
-# Verify files are no longer present with both dat3 and wine+dat2.exe
+# Verify files are no longer present with both dat3 and dat2.exe
 echo "Checking both tools no longer show deleted files..."
 if $DAT3 l "$RPU2_DAT" "$DUMMY1_LINUX" "$DUMMY2_LINUX" 2>/dev/null; then
     echo "Error: Files should have been deleted but are still present"
