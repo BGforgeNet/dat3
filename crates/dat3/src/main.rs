@@ -224,10 +224,7 @@ fn main() -> Result<()> {
                 .collect();
             let expanded =
                 utils::expand_response_files_with_stripping(&file_strings, change_dir.as_deref())?;
-            let expanded: Vec<PathBuf> = expanded
-                .iter()
-                .map(|path| utils::resolve_add_input_path(path, change_dir.as_deref()))
-                .collect::<Result<_>>()?;
+            let expanded = utils::resolve_add_input_paths(&expanded, change_dir.as_deref())?;
 
             // Count files upfront - fails immediately if any path doesn't exist
             let mut total_files_to_add = 0;
@@ -274,15 +271,13 @@ fn main() -> Result<()> {
                 );
             }
 
-            for file_path in expanded {
-                archive.add_file(
-                    &file_path,
-                    compression_level,
-                    target_dir.as_deref(),
-                    change_dir.as_deref(),
-                    case,
-                )?;
-            }
+            archive.add_files(
+                &expanded,
+                compression_level,
+                target_dir.as_deref(),
+                change_dir.as_deref(),
+                case,
+            )?;
 
             archive.save(&dat_file)?;
         }

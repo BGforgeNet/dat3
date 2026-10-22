@@ -228,12 +228,33 @@ impl DatArchive {
         source_root: Option<&Path>,
         case: CaseMode,
     ) -> Result<()> {
-        let path = file_path.as_ref();
+        self.add_files(
+            std::slice::from_ref(&file_path),
+            compression,
+            target_dir,
+            source_root,
+            case,
+        )
+    }
+
+    /// Add several files or directories, as [`add_file`](Self::add_file) on each
+    /// in turn would: of two operands naming one entry, the later one wins. Faster
+    /// than those calls, since all operands are read and compressed in one
+    /// parallel pass and merged into the archive once.
+    pub fn add_files<P: AsRef<Path>>(
+        &mut self,
+        file_paths: &[P],
+        compression: CompressionLevel,
+        target_dir: Option<&str>,
+        source_root: Option<&Path>,
+        case: CaseMode,
+    ) -> Result<()> {
+        let paths: Vec<&Path> = file_paths.iter().map(AsRef::as_ref).collect();
         match self {
-            Self::Dat1(a) => a.add_file(path, compression, target_dir, source_root, case),
-            Self::Dat2(a) => a.add_file(path, compression, target_dir, source_root, case),
-            Self::Arcanum(a) => a.add_file(path, compression, target_dir, source_root, case),
-            Self::Toee(a) => a.add_file(path, compression, target_dir, source_root, case),
+            Self::Dat1(a) => a.add_files(&paths, compression, target_dir, source_root, case),
+            Self::Dat2(a) => a.add_files(&paths, compression, target_dir, source_root, case),
+            Self::Arcanum(a) => a.add_files(&paths, compression, target_dir, source_root, case),
+            Self::Toee(a) => a.add_files(&paths, compression, target_dir, source_root, case),
         }
     }
 
@@ -556,6 +577,42 @@ mod tests {
                 ArchiveFormat::Dat2 | ArchiveFormat::Arcanum => ["ART\\OTHER.FRM", "art\\hero.frm"],
             };
             assert_eq!(sorted_names(&reopened(&archive)), expected, "{format:?}");
+        }
+    }
+
+    /// Operands added in one batch replace one another's entries in order, as
+    /// separate adds would: the later operand wins.
+    #[test]
+    fn a_batch_keeps_the_later_operand_for_a_name_two_operands_produce() {
+        let src = ScratchPath::dir("archive_batch_src");
+        for dir in ["a", "b"] {
+            std::fs::create_dir_all(src.join(dir)).unwrap();
+            std::fs::write(src.join(dir).join("same.txt"), dir).unwrap();
+        }
+        let (a, b) = (
+            src.join("a").join("same.txt"),
+            src.join("b").join("same.txt"),
+        );
+        for format in ALL_FORMATS {
+            for (operands, expected) in [([&a, &b], b"b"), ([&b, &a], b"a")] {
+                let mut archive = DatArchive::new(format);
+                archive
+                    .add_files(
+                        &operands,
+                        CompressionLevel::new(0).unwrap(),
+                        Some("t"),
+                        None,
+                        CaseMode::Sensitive,
+                    )
+                    .unwrap();
+                let archive = reopened(&archive);
+                assert_eq!(sorted_names(&archive), ["t\\same.txt"], "{format:?}");
+                assert_eq!(
+                    archive.read("t/same.txt", CaseMode::Sensitive).unwrap(),
+                    expected,
+                    "{format:?}"
+                );
+            }
         }
     }
 

@@ -556,22 +556,31 @@ pub fn find_stored_index<'a>(
     }
 }
 
+/// The entries of `new_entries` no later one of the same name (compared as
+/// `case` says) replaces, as adding them one at a time would keep, and their
+/// names folded as `case` says.
+pub fn last_entry_per_name(
+    new_entries: Vec<FileEntry>,
+    case: CaseMode,
+) -> (Vec<FileEntry>, std::collections::HashSet<String>) {
+    let mut names = std::collections::HashSet::new();
+    let mut kept: Vec<FileEntry> = new_entries
+        .into_iter()
+        .rev()
+        .filter(|entry| names.insert(case.fold(&entry.name).into_owned()))
+        .collect();
+    kept.reverse();
+    (kept, names)
+}
+
 /// Merge `new_entries` into a zlib-format entry list: each replaces the
 /// entries of its name, compared as `case` says, a batch naming one path twice
-/// keeps its first entry, and the list stays sorted as the formats require.
+/// keeps its last entry, and the list stays sorted as the formats require.
 pub fn merge_entries(entries: &mut Vec<FileEntry>, new_entries: Vec<FileEntry>, case: CaseMode) {
-    use std::collections::HashSet;
-
-    let key = |name: &str| case.fold(name).into_owned();
-    let new_file_names: HashSet<String> = new_entries.iter().map(|e| key(&e.name)).collect();
-    entries.retain(|existing_file| !new_file_names.contains(&key(&existing_file.name)));
-
-    let mut seen_names = HashSet::new();
-    for entry in new_entries {
-        if seen_names.insert(key(&entry.name)) {
-            entries.push(entry);
-        }
-    }
+    let (mut new_entries, new_file_names) = last_entry_per_name(new_entries, case);
+    entries
+        .retain(|existing_file| !new_file_names.contains(case.fold(&existing_file.name).as_ref()));
+    entries.append(&mut new_entries);
 
     // The formats require entries sorted alphabetically (case-insensitive).
     // Cached: the key allocates, and sort_by_key recomputes it per comparison
@@ -579,14 +588,29 @@ pub fn merge_entries(entries: &mut Vec<FileEntry>, new_entries: Vec<FileEntry>, 
     entries.sort_by_cached_key(|f| f.name.to_lowercase());
 }
 
+/// Every file under each of `operands`, in operand order, paired with the
+/// operand it came from: archive names are computed against it.
+pub fn collect_add_sources<'a>(operands: &[&'a Path]) -> Result<Vec<(PathBuf, &'a Path)>> {
+    let mut sources = Vec::new();
+    for &operand in operands {
+        let files = utils::collect_files(operand).with_context(|| {
+            format!("Failed to collect files from path '{}'", operand.display())
+        })?;
+        sources.extend(files.into_iter().map(|file| (file, operand)));
+    }
+    Ok(sources)
+}
+
 /// Read files from disk into an entry list: zlib-compress when it saves
-/// space, replace same-named entries, dedupe the batch, and keep the list
-/// sorted case-insensitively as the zlib-based formats require.
+/// space, replace same-named entries (of two operands naming one, the later
+/// wins), and keep the list sorted case-insensitively as the zlib-based formats require.
 ///
-/// Shared by the DAT2, Arcanum, and ToEE add paths.
+/// Shared by the DAT2, Arcanum, and ToEE add paths. All operands go through one
+/// parallel pass and one merge: a call per operand compressed a list of single
+/// files serially and re-sorted the whole archive once per file.
 pub fn add_files_zlib(
     entries: &mut Vec<FileEntry>,
-    file_path: &Path,
+    operands: &[&Path],
     compression: CompressionLevel,
     target_dir: Option<&str>,
     source_root: Option<&Path>,
@@ -594,18 +618,10 @@ pub fn add_files_zlib(
 ) -> Result<()> {
     use rayon::prelude::*;
 
-    let base_path = file_path;
-    let files = utils::collect_files(file_path).with_context(|| {
-        format!(
-            "Failed to collect files from path '{}'",
-            file_path.display()
-        )
-    })?;
-
-    // Process files in parallel
-    let results: Result<Vec<FileEntry>> = files
+    let sources = collect_add_sources(operands)?;
+    let results: Result<Vec<FileEntry>> = sources
         .par_iter()
-        .map(|file| {
+        .map(|(file, base_path)| {
             process_single_file_for_adding(
                 file,
                 base_path,
@@ -1312,7 +1328,7 @@ pub mod utils {
     /// (e.g. `..`) up-front so glob expansion cannot silently walk outside the
     /// `-C` directory. Does NOT canonicalize, check symlinks, or bounds-check
     /// the final resolved paths — callers must pipe every result through
-    /// `resolve_add_input_path` for the full security gate.
+    /// `resolve_add_input_paths` for the full security gate.
     fn expand_file_patterns(
         patterns: &[String],
         change_dir: Option<&Path>,
@@ -1324,7 +1340,7 @@ pub mod utils {
                 let pattern_path = Path::new(pattern);
                 if pattern_path.is_absolute() {
                     // Pass absolute paths through unchanged; security validation
-                    // is deferred to resolve_add_input_path.
+                    // is deferred to resolve_add_input_paths.
                     pattern_path.to_path_buf()
                 } else {
                     validate_change_dir_operand(pattern_path)?;
@@ -1506,20 +1522,38 @@ pub mod utils {
         Ok(result)
     }
 
-    /// Resolve an add operand against `-C`, rejecting operands that escape it.
+    /// Resolve add operands against `-C`, rejecting operands that escape it.
     ///
     /// This is the sole security gate for add operands under `-C`. It:
-    /// - canonicalizes the path to resolve any `..` components,
+    /// - canonicalizes each path to resolve any `..` components,
     /// - rejects symlinks (dangling or not) to prevent link-following attacks,
     /// - rejects paths whose canonical form falls outside `change_dir`.
     ///
     /// `expand_file_patterns` intentionally skips these checks and delegates
     /// them here so that validation happens exactly once per resolved path.
-    pub fn resolve_add_input_path(path: &Path, change_dir: Option<&Path>) -> Result<PathBuf> {
+    /// `change_dir` is canonicalized once for all paths: per path, that was a
+    /// measurable share of adding a long file list.
+    pub fn resolve_add_input_paths<P: AsRef<Path>>(
+        paths: &[P],
+        change_dir: Option<&Path>,
+    ) -> Result<Vec<PathBuf>> {
         let Some(base_dir) = change_dir else {
-            return Ok(path.to_path_buf());
+            return Ok(paths.iter().map(|p| p.as_ref().to_path_buf()).collect());
         };
+        let canonical_base = fs::canonicalize(base_dir).with_context(|| {
+            format!(
+                "Failed to canonicalize base directory: {}",
+                base_dir.display()
+            )
+        })?;
+        paths
+            .iter()
+            .map(|path| resolve_under(path.as_ref(), base_dir, &canonical_base))
+            .collect()
+    }
 
+    /// Resolve one add operand against `base_dir`, whose canonical form is `canonical_base`
+    fn resolve_under(path: &Path, base_dir: &Path, canonical_base: &Path) -> Result<PathBuf> {
         let candidate = if path.is_absolute() {
             path.to_path_buf()
         } else {
@@ -1537,18 +1571,11 @@ pub mod utils {
             );
         }
 
-        // Canonicalize both paths for proper comparison
+        // Compared canonical to canonical
         let resolved = fs::canonicalize(&candidate)
             .with_context(|| format!("Failed to resolve add path: {}", candidate.display()))?;
 
-        let canonical_base = fs::canonicalize(base_dir).with_context(|| {
-            format!(
-                "Failed to canonicalize base directory: {}",
-                base_dir.display()
-            )
-        })?;
-
-        if !resolved.starts_with(&canonical_base) {
+        if !resolved.starts_with(canonical_base) {
             bail!(
                 "Add path escapes -C directory: {}",
                 normalize_path_for_display(&path.display().to_string())

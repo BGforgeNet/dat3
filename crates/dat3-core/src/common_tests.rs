@@ -268,6 +268,43 @@ mod tests {
         }
     }
 
+    // ── merge_entries ──────────────────────────────────────────────
+
+    mod merge_entries {
+        use super::*;
+
+        fn entry(name: &str, data: &[u8]) -> FileEntry {
+            FileEntry::with_data(name.to_string(), data.to_vec(), false)
+        }
+
+        /// A batch adds operands in order, and a later operand replaces an
+        /// earlier one's entry, as separate adds would.
+        #[test]
+        fn a_batch_naming_one_path_twice_keeps_the_last_entry() {
+            let mut entries = Vec::new();
+            merge_entries(
+                &mut entries,
+                vec![
+                    entry("SAME.TXT", b"first"),
+                    entry("OTHER.TXT", b"other"),
+                    entry("same.txt", b"second"),
+                ],
+                CaseMode::Insensitive,
+            );
+            let kept: Vec<(&str, Option<&[u8]>)> = entries
+                .iter()
+                .map(|e| (e.name.as_str(), e.data.as_deref()))
+                .collect();
+            assert_eq!(
+                kept,
+                [
+                    ("OTHER.TXT", Some(&b"other"[..])),
+                    ("same.txt", Some(&b"second"[..]))
+                ]
+            );
+        }
+    }
+
     // ── flat extraction ────────────────────────────────────────────
 
     mod flat_extraction {
@@ -1430,12 +1467,18 @@ mod tests {
         }
     }
 
-    // ── resolve_add_input_path ────────────────────────────────────
+    // ── resolve_add_input_paths ───────────────────────────────────
 
-    mod resolve_add_input_path {
+    mod resolve_add_input_paths {
         use super::*;
         use std::fs;
         use std::path::PathBuf;
+
+        /// One path through the batch resolver
+        fn resolve(path: &Path, change_dir: Option<&Path>) -> anyhow::Result<PathBuf> {
+            utils::resolve_add_input_paths(&[path], change_dir)
+                .map(|mut resolved| resolved.remove(0))
+        }
 
         #[test]
         fn rejects_absolute_path_outside_change_dir() {
@@ -1445,7 +1488,7 @@ mod tests {
             let outside = parent.join("outside.txt");
             fs::write(&outside, b"secret").unwrap();
 
-            let result = utils::resolve_add_input_path(&outside, Some(&mods));
+            let result = resolve(&outside, Some(&mods));
 
             assert!(
                 result.is_err(),
@@ -1484,10 +1527,29 @@ mod tests {
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(&file, b"test").unwrap();
 
-            let resolved =
-                utils::resolve_add_input_path(Path::new("patch000/file.txt"), Some(&root)).unwrap();
+            let resolved = resolve(Path::new("patch000/file.txt"), Some(&root)).unwrap();
 
             assert_eq!(resolved, fs::canonicalize(file).unwrap());
+        }
+
+        /// The base is resolved once for the batch, but every path is checked against it
+        #[test]
+        fn a_batch_rejects_an_escaping_path_after_a_valid_one() {
+            let root = make_temp_dir("resolve-batch");
+            let mods = root.join("mods");
+            fs::create_dir_all(&mods).unwrap();
+            fs::write(mods.join("inside.txt"), b"test").unwrap();
+            fs::write(root.join("outside.txt"), b"test").unwrap();
+
+            let paths = [PathBuf::from("inside.txt"), root.join("outside.txt")];
+            let error = utils::resolve_add_input_paths(&paths, Some(&mods)).unwrap_err();
+
+            assert!(
+                error
+                    .to_string()
+                    .starts_with("Add path escapes -C directory:"),
+                "{error:#}"
+            );
         }
 
         #[test]
@@ -1497,7 +1559,7 @@ mod tests {
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(&file, b"test").unwrap();
 
-            let resolved = utils::resolve_add_input_path(&file, Some(&root)).unwrap();
+            let resolved = resolve(&file, Some(&root)).unwrap();
 
             assert_eq!(resolved, fs::canonicalize(file).unwrap());
         }
@@ -1510,8 +1572,7 @@ mod tests {
             fs::write(&file, b"test").unwrap();
 
             let _guard = CurrentDirGuard::enter(&root);
-            let resolved =
-                utils::resolve_add_input_path(Path::new("patch000/file.txt"), None).unwrap();
+            let resolved = resolve(Path::new("patch000/file.txt"), None).unwrap();
 
             assert_eq!(resolved, Path::new("patch000/file.txt"));
         }
@@ -1524,7 +1585,7 @@ mod tests {
             let outside = parent.join("outside.txt");
             fs::write(&outside, b"test").unwrap();
 
-            let result = utils::resolve_add_input_path(Path::new("../outside.txt"), Some(&root));
+            let result = resolve(Path::new("../outside.txt"), Some(&root));
 
             assert!(result.is_err());
         }
@@ -1540,7 +1601,7 @@ mod tests {
             fs::write(&real_file, b"real").unwrap();
             symlink(&real_file, &link_file).unwrap();
 
-            let result = utils::resolve_add_input_path(Path::new("link.txt"), Some(&root));
+            let result = resolve(Path::new("link.txt"), Some(&root));
 
             assert!(result.is_err());
         }
@@ -1556,7 +1617,7 @@ mod tests {
             fs::create_dir(&real_dir).unwrap();
             symlink(&real_dir, &link_dir).unwrap();
 
-            let result = utils::resolve_add_input_path(Path::new("link_dir"), Some(&root));
+            let result = resolve(Path::new("link_dir"), Some(&root));
 
             assert!(result.is_err());
         }
@@ -1577,7 +1638,7 @@ mod tests {
             symlink(&outside, &link_in_root).unwrap();
 
             // Using absolute path to the symlink should still reject it
-            let result = utils::resolve_add_input_path(&link_in_root, Some(&root));
+            let result = resolve(&link_in_root, Some(&root));
 
             assert!(result.is_err());
         }
@@ -1700,7 +1761,7 @@ mod tests {
         #[test]
         fn passes_through_absolute_path_outside_change_dir() {
             // expand_response_files_with_stripping no longer validates bounds —
-            // that is deferred to resolve_add_input_path (the sole security gate).
+            // that is deferred to resolve_add_input_paths (the sole security gate).
             // The function must return the absolute path unchanged.
             let parent = make_temp_dir("expand-abs-outside");
             let root = parent.join("mods");
@@ -1714,7 +1775,7 @@ mod tests {
             );
 
             // expand_response_files_with_stripping should succeed; security
-            // enforcement happens in resolve_add_input_path
+            // enforcement happens in resolve_add_input_paths
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), vec![outside]);
         }
@@ -1722,7 +1783,7 @@ mod tests {
         #[test]
         fn passes_through_absolute_path_not_in_change_dir() {
             // Same as above: absolute path resolution is deferred to
-            // resolve_add_input_path, not done here.
+            // resolve_add_input_paths, not done here.
             let root = make_temp_dir("expand-abs-parent");
 
             // /etc/passwd may not exist; use a path that does to avoid NotFound
@@ -1730,7 +1791,7 @@ mod tests {
             let result =
                 utils::expand_response_files_with_stripping(&["/etc/passwd".into()], Some(&root));
 
-            // No longer rejected at this stage — validation is in resolve_add_input_path
+            // No longer rejected at this stage — validation is in resolve_add_input_paths
             assert!(result.is_ok());
             assert_eq!(
                 result.unwrap(),

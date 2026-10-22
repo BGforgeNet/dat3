@@ -223,27 +223,21 @@ impl Dat1Archive {
 
     /// Add files to the archive.
     /// DAT1 compression (LZSS) is not implemented - files are stored uncompressed.
-    pub fn add_file(
+    pub fn add_files(
         &mut self,
-        file_path: &Path,
+        operands: &[&Path],
         _compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
         case: CaseMode,
     ) -> Result<()> {
-        let base_path = file_path;
-        let files = utils::collect_files(file_path).with_context(|| {
-            format!(
-                "Failed to collect files from path '{}'",
-                file_path.display()
-            )
-        })?;
+        let sources = common::collect_add_sources(operands)?;
 
         // Build every new entry first, then sweep the existing ones once. Doing
         // the sweep per file made adding O(files * entries); the zlib formats
         // have always used this shape (`common::add_files_zlib`).
-        let mut new_entries: Vec<FileEntry> = Vec::with_capacity(files.len());
-        for file in files {
+        let mut new_entries: Vec<FileEntry> = Vec::with_capacity(sources.len());
+        for (file, base_path) in sources {
             let data = utils::read_entry_data(&file)?;
 
             let archive_path =
@@ -275,19 +269,17 @@ impl Dat1Archive {
     }
 
     /// Place new entries in their directories, replacing existing entries of
-    /// the same name as `case` compares
+    /// the same name as `case` compares; of new entries naming one path, the last stays
     fn insert_entries(&mut self, new_entries: Vec<FileEntry>, case: CaseMode) {
-        use std::collections::HashSet;
-
         let key = |name: &str| case.fold(name).into_owned();
 
         // Every directory is swept, not just the ones the new entries land in:
         // an archive read from disk can hold an entry whose name does not match
         // the bucket it sits in, and both copies would then be written out.
-        let new_names: HashSet<String> = new_entries.iter().map(|e| key(&e.name)).collect();
+        let (new_entries, new_names) = common::last_entry_per_name(new_entries, case);
         for dir in &mut self.directories {
             dir.files
-                .retain(|existing| !new_names.contains(&key(&existing.name)));
+                .retain(|existing| !new_names.contains(case.fold(&existing.name).as_ref()));
         }
 
         for mut entry in new_entries {
@@ -524,8 +516,8 @@ mod tests {
         let level = CompressionLevel::new(0).unwrap();
 
         archive
-            .add_file(
-                &src.join("data"),
+            .add_files(
+                &[src.join("data").as_path()],
                 level,
                 None,
                 Some(&src),
@@ -533,8 +525,8 @@ mod tests {
             )
             .unwrap();
         archive
-            .add_file(
-                &src.join("data"),
+            .add_files(
+                &[src.join("data").as_path()],
                 level,
                 None,
                 Some(&src),
@@ -562,8 +554,8 @@ mod tests {
         archive.directories[0].files.push(stale);
 
         archive
-            .add_file(
-                &src.join("data"),
+            .add_files(
+                &[src.join("data").as_path()],
                 CompressionLevel::new(0).unwrap(),
                 None,
                 Some(&src),

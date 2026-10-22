@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Faster: `a` with many operands, such as a response file listing every file to pack, now compresses them all in parallel and builds the archive once. Packing a list of about 28,000 files is over 15 times faster, as fast as adding their directories.
+- New: `add_files` in the `dat3-core` library adds several files or directories in one call, as `a` does.
+
 ## v0.11.0
 
 - New: releases ship a macOS binary (`dat3-macos`), a universal binary that runs natively on Intel and Apple Silicon Macs. It is not notarized, so a copy downloaded in a browser has to be allowed in System Settings, or cleared with `xattr -d com.apple.quarantine dat3-macos`, before its first run.

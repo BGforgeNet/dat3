@@ -111,6 +111,17 @@ cp mixed.dat readd.dat
 expect_line readd.list readme.txt
 reject_line readd.list README.TXT
 
+# Test 7b: in one add, of two operands naming one entry the later one wins,
+# whichever order a response file lists them in
+printf 'README.TXT\nreadme.txt\n' >upper_first.txt
+printf 'readme.txt\nREADME.TXT\n' >lower_first.txt
+"$DAT3" a upper_first.dat -C src @upper_first.txt
+"$DAT3" a lower_first.dat -C src @lower_first.txt
+"$DAT3" x upper_first.dat -o out_upper_first
+"$DAT3" x lower_first.dat -o out_lower_first
+[ "$(cat out_upper_first/readme.txt)" = "lower" ]
+[ "$(cat out_lower_first/readme.txt)" = "upper" ]
+
 # ── Names differing only in case ──────────────────────────────────────
 
 "$DAT3" a --case-sensitive twins.dat -C src README.TXT readme.txt Art

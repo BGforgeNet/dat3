@@ -217,9 +217,9 @@ impl ArcanumArchive {
     }
 
     /// Add files to the archive (directories processed recursively, parallel)
-    pub fn add_file(
+    pub fn add_files(
         &mut self,
-        file_path: &Path,
+        operands: &[&Path],
         compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
@@ -227,7 +227,7 @@ impl ArcanumArchive {
     ) -> Result<()> {
         common::add_files_zlib(
             &mut self.files,
-            file_path,
+            operands,
             compression,
             target_dir,
             source_root,
@@ -711,8 +711,8 @@ mod tests {
 
         let mut archive = ArcanumArchive::new();
         archive
-            .add_file(
-                &src_dir,
+            .add_files(
+                &[src_dir.path()],
                 crate::common::CompressionLevel::new(9).unwrap(),
                 None,
                 None,

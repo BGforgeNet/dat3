@@ -9,8 +9,8 @@ Read, list, extract, add to and delete from Fallout (DAT1, DAT2) and Troika
 - [`DatArchive`] is an open or new archive: [`open`](DatArchive::open) detects the
   format, [`new`](DatArchive::new) starts an empty one, and
   [`list`](DatArchive::list), [`extract`](DatArchive::extract),
-  [`add_file`](DatArchive::add_file), [`delete`](DatArchive::delete) and
-  [`save`](DatArchive::save) work on it. Adds and deletes change only the
+  [`add_file`](DatArchive::add_file), [`add_files`](DatArchive::add_files),
+  [`delete`](DatArchive::delete) and [`save`](DatArchive::save) work on it. Adds and deletes change only the
   in-memory archive until it is saved.
 - For archives and files held in memory, [`from_bytes`](DatArchive::from_bytes),
   [`entries`](DatArchive::entries), [`read`](DatArchive::read),

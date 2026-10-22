@@ -472,9 +472,9 @@ impl ToeeArchive {
         utils::read_file_slice(&self.data, file)
     }
 
-    pub fn add_file(
+    pub fn add_files(
         &mut self,
-        file_path: &Path,
+        operands: &[&Path],
         compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
@@ -482,7 +482,7 @@ impl ToeeArchive {
     ) -> Result<()> {
         common::add_files_zlib(
             &mut self.files,
-            file_path,
+            operands,
             compression,
             target_dir,
             source_root,

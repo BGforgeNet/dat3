@@ -180,9 +180,9 @@ impl Dat2Archive {
     }
 
     /// Add files to the archive (directories processed recursively, parallel)
-    pub fn add_file(
+    pub fn add_files(
         &mut self,
-        file_path: &Path,
+        operands: &[&Path],
         compression: CompressionLevel,
         target_dir: Option<&str>,
         source_root: Option<&Path>,
@@ -190,7 +190,7 @@ impl Dat2Archive {
     ) -> Result<()> {
         common::add_files_zlib(
             &mut self.files,
-            file_path,
+            operands,
             compression,
             target_dir,
             source_root,
@@ -506,8 +506,8 @@ mod tests {
 
         let mut archive = Dat2Archive::new();
         let err = archive
-            .add_file(
-                &file,
+            .add_files(
+                &[file.as_path()],
                 CompressionLevel::new(0).unwrap(),
                 None,
                 None,
@@ -529,8 +529,8 @@ mod tests {
         let mut archive = Dat2Archive::new();
         let target_dir = "D".repeat(MAX_PATH_BYTES);
         let err = archive
-            .add_file(
-                &file,
+            .add_files(
+                &[file.as_path()],
                 CompressionLevel::new(0).unwrap(),
                 Some(&target_dir),
                 None,
