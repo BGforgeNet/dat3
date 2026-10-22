@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit -p tests/tsconfig.json"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
+    "@types/node": "24.19.2",
     "typescript": "7.0.2"
   }
 }
