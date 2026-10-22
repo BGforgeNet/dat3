@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.11.1
 
 - Faster: `a` with many operands, such as a response file listing every file to pack, now compresses them all in parallel and builds the archive once. Packing a list of about 28,000 files is over 15 times faster, as fast as adding their directories.
 - New: `add_files` in the `dat3-core` library adds several files or directories in one call, as `a` does.
