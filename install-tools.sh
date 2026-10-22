@@ -129,8 +129,10 @@ has_version() {
     local cmd="$1" want="$2" version_arg="$3" reported
     command -v "$cmd" >/dev/null || return 1
     # stderr is captured, not discarded: a binary that is present but broken
-    # reports its error in the trace and then gets reinstalled.
-    reported="$("$cmd" "$version_arg" 2>&1 || true)"
+    # reports its error in the trace and then gets reinstalled. Its status is
+    # checked too: an error can quote the wanted version, as a mise shim with no
+    # version set does when it suggests one.
+    reported="$("$cmd" "$version_arg" 2>&1)" || return 1
     [[ "$reported" == *"$want"* ]]
 }
 
