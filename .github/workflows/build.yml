@@ -124,8 +124,9 @@ jobs:
     strategy:
       matrix:
         include:
-          # zig, because mimalloc is C and apt has no aarch64-musl compiler, and
-          # the macOS build needs a Mach-O linker; cargo-zigbuild drives it.
+          # zig, because mimalloc is C and apt has no aarch64-musl compiler, the
+          # macOS build needs a Mach-O linker, and for Windows it spares an apt
+          # MinGW install (build.sh says more); cargo-zigbuild drives it.
           - targets: aarch64-unknown-linux-musl
             rust-targets: aarch64-unknown-linux-musl
             tools: zig cargo-zigbuild
@@ -136,11 +137,11 @@ jobs:
             artifact: build-universal2-apple-darwin
           - targets: x86_64-pc-windows-gnu
             rust-targets: x86_64-pc-windows-gnu
-            apt-packages: gcc-mingw-w64
+            tools: zig cargo-zigbuild
             artifact: build-x86_64-pc-windows-gnu
           - targets: i686-pc-windows-gnu
             rust-targets: i686-pc-windows-gnu
-            apt-packages: gcc-mingw-w64
+            tools: zig cargo-zigbuild
             artifact: build-i686-pc-windows-gnu
           # wasm-bindgen and npm for the npm package
           - targets: wasm32-wasip1 npm
@@ -158,7 +159,6 @@ jobs:
           targets: ${{ matrix.targets }}
           rust-targets: ${{ matrix.rust-targets }}
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-          apt-packages: ${{ matrix.apt-packages }}
           tools: ${{ matrix.tools }}
           node-version: ${{ matrix.node && env.NODE_VERSION || '' }}
           artifact: ${{ matrix.artifact }}

@@ -3,7 +3,8 @@
 set -xeu -o pipefail
 
 # Glob pattern handling for the Windows build, run under wine: the same
-# patterns as glob_handling.sh, written with backslash separators.
+# patterns as glob_handling.sh, written with backslash separators. Ends with a
+# round trip through the 64-bit build.
 
 # shellcheck source=tests/common.sh
 source "$(dirname "$0")/common.sh"
@@ -175,6 +176,15 @@ verify_file_exists "test8.dat" "patch000\\1.txt"
 verify_file_exists "test8.dat" "patch000\\2.txt"
 verify_file_exists "test8.dat" "patch000\\data.bin"
 echo "Glob with .\\ prefix verification passed!"
+
+# Test 9: the 64-bit build, which no other test runs, round-trips a directory
+echo ""
+echo "=== Test 9: 64-bit build round trip ==="
+cp "$SCRIPT_DIR/../target/x86_64-pc-windows-gnu/release/dat3.exe" dat3-x64.exe
+WINEDEBUG=-all wine dat3-x64.exe a -c 6 test9.dat patch000
+WINEDEBUG=-all wine dat3-x64.exe x test9.dat -o out9
+diff -r patch000 out9/patch000
+echo "64-bit round trip passed!"
 
 echo ""
 echo "All Windows glob tests completed successfully!"

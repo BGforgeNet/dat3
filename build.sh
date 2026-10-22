@@ -12,17 +12,20 @@ echo "Cross-compiling static binaries..."
 # Targets whose toolchain is either bundled with rustc or already on PATH.
 CARGO_TARGETS=(
     x86_64-unknown-linux-musl
-    x86_64-pc-windows-gnu
-    i686-pc-windows-gnu
     wasm32-wasip1
 )
 
 # mimalloc is C, and no aarch64-musl C compiler ships in apt; zig provides one.
 # macOS needs a Mach-O linker, which zig also provides, and cargo-zigbuild's
-# universal2 target merges the x86_64 and arm64 builds into one binary.
+# universal2 target merges the x86_64 and arm64 builds into one binary. For
+# Windows, zig replaces apt's MinGW: a 218 MB install whose mirror can stall a
+# build for its whole timeout. Its binaries link the Universal C Runtime, which
+# every Windows the Rust targets support ships, rather than msvcrt.dll.
 ZIG_TARGETS=(
     aarch64-unknown-linux-musl
     universal2-apple-darwin
+    x86_64-pc-windows-gnu
+    i686-pc-windows-gnu
 )
 
 ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}")

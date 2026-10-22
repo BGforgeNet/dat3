@@ -6,7 +6,7 @@
 - Target-specific toolchains (install as needed)
 - `./install-tools.sh` for the pinned tooling, including [Zig](https://ziglang.org/), which the aarch64
   target needs: mimalloc is C, and no aarch64-musl C compiler is packaged for common distros. It also links the
-  macOS build
+  macOS and Windows builds
 - Node 24 or newer, to run the integration suite (`./test.sh`): its helpers under `tests/` are TypeScript, run
   by Node's own type stripping. `npm ci && npm run typecheck` typechecks them, and `wasm_library.sh` needs that
   `npm ci` to typecheck the example in `docs/api.md`. Neither is needed to build dat3
