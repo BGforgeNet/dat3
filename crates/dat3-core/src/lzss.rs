@@ -57,7 +57,7 @@ const RAW_BLOCK_FLAG: u16 = 0x8000;
 ///
 /// The output must be exactly `expected_size` bytes; decoding stops as soon as
 /// it runs past that (see `check_decompressed_len`).
-pub fn decompress(compressed_data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
+pub(crate) fn decompress(compressed_data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     if compressed_data.is_empty() {
         check_decompressed_len(0, expected_size)?;
         return Ok(Vec::new());

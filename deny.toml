@@ -1,10 +1,12 @@
 # cargo-deny policy. Only the settings this project actually sets are kept;
 # everything else stays at cargo-deny's own defaults, documented at
 # https://embarkstudios.github.io/cargo-deny/checks/index.html
-#
-# `[sources]` is deliberately absent: `ci.sh` runs the licenses, advisories and
-# bans checks only, so a sources policy here would be configured and never
-# evaluated. Add the check first if that policy is ever wanted.
+# The defaults warn on yanked releases and unlisted sources and allow `*`
+# requirements, and a warning exits 0, so those are raised to errors here.
+
+[advisories]
+# A yanked release was pulled by its author, usually for a defect.
+yanked = "deny"
 
 [licenses]
 # A license that stops being needed fails the build rather than lingering here.
@@ -25,3 +27,13 @@ allow = [
 multiple-versions = "deny"
 # Highlight both the lowest-versioned and the shortest path to a duplicate.
 highlight = "all"
+# A `*` requirement accepts any future release, breaking or malicious.
+wildcards = "deny"
+# A workspace `path` dependency has no version and counts as a wildcard; the
+# workspace sets `publish = false`, which this exemption requires.
+allow-wildcard-paths = true
+
+[sources]
+# A dependency from a registry or git repository nobody listed is a dependency nobody chose.
+unknown-registry = "deny"
+unknown-git = "deny"

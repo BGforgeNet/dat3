@@ -1,4 +1,13 @@
-# Tests assert by unwrapping: a panic there is the failure report, not a crash in shipped code.
+# Tests assert by unwrapping: a panic there is the failure report, not a crash in shipped code. The same holds for
+# expect, dbg and print, so those lints stand down in test code too.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+allow-dbg-in-tests = true
 allow-print-in-tests = true
+
+# A `tracing` span entered with `Span::enter()` and held across an `.await` stays entered while the task is
+# suspended, so other tasks' events attach to the wrong span. `.instrument(span)` attaches it to the future.
+await-holding-invalid-types = [
+    { path = "tracing::span::Entered", reason = "attach the span with `.instrument(span)`, not `span.enter()`" },
+    { path = "tracing::span::EnteredSpan", reason = "attach the span with `.instrument(span)`, not `span.entered()`" },
+]

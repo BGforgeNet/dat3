@@ -9,6 +9,7 @@ Everything works on bytes: the JS side reads and writes files. Names use `/` in
 both directions (`\` is accepted too), and are looked up regardless of case,
 preferring an exact match.
 */
+#![warn(missing_docs, unreachable_pub, clippy::missing_panics_doc)]
 
 use dat3_core::common::{CaseMode, CompressionLevel};
 use dat3_core::{ArchiveFormat, DatArchive};

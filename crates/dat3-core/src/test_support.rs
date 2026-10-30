@@ -45,6 +45,10 @@ impl ScratchPath {
     }
 
     /// The same, with the directory created and empty.
+    ///
+    /// # Panics
+    ///
+    /// If the directory cannot be created, failing the test that asked for it.
     #[expect(
         clippy::expect_used,
         reason = "test-only helper: a failed setup should fail the test that asked for it"

@@ -46,7 +46,7 @@ can use them, and change with it.
 // here shows it in rustdoc and compiles its Rust example as a doctest. The path leaves the crate, which a git
 // dependency's checkout satisfies but `cargo package` would not.
 #![doc = include_str!("../../../docs/api.md")]
-#![warn(missing_docs)]
+#![warn(missing_docs, unreachable_pub, clippy::missing_panics_doc)]
 
 // Defined before the modules, so their textual scope covers every module and shadows std's macros there.
 /// `println!` that drops its line once stdout is a closed pipe; see [`common::print_line`].

@@ -26,24 +26,77 @@ anyhow = "1.0"
 clap = { version = ">=4.4, <4.6.4", features = ["derive"] }
 
 [workspace.lints.rust]
+# An `unsafe` operation inside an `unsafe fn` still needs its own `unsafe` block, so each one is marked and
+# greppable rather than blanket-authorized by the signature.
 unsafe_op_in_unsafe_fn = "deny"
+
+# The first `unsafe` in a crate is a decision, not a convenience: a module that needs it carries
+# `#![expect(unsafe_code, reason = "...")]` at its top. Deny, not forbid, so that `expect` can lower it.
+unsafe_code = "deny"
+
+# Public types are inspectable.
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
-# `expect` stays a warning: it is allowed on an invariant that cannot fail, with the message saying why.
+# A fallible value is propagated or matched, not unwrapped. `expect` stays a warning: it is allowed on an invariant
+# that cannot fail, with the message saying why.
 unwrap_used = "deny"
 expect_used = "warn"
-unwrap_in_result = "warn"
+
+# Every `unsafe` block carries a `// SAFETY:` comment, and holds one unsafe operation so the comment justifies
+# exactly that operation.
 undocumented_unsafe_blocks = "deny"
-ptr_arg = "warn"
-needless_range_loop = "warn"
-wildcard_enum_match_arm = "warn"
-from_over_into = "warn"
-derive_partial_eq_without_eq = "warn"
+multiple_unsafe_ops_per_block = "deny"
+
+# Skips a destructor: a lock never released, a buffer never flushed. `ManuallyDrop` states that intent instead.
+mem_forget = "deny"
+
+# Suppress with `#[expect(lint, reason = "...")]`: `#[allow]` outlives the finding it hid.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+
+# Scaffolding that must not ship.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
 # std's print macros panic once the reader of stdout or stderr has gone (`dat3 l x.dat 2>&1 | head`). dat3-core's
 # `println!`/`eprintln!` shadow them, in that crate and wherever imported, and these lints match std's alone.
 print_stdout = "deny"
 print_stderr = "deny"
+
+# Async. A std `MutexGuard` or `RefCell` borrow held across an `.await` blocks the executor thread or panics at
+# runtime; a future bound to `_` is dropped unpolled and never runs; `Arc` around a non-`Send`/`Sync` type cannot
+# cross threads, so it wants `Rc`.
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+let_underscore_future = "deny"
+arc_with_non_send_sync = "deny"
+# A future over 16 KiB is copied on every move and can overflow the stack; `Box::pin` it.
+large_futures = "warn"
+unused_async = "warn"
+
+# Borrow in APIs: `&String`/`&Vec<T>` in a signature where `&str`/`&[T]` accepts strictly more callers.
+ptr_arg = "warn"
+
+# Iterator combinators, not index loops.
+needless_range_loop = "warn"
+
+# Match enums exhaustively and avoid a catch-all `_` on owned enums - a new variant then breaks the match
+# instead of being silently absorbed.
+wildcard_enum_match_arm = "warn"
+
+# Implement `From`, not `Into` - the blanket impl gives `Into` for free, and a direct `Into` conflicts.
+from_over_into = "warn"
+
+# Derive `Eq` alongside `PartialEq` wherever the type supports it, so it can key a map.
+derive_partial_eq_without_eq = "warn"
+
+# `std::sync::LazyLock`/`OnceLock` replace `once_cell::Lazy` and `lazy_static!`: one dependency fewer.
+non_std_lazy_statics = "warn"
+
+# An ignored test says why: `#[ignore = "needs a live database"]`, so a skip is tracked, not forgotten.
+ignore_without_reason = "warn"
 
 [profile.release]
 lto = true

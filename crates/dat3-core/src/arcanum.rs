@@ -90,7 +90,7 @@ pub struct ArcanumArchive {
 /// at this position, so the magic decides; full footer validation is
 /// `from_bytes`'s job, keeping a corrupt Arcanum trailer routed here for an
 /// accurate error instead of falling through to a misleading DAT2 one.
-pub fn is_arcanum_format(data: &[u8]) -> bool {
+pub(crate) fn is_arcanum_format(data: &[u8]) -> bool {
     data.len() >= FOOTER_SIZE + 4 && data[data.len() - 12..data.len() - 8] == MAGIC
 }
 

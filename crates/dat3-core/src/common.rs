@@ -680,8 +680,10 @@ fn compress_zlib(data: &[u8], level: u8) -> Result<Vec<u8>> {
 /// Word a parse error from a deku-derived record for the user. deku reports a
 /// short read in bits, which says nothing useful about a truncated archive.
 pub fn deku_parse_error(context: impl std::fmt::Display, e: deku::DekuError) -> anyhow::Error {
-    // DekuError is non_exhaustive, so a catch-all arm is required; it keeps deku's own wording.
-    #[expect(clippy::wildcard_enum_match_arm)]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "DekuError is non_exhaustive, so a catch-all arm is required; it keeps deku's own wording"
+    )]
     match e {
         deku::DekuError::Incomplete(need) => anyhow::anyhow!(
             "{context}: archive data ends early ({} more bytes needed)",

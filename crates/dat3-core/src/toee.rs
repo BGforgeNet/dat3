@@ -93,7 +93,7 @@ pub struct ToeeArchive {
 /// ToEE V0 has its own signature. ToEE V1 and Arcanum use the same footer, but
 /// their exact table sizes differ by three link fields per entry, so entry
 /// count plus the footer's name-byte total distinguishes non-empty archives.
-pub fn is_toee_format(data: &[u8]) -> bool {
+pub(crate) fn is_toee_format(data: &[u8]) -> bool {
     let Some(trailer) = data.get(data.len().saturating_sub(V0_FOOTER_SIZE)..) else {
         return false;
     };

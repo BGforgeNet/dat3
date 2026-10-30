@@ -35,10 +35,11 @@ cargo test --verbose
 # Library API docs: a broken doc link or other rustdoc warning fails the build
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --package dat3-core
 
-# License, advisory (RustSec) and duplicate-dependency checks
+# License, advisory (RustSec), duplicate-dependency and dependency-source checks
 cargo deny check -D parse-error licenses
 cargo deny check advisories
 cargo deny check bans
+cargo deny check sources
 
 # Unused dependencies
 cargo machete
