@@ -393,10 +393,10 @@ impl DatArchive {
             );
         }
         let normalized = utils::normalize_user_path(file_name);
-        common::print_stdout(format_args!(
+        println!(
             "Deleting: {}",
             utils::normalize_path_for_display(&normalized)
-        ));
+        );
         Ok(())
     }
 

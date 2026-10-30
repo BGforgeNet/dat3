@@ -18,7 +18,7 @@ mod config; // Optional .bgforge.yml defaults
 use dat3_core::common::{
     self, CaseMode, CompressionLevel, ExtractionMode, ListFormat, MissingFiles, Selection, utils,
 };
-use dat3_core::{ArchiveFormat, DatArchive};
+use dat3_core::{ArchiveFormat, DatArchive, eprintln};
 
 /// Command-line interface definition.
 /// The `clap` crate uses these derive macros to automatically parse arguments.

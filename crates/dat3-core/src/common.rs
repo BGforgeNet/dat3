@@ -12,27 +12,28 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-/// Set once the reader has closed stdout, silencing every later write.
-static STDOUT_CLOSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Write to stdout, going quiet on a broken pipe (e.g. when piped to `head`).
+/// Write `args` and a newline to `w`: the body of the crate's `println!` and
+/// `eprintln!`, which replace std's in this crate and the `dat3` binary.
 ///
-/// Every stdout write in the crate goes through this. Rust ignores SIGPIPE, so
-/// an unguarded `println!` fails with `EPIPE` and panics, aborting the process.
-///
-/// Going quiet rather than exiting: for `x`, `a` and `d` stdout carries only
-/// progress chatter while the real output is a file, so quitting on a closed
-/// pipe would abandon a half-written archive - `a` piped to `head` would exit 0
-/// having produced nothing. The pipe closing is a fact about the reporting
-/// channel, not a reason to stop the work.
-pub(crate) fn print_stdout(args: std::fmt::Arguments) {
-    use std::sync::atomic::Ordering;
-
-    if STDOUT_CLOSED.load(Ordering::Relaxed) {
-        return;
-    }
-    if writeln!(io::stdout(), "{args}").is_err() {
-        STDOUT_CLOSED.store(true, Ordering::Relaxed);
+/// Rust ignores SIGPIPE, so std's macros panic once the reader has gone
+/// (`dat3 l x.dat 2>&1 | head`). A closed pipe drops the line instead: for `x`,
+/// `a` and `d` the output is only a report while the real work is a file, so
+/// quitting would abandon a half-written archive. Any other write error (a full
+/// disk) ends the process with status 1, since the output is incomplete.
+pub fn print_line(w: &mut impl Write, args: std::fmt::Arguments<'_>) {
+    if let Err(e) = writeln!(w, "{args}")
+        && e.kind() != io::ErrorKind::BrokenPipe
+    {
+        let program = std::env::args_os()
+            .next()
+            .and_then(|p| {
+                Path::new(&p)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+            })
+            .unwrap_or_default();
+        let _ = writeln!(io::stderr(), "{program}: writing output: {e}");
+        std::process::exit(1);
     }
 }
 
@@ -299,10 +300,7 @@ pub fn list_files_filtered(
 
     match format {
         ListFormat::Text => utils::print_file_listing(&files_to_list, &view),
-        ListFormat::Json => print_stdout(format_args!(
-            "{}",
-            utils::format_file_listing_json(&files_to_list, &view)
-        )),
+        ListFormat::Json => println!("{}", utils::format_file_listing_json(&files_to_list, &view)),
     }
 
     report_missing_patterns(&missing_patterns, selection.on_missing)
@@ -453,7 +451,7 @@ pub fn extract_archive_parallel(
     let total_files = files_to_extract.len();
     let completed = AtomicUsize::new(0);
 
-    print_stdout(format_args!("Extracting {total_files} files..."));
+    println!("Extracting {total_files} files...");
     let start = std::time::Instant::now();
 
     files_to_extract
@@ -478,20 +476,14 @@ pub fn extract_archive_parallel(
             // Counted once written, every 1000 files and at the end
             let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
             if count.is_multiple_of(1000) || count == total_files {
-                print_stdout(format_args!(
-                    "{}",
-                    progress_line(count, total_files, start.elapsed())
-                ));
+                println!("{}", progress_line(count, total_files, start.elapsed()));
             }
 
             Ok(())
         })?;
 
     let total_time = start.elapsed();
-    print_stdout(format_args!(
-        "Extraction completed in {:.2}s",
-        total_time.as_secs_f64()
-    ));
+    println!("Extraction completed in {:.2}s", total_time.as_secs_f64());
     Ok(())
 }
 
@@ -651,10 +643,10 @@ fn process_single_file_for_adding(
     let archive_path = utils::calculate_archive_path(file, base_path, target_dir, source_root)?;
     let archive_path = case.fold(&archive_path).into_owned();
     utils::check_entry_name_len(&archive_path)?;
-    print_stdout(format_args!(
+    println!(
         "Adding: {}",
         utils::normalize_path_for_display(&archive_path)
-    ));
+    );
     zlib_entry(archive_path, data, compression)
 }
 
@@ -823,22 +815,19 @@ pub mod utils {
     use std::borrow::Cow;
 
     /// Print formatted file listing to stdout.
-    /// Output goes through `print_stdout`, so a closed pipe (e.g. `| head`) silences it.
+    /// Output goes through the crate's `println!`, so a closed pipe (e.g. `| head`) silences it.
     pub fn print_file_listing<T: AsRef<FileEntry>>(files: &[T], view: &NameView) {
-        print_stdout(format_args!(
-            "{:>11} {:>11}  {:>4}  Name",
-            "Size", "Packed", "Comp"
-        ));
-        print_stdout(format_args!("{}", "-".repeat(50)));
+        println!("{:>11} {:>11}  {:>4}  Name", "Size", "Packed", "Comp");
+        println!("{}", "-".repeat(50));
 
         for file in files {
             let file = file.as_ref();
             let comp_str = if file.compressed { "Yes" } else { "No" };
             let display_name = normalize_path_for_display(&view.shown(&file.name));
-            print_stdout(format_args!(
+            println!(
                 "{:>11} {:>11}  {:>4}  {}",
                 file.size, file.packed_size, comp_str, display_name
-            ));
+            );
         }
     }
 

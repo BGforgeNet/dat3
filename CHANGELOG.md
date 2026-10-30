@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: a warning or error written after the reader of stderr had gone, as in `dat3 l master.dat no/such/file 2>&1 | head`, crashed dat3 with a core dump. Such output is now dropped, and the command finishes with its usual exit status.
+- Fixed: when writing a listing or progress failed for any reason other than a closed pipe, such as a full disk, dat3 still exited 0. It now reports `dat3: writing output: ...` and exits 1.
+
 ## v0.11.1
 
 - Faster: `a` with many operands, such as a response file listing every file to pack, now compresses them all in parallel and builds the archive once. Packing a list of about 28,000 files is over 15 times faster, as fast as adding their directories.

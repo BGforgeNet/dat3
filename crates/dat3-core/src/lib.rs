@@ -48,6 +48,19 @@ can use them, and change with it.
 #![doc = include_str!("../../../docs/api.md")]
 #![warn(missing_docs)]
 
+// Defined before the modules, so their textual scope covers every module and shadows std's macros there.
+/// `println!` that drops its line once stdout is a closed pipe; see [`common::print_line`].
+#[macro_export]
+macro_rules! println {
+    ($($arg:tt)*) => { $crate::common::print_line(&mut ::std::io::stdout(), format_args!($($arg)*)) };
+}
+
+/// `eprintln!` that drops its line once stderr is a closed pipe; see [`common::print_line`].
+#[macro_export]
+macro_rules! eprintln {
+    ($($arg:tt)*) => { $crate::common::print_line(&mut ::std::io::stderr(), format_args!($($arg)*)) };
+}
+
 mod arcanum; // Arcanum (Troika) DAT format implementation
 pub mod archive; // ArchiveFormat and the unified DatArchive interface
 pub mod common; // Shared types, archive operations, and path utilities

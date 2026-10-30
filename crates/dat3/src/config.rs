@@ -14,7 +14,7 @@ the built-in default, so a foreign or broken config never blocks the tool.
 
 use std::path::Path;
 
-use dat3_core::ArchiveFormat;
+use dat3_core::{ArchiveFormat, eprintln};
 
 /// Config file name, looked up in the process working directory
 pub const CONFIG_FILE: &str = ".bgforge.yml";

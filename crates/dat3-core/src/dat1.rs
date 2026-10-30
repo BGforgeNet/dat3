@@ -246,7 +246,7 @@ impl Dat1Archive {
 
             let size = data.len() as u32;
             let display_path = utils::normalize_path_for_display(&archive_path);
-            common::print_stdout(format_args!("Adding: {display_path}"));
+            println!("Adding: {display_path}");
 
             // DAT1 stores files uncompressed
             let mut file_entry = FileEntry::with_data(archive_path, data, false);

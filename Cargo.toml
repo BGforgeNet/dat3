@@ -40,6 +40,10 @@ needless_range_loop = "warn"
 wildcard_enum_match_arm = "warn"
 from_over_into = "warn"
 derive_partial_eq_without_eq = "warn"
+# std's print macros panic once the reader of stdout or stderr has gone (`dat3 l x.dat 2>&1 | head`). dat3-core's
+# `println!`/`eprintln!` shadow them, in that crate and wherever imported, and these lints match std's alone.
+print_stdout = "deny"
+print_stderr = "deny"
 
 [profile.release]
 lto = true
