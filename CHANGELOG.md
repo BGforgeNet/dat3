@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.11.2
 
 - Fixed: a warning or error written after the reader of stderr had gone, as in `dat3 l master.dat no/such/file 2>&1 | head`, crashed dat3 with a core dump. Such output is now dropped, and the command finishes with its usual exit status.
 - Fixed: when writing a listing or progress failed for any reason other than a closed pipe, such as a full disk, dat3 still exited 0. It now reports `dat3: writing output: ...` and exits 1.
