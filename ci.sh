@@ -42,3 +42,8 @@ cargo deny check bans
 
 # Unused dependencies
 cargo machete
+
+# The declared MSRV. CI runs it as its own job, in parallel with this one.
+if [ -z "${CI:-}" ]; then
+    ./msrv.sh
+fi

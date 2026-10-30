@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 /// quitting would abandon a half-written archive. Any other write error (a full
 /// disk) ends the process with status 1, since the output is incomplete.
 pub fn print_line(w: &mut impl Write, args: std::fmt::Arguments<'_>) {
-    // Nested rather than a let chain, which needs Rust 1.88 against the 1.87 MSRV
+    // Nested rather than a let chain, which needs Rust 1.88, newer than the declared rust-version
     if let Err(e) = writeln!(w, "{args}") {
         if e.kind() != io::ErrorKind::BrokenPipe {
             let program = std::env::args_os()
