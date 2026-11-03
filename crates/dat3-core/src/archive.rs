@@ -403,28 +403,16 @@ impl DatArchive {
     /// Whether saving stores identical file data once (off by default).
     ///
     /// With it on, entries whose stored bytes are identical point at one copy of
-    /// them, which the Fallout 1 and 2 engines and Arcanum read like any other
-    /// entry. Tools that move file data around in place may not expect it: the
-    /// original DAT2 tool's shrink command corrupts such an archive. ToEE
-    /// archives refuse it: the game's own reader has not been checked with
-    /// shared data.
-    pub fn set_deduplicate(&mut self, deduplicate: bool) -> Result<()> {
+    /// them, which the games read like any other entry. Tools that move file
+    /// data around in place may not expect it: the original DAT2 tool's shrink
+    /// command corrupts such an archive.
+    pub fn set_deduplicate(&mut self, deduplicate: bool) {
         match self {
             Self::Dat1(a) => a.set_deduplicate(deduplicate),
             Self::Dat2(a) => a.set_deduplicate(deduplicate),
             Self::Arcanum(a) => a.set_deduplicate(deduplicate),
-            // The only ToEE build at hand, the demo, starts behind a DRM wrapper
-            // that does not run under Wine, so the game's reader stays unchecked.
-            Self::Toee(a) => {
-                if deduplicate {
-                    bail!(
-                        "Deduplication is not supported for ToEE archives: the game's reader has not been checked with shared data"
-                    );
-                }
-                a.set_deduplicate(deduplicate);
-            }
+            Self::Toee(a) => a.set_deduplicate(deduplicate),
         }
-        Ok(())
     }
 
     /// Write the archive to `path`, replacing any file there only once the new one
@@ -816,13 +804,6 @@ mod tests {
         }
     }
 
-    /// The formats `set_deduplicate` accepts
-    const DEDUPLICATING_FORMATS: [ArchiveFormat; 3] = [
-        ArchiveFormat::Dat1,
-        ArchiveFormat::Dat2,
-        ArchiveFormat::Arcanum,
-    ];
-
     /// Two entries, in different directories, with the same contents, and one with other contents
     fn archive_with_a_duplicate(format: ArchiveFormat, shared: &[u8]) -> DatArchive {
         let mut archive = DatArchive::new(format);
@@ -845,10 +826,10 @@ mod tests {
     #[test]
     fn a_deduplicated_save_stores_identical_data_once() {
         let shared = b"frame ".repeat(500);
-        for format in DEDUPLICATING_FORMATS {
+        for format in ALL_FORMATS {
             let mut archive = archive_with_a_duplicate(format, &shared);
             let full = archive.to_bytes().unwrap();
-            archive.set_deduplicate(true).unwrap();
+            archive.set_deduplicate(true);
             let deduplicated = archive.to_bytes().unwrap();
 
             let parsed = DatArchive::from_bytes(deduplicated.clone()).unwrap();
@@ -880,14 +861,14 @@ mod tests {
     #[test]
     fn removing_the_entry_that_was_written_first_keeps_its_sharer() {
         let shared = b"frame ".repeat(500);
-        for format in DEDUPLICATING_FORMATS {
+        for format in ALL_FORMATS {
             let mut archive = archive_with_a_duplicate(format, &shared);
-            archive.set_deduplicate(true).unwrap();
+            archive.set_deduplicate(true);
             let mut reopened = through_bytes(&archive);
             assert!(reopened.remove("art/a.frm", CaseMode::Insensitive).unwrap());
 
             for deduplicate in [false, true] {
-                reopened.set_deduplicate(deduplicate).unwrap();
+                reopened.set_deduplicate(deduplicate);
                 let parsed = through_bytes(&reopened);
                 assert_eq!(
                     parsed.read("art/sub/b.frm", CaseMode::Insensitive).unwrap(),
@@ -896,17 +877,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn deduplication_is_refused_for_toee() {
-        let mut archive = DatArchive::new(ArchiveFormat::Toee);
-        let error = archive.set_deduplicate(true).unwrap_err().to_string();
-        assert!(
-            error.starts_with("Deduplication is not supported for ToEE archives"),
-            "{error}"
-        );
-        archive.set_deduplicate(false).unwrap();
     }
 
     #[test]

@@ -172,7 +172,7 @@ for (const format of FORMATS) {
     });
 }
 
-for (const format of ["dat1", "dat2", "arcanum"] as const) {
+for (const format of FORMATS) {
     test(`${format}: setDeduplicate stores identical files once, and the native dat3 extracts each`, () => {
         const archive = new Archive(format);
         archive.insert("art/a.frm", BIG, 9);
@@ -197,20 +197,6 @@ for (const format of ["dat1", "dat2", "arcanum"] as const) {
         assert.deepEqual(readFileSync(path.join(outDir, "c.txt")), TINY);
     });
 }
-
-test("toee: setDeduplicate(true) throws, and false is accepted", () => {
-    const archive = new Archive("toee");
-    try {
-        assert.throws(() => archive.setDeduplicate(true), {
-            name: "Error",
-            message:
-                "Deduplication is not supported for ToEE archives: the game's reader has not been checked with shared data",
-        });
-        archive.setDeduplicate(false);
-    } finally {
-        archive.free();
-    }
-});
 
 test("entries are plain objects that survive JSON and structured cloning", () => {
     const archive = new Archive("dat2");

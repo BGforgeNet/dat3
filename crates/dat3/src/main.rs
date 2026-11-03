@@ -112,8 +112,8 @@ enum Commands {
 }
 
 /// `--dedup`, shared by every command that saves an archive
-const DEDUP_HELP: &str = "Store identical files once: entries with the same stored bytes share one copy \
-     (DAT1, DAT2 and Arcanum; not ToEE). Without it, every entry is written out in full";
+const DEDUP_HELP: &str = "Store identical files once: entries with the same stored bytes share one copy. \
+     Without it, every entry is written out in full";
 
 /// Map the `--ignore-missing` flag to the policy the archive operations take.
 fn missing_files_policy(ignore_missing: bool) -> MissingFiles {
@@ -270,8 +270,7 @@ fn main() -> Result<()> {
                     .unwrap_or(ArchiveFormat::Dat2);
                 DatArchive::new(format)
             };
-            // Before the add, so an unsupported format fails before any compression work
-            archive.set_deduplicate(dedup)?;
+            archive.set_deduplicate(dedup);
 
             if archive.format() == ArchiveFormat::Dat1
                 && compression_explicitly_set
@@ -299,7 +298,7 @@ fn main() -> Result<()> {
             dedup,
         } => {
             let mut archive = open_archive(&dat_file, case)?;
-            archive.set_deduplicate(dedup)?;
+            archive.set_deduplicate(dedup);
             let patterns = utils::expand_response_files_for_archive(&files)?;
             archive.delete(&patterns, case)?;
             archive.save(&dat_file)?;

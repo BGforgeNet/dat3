@@ -2,8 +2,8 @@
 
 set -xeu -o pipefail
 
-# --dedup on a and d: identical files are stored once, every entry still
-# extracts as added, and ToEE refuses the flag.
+# --dedup on a and d: identical files are stored once in every format, and
+# every entry still extracts as added.
 
 # Work inside tests directory
 cd "$(dirname "$0")"
@@ -28,7 +28,7 @@ size() {
     wc -c <"$1" | tr -d ' '
 }
 
-for format in dat1 dat2 arcanum; do
+for format in dat1 dat2 arcanum toee; do
     $DAT3 a --format "$format" -C src "full_$format.dat" art c.txt
     $DAT3 a --format "$format" --dedup -C src "dedup_$format.dat" art c.txt
 
@@ -48,15 +48,5 @@ for format in dat1 dat2 arcanum; do
     $DAT3 x -o "deleted_out_$format" "deleted_$format.dat"
     cmp src/art/sub/b.frm "deleted_out_$format/art/sub/b.frm"
 done
-
-if $DAT3 a --format toee --dedup -C src refused.dat art 2>refused.err; then
-    echo "Error: toee accepted --dedup"
-    exit 1
-fi
-grep -q "Deduplication is not supported for ToEE archives" refused.err
-if [ -e refused.dat ]; then
-    echo "Error: the refused toee add wrote an archive"
-    exit 1
-fi
 
 echo "All dedup tests passed"
