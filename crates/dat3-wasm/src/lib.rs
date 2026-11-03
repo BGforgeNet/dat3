@@ -108,6 +108,14 @@ impl Archive {
         self.inner.remove(name, CASE).map_err(js_error)
     }
 
+    /// Whether `toBytes` stores identical file data once (off by default): entries whose
+    /// stored bytes match point at one copy. DAT1 and DAT2 only; turning it on for
+    /// Arcanum or ToEE throws.
+    #[wasm_bindgen(js_name = setDeduplicate)]
+    pub fn set_deduplicate(&mut self, deduplicate: bool) -> Result<(), JsError> {
+        self.inner.set_deduplicate(deduplicate).map_err(js_error)
+    }
+
     /// The archive file's bytes, as dat3 would save it
     #[wasm_bindgen(js_name = toBytes)]
     pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {

@@ -56,6 +56,7 @@ interface Archive {
     read(name: string): Uint8Array;
     insert(name: string, data: Uint8Array, compression?: number | null): void;
     remove(name: string): boolean;
+    setDeduplicate(deduplicate: boolean): void;
     toBytes(): Uint8Array;
     free(): void;
 }
@@ -168,6 +169,47 @@ for (const format of FORMATS) {
         assert.deepEqual(Buffer.from(reopened.read("ART/hero.frm")), BIG);
         assert.deepEqual(Buffer.from(reopened.read("sub/tiny.txt")), TINY);
         reopened.free();
+    });
+}
+
+for (const format of ["dat1", "dat2"] as const) {
+    test(`${format}: setDeduplicate stores identical files once, and the native dat3 extracts each`, () => {
+        const archive = new Archive(format);
+        archive.insert("art/a.frm", BIG, 9);
+        archive.insert("art/sub/b.frm", BIG, 9);
+        archive.insert("c.txt", TINY);
+        const full = archive.toBytes();
+        archive.setDeduplicate(true);
+        const deduplicated = archive.toBytes();
+        archive.free();
+
+        const reopened = Archive.fromBytes(deduplicated);
+        const stored = reopened.entries().find((entry) => entry.name === "art/a.frm")?.packedSize;
+        assert.equal(full.length - deduplicated.length, stored, "one copy of the shared data saved");
+        reopened.free();
+
+        const file = path.join(WORK_DIR, `dedup_${format}.dat`);
+        writeFileSync(file, deduplicated);
+        const outDir = path.join(WORK_DIR, `dedup_${format}_out`);
+        run(DAT3, ["x", file, "-o", outDir]);
+        assert.deepEqual(readFileSync(path.join(outDir, "art", "a.frm")), BIG);
+        assert.deepEqual(readFileSync(path.join(outDir, "art", "sub", "b.frm")), BIG);
+        assert.deepEqual(readFileSync(path.join(outDir, "c.txt")), TINY);
+    });
+}
+
+for (const format of ["arcanum", "toee"] as const) {
+    test(`${format}: setDeduplicate(true) throws, and false is accepted`, () => {
+        const archive = new Archive(format);
+        try {
+            assert.throws(() => archive.setDeduplicate(true), {
+                name: "Error",
+                message: /^Deduplication is supported for Fallout \(DAT1, DAT2\) archives only, not /,
+            });
+            archive.setDeduplicate(false);
+        } finally {
+            archive.free();
+        }
     });
 }
 

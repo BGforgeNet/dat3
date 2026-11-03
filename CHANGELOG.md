@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- New: `--dedup` on `a` and `d` stores identical files once in Fallout 1 and 2 archives: every entry with the same data points at one copy. The archive stays a regular DAT1 or DAT2 file that the games read unchanged. In the `dat3-core` library, `DatArchive::set_deduplicate` turns it on.
+- New: `--dedup` on `a` and `d` stores identical files once in Fallout 1 and 2 archives: every entry with the same data points at one copy. The archive stays a regular DAT1 or DAT2 file that the games read unchanged. In the `dat3-core` library, `DatArchive::set_deduplicate` turns it on, and in the `dat3-wasm` package, `Archive.setDeduplicate`.
 
 ## v0.11.2
 
