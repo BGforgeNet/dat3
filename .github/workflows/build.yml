@@ -163,7 +163,7 @@ jobs:
           artifacts: build-x86_64-unknown-linux-musl
           tests: >-
             non-ascii.sh rpu.sh arcanum.sh toee.sh f1.sh broken_pipe.sh response_file.sh add_validation.sh
-            duplicate_paths.sh path_consistency.sh glob_handling.sh extract_missing.sh default_format.sh
+            duplicate_paths.sh dedup.sh path_consistency.sh glob_handling.sh extract_missing.sh default_format.sh
             case_handling.sh readme_help.sh json_listing.ts toee-demo.sh
           node-version: ${{ env.NODE_VERSION }}
           save-fixtures: "true"

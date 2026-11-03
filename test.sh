@@ -24,6 +24,7 @@ TESTS=(
     "response_file.sh|-"
     "add_validation.sh|-"
     "duplicate_paths.sh|-"
+    "dedup.sh|-"
     "path_consistency.sh|-"
     "glob_handling.sh|-"
     "extract_missing.sh|-"

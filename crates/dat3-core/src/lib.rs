@@ -11,7 +11,8 @@ Read, list, extract, add to and delete from Fallout (DAT1, DAT2) and Troika
   [`list`](DatArchive::list), [`extract`](DatArchive::extract),
   [`add_file`](DatArchive::add_file), [`add_files`](DatArchive::add_files),
   [`delete`](DatArchive::delete) and [`save`](DatArchive::save) work on it. Adds and deletes change only the
-  in-memory archive until it is saved.
+  in-memory archive until it is saved. [`set_deduplicate`](DatArchive::set_deduplicate) makes saving store
+  identical file data once.
 - For archives and files held in memory, [`from_bytes`](DatArchive::from_bytes),
   [`entries`](DatArchive::entries), [`read`](DatArchive::read),
   [`insert`](DatArchive::insert), [`remove`](DatArchive::remove) and

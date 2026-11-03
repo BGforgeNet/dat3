@@ -19,7 +19,8 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::common::{
-    self, CaseMode, CompressionLevel, ExtractionMode, FileEntry, ListFormat, Selection, utils,
+    self, CaseMode, CompressionLevel, DataLayout, ExtractionMode, FileEntry, ListFormat, Selection,
+    utils,
 };
 use crate::lzss;
 
@@ -95,6 +96,8 @@ pub struct Dat1Archive {
     directories: Vec<Directory>,
     /// Raw archive data for reading existing file content
     data: Vec<u8>,
+    /// Whether a save stores identical stored bytes once
+    deduplicate: bool,
 }
 
 impl Default for Dat1Archive {
@@ -112,6 +115,7 @@ impl Dat1Archive {
                 files: Vec::new(),
             }],
             data: Vec::new(),
+            deduplicate: false,
         }
     }
 
@@ -185,7 +189,16 @@ impl Dat1Archive {
             });
         }
 
-        Ok(Self { directories, data })
+        Ok(Self {
+            directories,
+            data,
+            deduplicate: false,
+        })
+    }
+
+    /// Store entries whose stored bytes are identical once when saving
+    pub fn set_deduplicate(&mut self, deduplicate: bool) {
+        self.deduplicate = deduplicate;
     }
 
     /// Collect references to all files across all directories
@@ -324,21 +337,21 @@ impl Dat1Archive {
 
     /// Save the archive to a DAT1 file
     pub fn save(&self, path: &Path) -> Result<()> {
-        let (dirs, data_offset) = self.prepare_save()?;
-        utils::write_atomically(path, |out| self.write_prepared(&dirs, data_offset, out))
+        let (dirs, layout) = self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(&dirs, &layout, out))
             .context(WRITE_CONTEXT)
     }
 
     /// Write the archive as a DAT1 file to `out`
     pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
-        let (dirs, data_offset) = self.prepare_save()?;
-        self.write_prepared(&dirs, data_offset, out)
+        let (dirs, layout) = self.prepare_save()?;
+        self.write_prepared(&dirs, &layout, out)
             .context(WRITE_CONTEXT)
     }
 
-    /// The directories to write and where file data starts, checked before any
-    /// output exists so a refused save leaves no temp file
-    fn prepare_save(&self) -> Result<(Vec<&Directory>, u32)> {
+    /// The directories to write and where each file's data goes, checked before
+    /// any output exists so a refused save leaves no temp file
+    fn prepare_save(&self) -> Result<(Vec<&Directory>, DataLayout<'_>)> {
         // Calculate where file data starts: header, directory names, then
         // directory content blocks. Computed up front so entry offsets are
         // known before anything is written.
@@ -375,6 +388,8 @@ impl Dat1Archive {
         }
 
         // DAT1 stores file offsets as u32; reject payloads the format cannot address.
+        // Entries keep data.len() == packed_size, so this bounds every offset of the
+        // layout, deduplicated or not.
         let total_payload: u64 = self
             .directories
             .iter()
@@ -384,13 +399,22 @@ impl Dat1Archive {
         if data_offset as u64 + total_payload > u32::MAX as u64 {
             bail!("DAT1 archive would exceed the format's 4 GiB offset limit");
         }
-        Ok((dirs_to_write, data_offset))
+        // Borrowed from memory or from the original archive, in the order the entries are written
+        let layout = common::lay_out_data(
+            dirs_to_write
+                .iter()
+                .flat_map(|dir| &dir.files)
+                .map(|file| self.read_file_data(file)),
+            data_offset.into(),
+            self.deduplicate,
+        )?;
+        Ok((dirs_to_write, layout))
     }
 
     fn write_prepared(
         &self,
         dirs_to_write: &[&Directory],
-        data_offset: u32,
+        layout: &DataLayout<'_>,
         output: &mut dyn Write,
     ) -> Result<()> {
         output.write_all(
@@ -418,7 +442,7 @@ impl Dat1Archive {
             )?;
         }
 
-        let mut current_offset = data_offset;
+        let mut offsets = layout.offsets.iter();
 
         // Write directory content headers and file entries
         for dir in dirs_to_write {
@@ -432,7 +456,7 @@ impl Dat1Archive {
                 .to_bytes()?,
             )?;
 
-            for file in &dir.files {
+            for (file, &offset) in dir.files.iter().zip(&mut offsets) {
                 let stored_name = stored_file_name(&dir.name, &file.name);
                 let entry = Dat1FileEntry {
                     name_len: name_len_u8("file name", stored_name)?,
@@ -442,21 +466,17 @@ impl Dat1Archive {
                     } else {
                         DAT1_UNCOMPRESSED_FLAG
                     },
-                    offset: current_offset,
+                    // prepare_save bounded every offset to u32
+                    offset: offset as u32,
                     size: file.size,
                     packed_size: if file.compressed { file.packed_size } else { 0 },
                 };
                 output.write_all(&entry.to_bytes()?)?;
-
-                current_offset += file.packed_size;
             }
         }
 
-        // Write file data, borrowed from memory or from the original archive
-        for dir in dirs_to_write {
-            for file in &dir.files {
-                output.write_all(self.read_file_data(file)?)?;
-            }
+        for run in &layout.runs {
+            output.write_all(run)?;
         }
 
         Ok(())
@@ -849,6 +869,7 @@ mod tests {
                 }],
             }],
             data: Vec::new(),
+            deduplicate: false,
         };
         let target = ScratchPath::new("dat1_overflow");
         assert!(archive.save(&target).is_err());

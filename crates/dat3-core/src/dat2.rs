@@ -17,8 +17,8 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CaseMode, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES,
-    Selection, utils,
+    self, CaseMode, CompressionLevel, DataLayout, ExtractionMode, FileEntry, ListFormat,
+    MAX_PATH_BYTES, Selection, utils,
 };
 
 /// 8-byte footer at the end of every DAT2 file.
@@ -55,6 +55,8 @@ pub struct Dat2Archive {
     files: Vec<FileEntry>,
     /// Raw archive data for reading existing file content
     data: Vec<u8>,
+    /// Whether a save stores identical stored bytes once
+    deduplicate: bool,
 }
 
 impl Default for Dat2Archive {
@@ -69,6 +71,7 @@ impl Dat2Archive {
         Self {
             files: Vec::new(),
             data: Vec::new(),
+            deduplicate: false,
         }
     }
 
@@ -79,7 +82,16 @@ impl Dat2Archive {
         }
 
         let files = Self::parse_directory_tree(&data)?;
-        Ok(Self { files, data })
+        Ok(Self {
+            files,
+            data,
+            deduplicate: false,
+        })
+    }
+
+    /// Store entries whose stored bytes are identical once when saving
+    pub fn set_deduplicate(&mut self, deduplicate: bool) {
+        self.deduplicate = deduplicate;
     }
 
     fn parse_directory_tree(data: &[u8]) -> Result<Vec<FileEntry>> {
@@ -215,57 +227,55 @@ impl Dat2Archive {
 
     /// Save the archive to a DAT2 file
     pub fn save(&self, path: &Path) -> Result<()> {
-        self.prepare_save()?;
-        utils::write_atomically(path, |out| self.write_prepared(out)).context(WRITE_CONTEXT)
+        let layout = self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(&layout, out))
+            .context(WRITE_CONTEXT)
     }
 
     /// Write the archive as a DAT2 file to `out`
     pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
-        self.prepare_save()?;
-        self.write_prepared(out).context(WRITE_CONTEXT)
+        let layout = self.prepare_save()?;
+        self.write_prepared(&layout, out).context(WRITE_CONTEXT)
     }
 
-    /// Checks that fail before any output exists, so a refused save leaves no temp file
-    fn prepare_save(&self) -> Result<()> {
+    /// Where each entry's data goes, checked before any output exists so a refused save leaves no temp file
+    fn prepare_save(&self) -> Result<DataLayout<'_>> {
         // DAT2 stores file offsets as u32. Entries keep data.len() == packed_size,
-        // so this bounds the u32 offset accumulation below.
+        // so this bounds every offset of the layout, deduplicated or not.
         let total_payload: u64 = self.files.iter().map(|f| f.packed_size as u64).sum();
         if total_payload > u32::MAX as u64 {
             bail!("DAT2 archive would exceed the format's 4 GiB offset limit");
         }
-        Ok(())
+        // In memory for a newly added file, borrowed from the original archive otherwise
+        common::lay_out_data(
+            self.files.iter().map(|file| self.read_file_data(file)),
+            0,
+            self.deduplicate,
+        )
     }
 
     /// DAT2 layout: file data, then directory tree, then 8-byte footer.
-    fn write_prepared(&self, cursor: &mut dyn Write) -> Result<()> {
+    fn write_prepared(&self, layout: &DataLayout<'_>, cursor: &mut dyn Write) -> Result<()> {
         // Step 1: Write all file data
-        let mut current_offset = 0u32;
-        let mut file_offsets = Vec::new();
-
-        for file in &self.files {
-            file_offsets.push(current_offset);
-
-            // In memory for a newly added file, borrowed from the original archive otherwise
-            let data = self.read_file_data(file)?;
-
-            cursor.write_all(data)?;
-            current_offset += data.len() as u32;
+        for run in &layout.runs {
+            cursor.write_all(run)?;
         }
 
         // Step 2: Write directory tree, tracking its size since a file
         // writer has no cheap position() like the old in-memory cursor
-        let tree_start = current_offset as u64;
+        let tree_start = layout.end;
         cursor.write_u32::<LittleEndian>(self.files.len() as u32)?;
         let mut tree_size: u64 = 4;
 
-        for (i, file) in self.files.iter().enumerate() {
+        for (file, &offset) in self.files.iter().zip(&layout.offsets) {
             let entry = Dat2FileEntry {
                 filename_size: file.name.len() as u32,
                 filename_bytes: file.name.as_bytes().to_vec(),
                 compression_type: if file.compressed { 1 } else { 0 },
                 real_size: file.size,
                 packed_size: file.packed_size,
-                offset: file_offsets[i],
+                // prepare_save bounded every offset to u32
+                offset: offset as u32,
             };
 
             let entry_bytes = entry.to_bytes()?;
@@ -440,6 +450,7 @@ mod tests {
         let archive = Dat2Archive {
             files: vec![huge_entry("A.TXT"), huge_entry("B.TXT")],
             data: Vec::new(),
+            deduplicate: false,
         };
         let target = ScratchPath::new("dat2_overflow");
         assert!(archive.save(&target).is_err());

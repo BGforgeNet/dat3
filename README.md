@@ -224,6 +224,22 @@ dat3 d master.dat 'art/critters/*.frm'
 dat3 d master.dat @files_to_delete.txt
 ```
 
+### Store identical files once
+
+`--dedup` on `a` or `d` writes the data of identical files once, and points every entry holding that data at the one
+copy. Archives where many files repeat, such as critter art shared between armor sets, shrink accordingly:
+
+```bash
+dat3 a --dedup critter.dat art/critters
+```
+
+- Fallout 1 and 2 archives (DAT1, DAT2) only; the Troika formats refuse the flag.
+- The archive stays a regular DAT1 or DAT2 file: the games, sfall, fallout1-ce and fallout2-ce read it unchanged.
+- Each `a` or `d` writes the whole archive again, so pass `--dedup` every time: without it, the shared copies are
+  written out in full again.
+- Tools that move file data in place may not expect shared data. DAT2's shrink command (`dat2 k`) corrupts such an
+  archive; rebuilding it with dat3 or another tool that writes each entry out is safe.
+
 ## Differences from DAT2
 
 - Directories are always processed recursively.
@@ -233,6 +249,7 @@ dat3 d master.dat @files_to_delete.txt
 - Glob patterns (`*`, `?`, `[...]`) supported for list/extract/delete.
 - Names are matched, listed, extracted and added in lowercase unless `--case-sensitive` is given (see [Letter case in
   entry names](#letter-case-in-entry-names)).
+- `--dedup` stores identical files once (see [Store identical files once](#store-identical-files-once)).
 
 ## Using dat3 as a library
 

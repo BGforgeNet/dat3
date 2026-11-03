@@ -134,6 +134,49 @@ impl FileEntry {
     }
 }
 
+/// Where a save puts each entry's stored bytes
+pub(crate) struct DataLayout<'a> {
+    /// Each entry's offset, in the order the entries were given
+    pub(crate) offsets: Vec<u64>,
+    /// The byte runs to write from the start offset on, in order
+    pub(crate) runs: Vec<&'a [u8]>,
+    /// The offset just past the last run
+    pub(crate) end: u64,
+}
+
+/// Lay out entries' stored bytes one after another from `start`, in the order given.
+///
+/// With `deduplicate`, an entry whose stored bytes equal an earlier entry's points at that copy instead of
+/// adding its own. Each entry keeps its own sizes and compression flag, and the Fallout 1 and 2 engines (sfall,
+/// fallout1-ce and fallout2-ce included) read an entry from its own offset and size, so a shared copy reads back
+/// the same.
+pub(crate) fn lay_out_data<'a>(
+    stored: impl IntoIterator<Item = Result<&'a [u8]>>,
+    start: u64,
+    deduplicate: bool,
+) -> Result<DataLayout<'a>> {
+    let mut layout = DataLayout {
+        offsets: Vec::new(),
+        runs: Vec::new(),
+        end: start,
+    };
+    let mut copies: std::collections::HashMap<&'a [u8], u64> = std::collections::HashMap::new();
+    for bytes in stored {
+        let bytes = bytes?;
+        if deduplicate {
+            if let Some(&offset) = copies.get(bytes) {
+                layout.offsets.push(offset);
+                continue;
+            }
+            copies.insert(bytes, layout.end);
+        }
+        layout.offsets.push(layout.end);
+        layout.runs.push(bytes);
+        layout.end += bytes.len() as u64;
+    }
+    Ok(layout)
+}
+
 /// Controls how files are extracted from archives
 #[derive(Debug, Clone, Copy)]
 pub enum ExtractionMode {

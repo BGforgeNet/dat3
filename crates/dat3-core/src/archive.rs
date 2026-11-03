@@ -400,6 +400,30 @@ impl DatArchive {
         Ok(())
     }
 
+    /// Whether saving stores identical file data once (off by default).
+    ///
+    /// With it on, entries whose stored bytes are identical point at one copy of
+    /// them, which the Fallout 1 and 2 engines read like any other entry. Tools
+    /// that move file data around in place may not expect it: the original DAT2
+    /// tool's shrink command corrupts such an archive. Fallout (DAT1, DAT2)
+    /// archives only: the Troika games have not been checked with shared data,
+    /// so turning it on for those fails.
+    pub fn set_deduplicate(&mut self, deduplicate: bool) -> Result<()> {
+        match self {
+            Self::Dat1(a) => a.set_deduplicate(deduplicate),
+            Self::Dat2(a) => a.set_deduplicate(deduplicate),
+            Self::Arcanum(_) | Self::Toee(_) => {
+                if deduplicate {
+                    bail!(
+                        "Deduplication is supported for Fallout (DAT1, DAT2) archives only, not {}",
+                        self.format().display_name()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Write the archive to `path`, replacing any file there only once the new one
     /// is complete and flushed to disk.
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
@@ -786,6 +810,94 @@ mod tests {
                 std::fs::read(&path).unwrap(),
                 "{format:?}"
             );
+        }
+    }
+
+    /// The formats `set_deduplicate` accepts
+    const DEDUPLICATING_FORMATS: [ArchiveFormat; 2] = [ArchiveFormat::Dat1, ArchiveFormat::Dat2];
+
+    /// Two entries, in different directories, with the same contents, and one with other contents
+    fn archive_with_a_duplicate(format: ArchiveFormat, shared: &[u8]) -> DatArchive {
+        let mut archive = DatArchive::new(format);
+        for name in ["art/a.frm", "art/sub/b.frm"] {
+            archive
+                .insert(name, shared.to_vec(), level(9), CaseMode::Insensitive)
+                .unwrap();
+        }
+        archive
+            .insert(
+                "text/c.txt",
+                b"other".to_vec(),
+                level(9),
+                CaseMode::Insensitive,
+            )
+            .unwrap();
+        archive
+    }
+
+    #[test]
+    fn a_deduplicated_save_stores_identical_data_once() {
+        let shared = b"frame ".repeat(500);
+        for format in DEDUPLICATING_FORMATS {
+            let mut archive = archive_with_a_duplicate(format, &shared);
+            let full = archive.to_bytes().unwrap();
+            archive.set_deduplicate(true).unwrap();
+            let deduplicated = archive.to_bytes().unwrap();
+
+            let parsed = DatArchive::from_bytes(deduplicated.clone()).unwrap();
+            let stored = parsed
+                .entries()
+                .into_iter()
+                .find(|entry| entry.name == "art\\a.frm")
+                .unwrap()
+                .packed_size;
+            assert_eq!(
+                full.len() - deduplicated.len(),
+                stored as usize,
+                "{format:?}: one copy of the shared data saved"
+            );
+            for name in ["art/a.frm", "art/sub/b.frm"] {
+                assert_eq!(
+                    parsed.read(name, CaseMode::Insensitive).unwrap(),
+                    shared,
+                    "{format:?} {name}"
+                );
+            }
+            assert_eq!(
+                parsed.read("text/c.txt", CaseMode::Insensitive).unwrap(),
+                b"other"
+            );
+        }
+    }
+
+    #[test]
+    fn removing_the_entry_that_was_written_first_keeps_its_sharer() {
+        let shared = b"frame ".repeat(500);
+        for format in DEDUPLICATING_FORMATS {
+            let mut archive = archive_with_a_duplicate(format, &shared);
+            archive.set_deduplicate(true).unwrap();
+            let mut reopened = through_bytes(&archive);
+            assert!(reopened.remove("art/a.frm", CaseMode::Insensitive).unwrap());
+
+            for deduplicate in [false, true] {
+                reopened.set_deduplicate(deduplicate).unwrap();
+                let parsed = through_bytes(&reopened);
+                assert_eq!(
+                    parsed.read("art/sub/b.frm", CaseMode::Insensitive).unwrap(),
+                    shared,
+                    "{format:?}, deduplicate {deduplicate}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn deduplication_is_refused_for_the_troika_formats() {
+        for format in [ArchiveFormat::Arcanum, ArchiveFormat::Toee] {
+            let mut archive = DatArchive::new(format);
+            let error = archive.set_deduplicate(true).unwrap_err().to_string();
+            assert!(error.contains(format.display_name()), "{error}");
+            archive.set_deduplicate(false).unwrap();
         }
     }
 

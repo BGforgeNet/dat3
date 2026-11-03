@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- New: `--dedup` on `a` and `d` stores identical files once in Fallout 1 and 2 archives: every entry with the same data points at one copy. The archive stays a regular DAT1 or DAT2 file that the games read unchanged. In the `dat3-core` library, `DatArchive::set_deduplicate` turns it on.
+
 ## v0.11.2
 
 - Fixed: a warning or error written after the reader of stderr had gone, as in `dat3 l master.dat no/such/file 2>&1 | head`, crashed dat3 with a core dump. Such output is now dropped, and the command finishes with its usual exit status.
