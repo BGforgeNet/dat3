@@ -148,8 +148,8 @@ pub(crate) struct DataLayout<'a> {
 ///
 /// With `deduplicate`, an entry whose stored bytes equal an earlier entry's points at that copy instead of
 /// adding its own. Each entry keeps its own sizes and compression flag, and the Fallout 1 and 2 engines (sfall,
-/// fallout1-ce and fallout2-ce included) read an entry from its own offset and size, so a shared copy reads back
-/// the same.
+/// fallout1-ce and fallout2-ce included) and Arcanum read an entry from its own offset and size, so a shared copy
+/// reads back the same.
 pub(crate) fn lay_out_data<'a>(
     stored: impl IntoIterator<Item = Result<&'a [u8]>>,
     start: u64,

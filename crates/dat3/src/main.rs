@@ -113,7 +113,7 @@ enum Commands {
 
 /// `--dedup`, shared by every command that saves an archive
 const DEDUP_HELP: &str = "Store identical files once: entries with the same stored bytes share one copy \
-     (DAT1 and DAT2 only). Without it, every entry is written out in full";
+     (DAT1, DAT2 and Arcanum; not ToEE). Without it, every entry is written out in full";
 
 /// Map the `--ignore-missing` flag to the policy the archive operations take.
 fn missing_files_policy(ignore_missing: bool) -> MissingFiles {

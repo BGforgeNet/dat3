@@ -22,8 +22,8 @@ use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CaseMode, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES,
-    Selection, utils,
+    self, CaseMode, CompressionLevel, DataLayout, ExtractionMode, FileEntry, ListFormat,
+    MAX_PATH_BYTES, Selection, utils,
 };
 
 const FOOTER_SIZE: usize = 28;
@@ -86,6 +86,8 @@ pub struct ToeeArchive {
     data: Vec<u8>,
     guid: [u8; 16],
     version: ToeeVersion,
+    /// Whether a save stores identical stored bytes once
+    deduplicate: bool,
 }
 
 /// Distinguish ToEE's hierarchical table from Arcanum's flat table.
@@ -154,6 +156,7 @@ impl ToeeArchive {
             data: Vec::new(),
             guid: [0; 16],
             version: ToeeVersion::V1,
+            deduplicate: false,
         }
     }
 
@@ -272,6 +275,7 @@ impl ToeeArchive {
             data,
             guid,
             version,
+            deduplicate: false,
         })
     }
 
@@ -628,19 +632,29 @@ impl ToeeArchive {
 
     /// Save the archive to a ToEE DAT file
     pub fn save(&self, path: &Path) -> Result<()> {
-        let nodes = self.prepare_save()?;
-        utils::write_atomically(path, |out| self.write_prepared(&nodes, out)).context(WRITE_CONTEXT)
+        let (nodes, layout) = self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(&nodes, &layout, out))
+            .context(WRITE_CONTEXT)
     }
 
     /// Write the archive as a ToEE DAT file to `out`
     pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
-        let nodes = self.prepare_save()?;
-        self.write_prepared(&nodes, out).context(WRITE_CONTEXT)
+        let (nodes, layout) = self.prepare_save()?;
+        self.write_prepared(&nodes, &layout, out)
+            .context(WRITE_CONTEXT)
     }
 
-    /// Checks and the entry tree, built before any output exists so a refused
-    /// save leaves no temp file
-    fn prepare_save(&self) -> Result<Vec<SaveNode>> {
+    /// Store entries whose stored bytes are identical once when saving
+    pub fn set_deduplicate(&mut self, deduplicate: bool) {
+        self.deduplicate = deduplicate;
+    }
+
+    /// Checks, the entry tree and where each file's data goes, built before any
+    /// output exists so a refused save leaves no temp file
+    fn prepare_save(&self) -> Result<(Vec<SaveNode>, DataLayout<'_>)> {
+        // Offsets are u32 and the table marker adds 4 bytes past the data. Each
+        // entry's data is checked against its packed size below, so this bounds
+        // every offset of the layout, deduplicated or not.
         let total_payload: u64 = self.files.iter().map(|f| f.packed_size as u64).sum();
         if total_payload > u32::MAX as u64 - 4 {
             bail!("ToEE archive would exceed the format's 4 GiB offset limit");
@@ -650,27 +664,38 @@ impl ToeeArchive {
         if nodes.len() > i32::MAX as usize {
             bail!("ToEE archive has too many entries for signed tree indices");
         }
-        Ok(nodes)
+        // File data goes in tree order
+        let layout = common::lay_out_data(
+            nodes
+                .iter()
+                .filter_map(|node| node.file_index)
+                .map(|file_index| {
+                    let file = &self.files[file_index];
+                    let bytes = self.read_file_data(file)?;
+                    if bytes.len() != file.packed_size as usize {
+                        bail!("Stored size does not match data for {}", file.name);
+                    }
+                    Ok(bytes)
+                }),
+            0,
+            self.deduplicate,
+        )?;
+        Ok((nodes, layout))
     }
 
-    fn write_prepared(&self, nodes: &[SaveNode], out: &mut dyn Write) -> Result<()> {
-        let mut file_offsets = vec![0u32; self.files.len()];
-        let mut current_offset = 0u32;
-        for node in nodes {
-            let Some(file_index) = node.file_index else {
-                continue;
-            };
-            let file = &self.files[file_index];
-            let bytes = self.read_file_data(file)?;
-            if bytes.len() != file.packed_size as usize {
-                bail!("Stored size does not match data for {}", file.name);
-            }
-            file_offsets[file_index] = current_offset;
-            out.write_all(bytes)?;
-            current_offset += file.packed_size;
+    fn write_prepared(
+        &self,
+        nodes: &[SaveNode],
+        layout: &DataLayout<'_>,
+        out: &mut dyn Write,
+    ) -> Result<()> {
+        for run in &layout.runs {
+            out.write_all(run)?;
         }
 
-        out.write_u32::<LittleEndian>(current_offset + 4)?;
+        // prepare_save bounded the end, and every offset, to u32
+        out.write_u32::<LittleEndian>(layout.end as u32 + 4)?;
+        let mut offsets = layout.offsets.iter();
         out.write_u32::<LittleEndian>(u32::try_from(nodes.len())?)?;
         let mut table_size = 4u64;
         let mut names_len = 0u64;
@@ -690,7 +715,10 @@ impl ToeeArchive {
                 out.write_u32::<LittleEndian>(if file.compressed { FLAG_ZLIB } else { FLAG_RAW })?;
                 out.write_u32::<LittleEndian>(file.size)?;
                 out.write_u32::<LittleEndian>(file.packed_size)?;
-                out.write_u32::<LittleEndian>(file_offsets[file_index])?;
+                let offset = offsets
+                    .next()
+                    .context("ToEE data layout holds fewer entries than the tree")?;
+                out.write_u32::<LittleEndian>(*offset as u32)?;
             } else {
                 out.write_u32::<LittleEndian>(FLAG_DIR)?;
                 out.write_u32::<LittleEndian>(0)?;

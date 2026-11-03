@@ -22,8 +22,8 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 
 use crate::common::{
-    self, CaseMode, CompressionLevel, ExtractionMode, FileEntry, ListFormat, MAX_PATH_BYTES,
-    Selection, utils,
+    self, CaseMode, CompressionLevel, DataLayout, ExtractionMode, FileEntry, ListFormat,
+    MAX_PATH_BYTES, Selection, utils,
 };
 
 /// Size of the trailing footer in bytes, derived from `ArcanumFooter`
@@ -74,6 +74,9 @@ struct ArcanumFileEntry {
     offset: u32,
 }
 
+/// One row of the entry table: its name, and its index into the files, or None for a directory
+type TableRow<'a> = (Cow<'a, str>, Option<usize>);
+
 /// Arcanum archive handler
 #[derive(Debug)]
 pub struct ArcanumArchive {
@@ -84,6 +87,8 @@ pub struct ArcanumArchive {
     /// game is not known to read it, and a fixed value keeps output
     /// deterministic (the original tool wrote a random GUID).
     guid: [u8; 16],
+    /// Whether a save stores identical stored bytes once
+    deduplicate: bool,
 }
 
 /// Check for the Arcanum magic. Neither Fallout format carries a signature
@@ -107,6 +112,7 @@ impl ArcanumArchive {
             files: Vec::new(),
             data: Vec::new(),
             guid: [0; 16],
+            deduplicate: false,
         }
     }
 
@@ -181,7 +187,13 @@ impl ArcanumArchive {
             files,
             data,
             guid: footer.guid,
+            deduplicate: false,
         })
+    }
+
+    /// Store entries whose stored bytes are identical once when saving
+    pub fn set_deduplicate(&mut self, deduplicate: bool) {
+        self.deduplicate = deduplicate;
     }
 
     /// References to every file entry
@@ -252,29 +264,43 @@ impl ArcanumArchive {
 
     /// Save the archive to an Arcanum DAT file
     pub fn save(&self, path: &Path) -> Result<()> {
-        self.prepare_save()?;
-        utils::write_atomically(path, |out| self.write_prepared(out)).context(WRITE_CONTEXT)
+        let (table, layout) = self.prepare_save()?;
+        utils::write_atomically(path, |out| self.write_prepared(&table, &layout, out))
+            .context(WRITE_CONTEXT)
     }
 
     /// Write the archive as an Arcanum DAT file to `out`
     pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
-        self.prepare_save()?;
-        self.write_prepared(out).context(WRITE_CONTEXT)
+        let (table, layout) = self.prepare_save()?;
+        self.write_prepared(&table, &layout, out)
+            .context(WRITE_CONTEXT)
     }
 
-    /// Checks that fail before any output exists, so a refused save leaves no temp file
-    fn prepare_save(&self) -> Result<()> {
+    /// The entry table and where each file's data goes, checked before any
+    /// output exists so a refused save leaves no temp file
+    fn prepare_save(&self) -> Result<(Vec<TableRow<'_>>, DataLayout<'_>)> {
         // Offsets are u32 and the table marker adds 4 bytes past the data.
-        // Entries keep data.len() == packed_size, bounding the accumulation.
+        // Entries keep data.len() == packed_size, bounding every offset of the
+        // layout, deduplicated or not.
         let total_payload: u64 = self.files.iter().map(|f| f.packed_size as u64).sum();
         if total_payload > u32::MAX as u64 - 4 {
             bail!("Arcanum archive would exceed the format's 4 GiB offset limit");
         }
-        Ok(())
+        let table = self.entry_table();
+        // File data goes in table order, like the original tool's
+        let layout = common::lay_out_data(
+            table
+                .iter()
+                .filter_map(|(_, index)| *index)
+                .map(|i| self.read_file_data(&self.files[i])),
+            0,
+            self.deduplicate,
+        )?;
+        Ok((table, layout))
     }
 
-    /// Layout: file data, table marker, entry table, 28-byte footer.
-    fn write_prepared(&self, out: &mut dyn Write) -> Result<()> {
+    /// Every row of the entry table, in the order it is stored
+    fn entry_table(&self) -> Vec<TableRow<'_>> {
         // The table stores explicit directory entries interleaved with files
         // in one flat case-insensitive path order, matching the original
         // tool's layout. Directories are synthesized from file paths, so
@@ -293,44 +319,45 @@ impl ArcanumArchive {
             }
         }
 
-        // (name, index into self.files; None marks a directory)
-        let mut table: Vec<(&str, Option<usize>)> =
-            dir_names.iter().map(|d| (d.as_str(), None)).collect();
+        let mut table: Vec<TableRow<'_>> = dir_names
+            .into_iter()
+            .map(|d| (Cow::Owned(d), None))
+            .collect();
         table.extend(
             self.files
                 .iter()
                 .enumerate()
-                .map(|(i, f)| (f.name.as_str(), Some(i))),
+                .map(|(i, f)| (Cow::Borrowed(f.name.as_str()), Some(i))),
         );
         // Cached: the key allocates, so per-comparison recomputation is the
         // dominant cost on a large table.
         table.sort_by_cached_key(|(name, _)| name.to_lowercase());
+        table
+    }
 
-        // Step 1: file data, written in table order like the original tool
-        let mut file_offsets = vec![0u32; self.files.len()];
-        let mut current_offset = 0u32;
-        for (_, index) in &table {
-            if let Some(i) = index {
-                let file = &self.files[*i];
-
-                let data = self.read_file_data(file)?;
-
-                file_offsets[*i] = current_offset;
-                out.write_all(data)?;
-                current_offset += data.len() as u32;
-            }
+    /// Layout: file data, table marker, entry table, 28-byte footer.
+    fn write_prepared(
+        &self,
+        table: &[TableRow<'_>],
+        layout: &DataLayout<'_>,
+        out: &mut dyn Write,
+    ) -> Result<()> {
+        // Step 1: file data
+        for run in &layout.runs {
+            out.write_all(run)?;
         }
 
-        // Step 2: table marker - the entry table's absolute offset,
-        // which sits just past this u32
-        out.write_u32::<LittleEndian>(current_offset + 4)?;
+        // Step 2: table marker - the entry table's absolute offset, which sits
+        // just past this u32. prepare_save bounded it, and every offset, to u32.
+        out.write_u32::<LittleEndian>(layout.end as u32 + 4)?;
 
         // Step 3: entry table, tracking its size for the footer
         out.write_u32::<LittleEndian>(table.len() as u32)?;
         let mut table_size: u64 = 4;
         let mut names_len: u64 = 0;
+        let mut offsets = layout.offsets.iter();
 
-        for (name, index) in &table {
+        for (name, index) in table {
             let mut name_bytes = name.as_bytes().to_vec();
             name_bytes.push(0);
             // unknown is 0: shipped archives carry junk there (see the
@@ -338,6 +365,9 @@ impl ArcanumArchive {
             let entry = match index {
                 Some(i) => {
                     let f = &self.files[*i];
+                    let offset = offsets
+                        .next()
+                        .context("Arcanum data layout holds fewer entries than the table")?;
                     ArcanumFileEntry {
                         name_len: name.len() as u32 + 1,
                         name_bytes,
@@ -345,7 +375,7 @@ impl ArcanumArchive {
                         flags: if f.compressed { FLAG_ZLIB } else { FLAG_RAW },
                         real_size: f.size,
                         packed_size: f.packed_size,
-                        offset: file_offsets[*i],
+                        offset: *offset as u32,
                     }
                 }
                 None => ArcanumFileEntry {
@@ -762,6 +792,7 @@ mod tests {
             files: vec![huge_entry("A.TXT"), huge_entry("B.TXT")],
             data: Vec::new(),
             guid: [0; 16],
+            deduplicate: false,
         };
         let target = ScratchPath::new("arc_overflow");
         assert!(archive.save(&target).is_err());

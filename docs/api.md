@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
     // Build a Fallout 2 archive from the `art` directory
     let mut archive = DatArchive::new(ArchiveFormat::Dat2);
     archive.add_file("art", CompressionLevel::new(9)?, None, None, CaseMode::Insensitive)?;
-    archive.set_deduplicate(true)?; // store identical files once (DAT1 and DAT2 only)
+    archive.set_deduplicate(true)?; // store identical files once (not for ToEE)
     archive.save("patch000.dat")?;
 
     // Open it again and extract the FRM files, keeping their directories
@@ -105,7 +105,7 @@ import { Archive, type Entry } from "dat3-wasm";
     archive.insert("text/english/game/new.msg", readFileSync("new.msg"), 9); // compression 0-9
     const removed: boolean = archive.remove("data/old.txt");
     console.log(removed);
-    archive.setDeduplicate(true); // store identical files once (DAT1 and DAT2 only)
+    archive.setDeduplicate(true); // store identical files once (not for ToEE)
     writeFileSync("patch000.dat", archive.toBytes());
 }
 

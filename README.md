@@ -233,8 +233,9 @@ copy. Archives where many files repeat, such as critter art shared between armor
 dat3 a --dedup critter.dat art/critters
 ```
 
-- Fallout 1 and 2 archives (DAT1, DAT2) only; the Troika formats refuse the flag.
-- The archive stays a regular DAT1 or DAT2 file: the games, sfall, fallout1-ce and fallout2-ce read it unchanged.
+- Fallout 1 and 2 (DAT1, DAT2) and Arcanum archives. ToEE archives refuse the flag: the game has not been checked
+  with shared data.
+- The archive stays a regular file of its format: the games, sfall, fallout1-ce and fallout2-ce read it unchanged.
 - Each `a` or `d` writes the whole archive again, so pass `--dedup` every time: without it, the shared copies are
   written out in full again.
 - Tools that move file data in place may not expect shared data. DAT2's shrink command (`dat2 k`) corrupts such an

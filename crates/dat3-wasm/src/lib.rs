@@ -109,8 +109,8 @@ impl Archive {
     }
 
     /// Whether `toBytes` stores identical file data once (off by default): entries whose
-    /// stored bytes match point at one copy. DAT1 and DAT2 only; turning it on for
-    /// Arcanum or ToEE throws.
+    /// stored bytes match point at one copy. DAT1, DAT2 and Arcanum; turning it on
+    /// for ToEE throws.
     #[wasm_bindgen(js_name = setDeduplicate)]
     pub fn set_deduplicate(&mut self, deduplicate: bool) -> Result<(), JsError> {
         self.inner.set_deduplicate(deduplicate).map_err(js_error)

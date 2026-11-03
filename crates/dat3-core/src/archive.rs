@@ -403,22 +403,25 @@ impl DatArchive {
     /// Whether saving stores identical file data once (off by default).
     ///
     /// With it on, entries whose stored bytes are identical point at one copy of
-    /// them, which the Fallout 1 and 2 engines read like any other entry. Tools
-    /// that move file data around in place may not expect it: the original DAT2
-    /// tool's shrink command corrupts such an archive. Fallout (DAT1, DAT2)
-    /// archives only: the Troika games have not been checked with shared data,
-    /// so turning it on for those fails.
+    /// them, which the Fallout 1 and 2 engines and Arcanum read like any other
+    /// entry. Tools that move file data around in place may not expect it: the
+    /// original DAT2 tool's shrink command corrupts such an archive. ToEE
+    /// archives refuse it: the game's own reader has not been checked with
+    /// shared data.
     pub fn set_deduplicate(&mut self, deduplicate: bool) -> Result<()> {
         match self {
             Self::Dat1(a) => a.set_deduplicate(deduplicate),
             Self::Dat2(a) => a.set_deduplicate(deduplicate),
-            Self::Arcanum(_) | Self::Toee(_) => {
+            Self::Arcanum(a) => a.set_deduplicate(deduplicate),
+            // The only ToEE build at hand, the demo, starts behind a DRM wrapper
+            // that does not run under Wine, so the game's reader stays unchecked.
+            Self::Toee(a) => {
                 if deduplicate {
                     bail!(
-                        "Deduplication is supported for Fallout (DAT1, DAT2) archives only, not {}",
-                        self.format().display_name()
+                        "Deduplication is not supported for ToEE archives: the game's reader has not been checked with shared data"
                     );
                 }
+                a.set_deduplicate(deduplicate);
             }
         }
         Ok(())
@@ -814,7 +817,11 @@ mod tests {
     }
 
     /// The formats `set_deduplicate` accepts
-    const DEDUPLICATING_FORMATS: [ArchiveFormat; 2] = [ArchiveFormat::Dat1, ArchiveFormat::Dat2];
+    const DEDUPLICATING_FORMATS: [ArchiveFormat; 3] = [
+        ArchiveFormat::Dat1,
+        ArchiveFormat::Dat2,
+        ArchiveFormat::Arcanum,
+    ];
 
     /// Two entries, in different directories, with the same contents, and one with other contents
     fn archive_with_a_duplicate(format: ArchiveFormat, shared: &[u8]) -> DatArchive {
@@ -892,13 +899,14 @@ mod tests {
     }
 
     #[test]
-    fn deduplication_is_refused_for_the_troika_formats() {
-        for format in [ArchiveFormat::Arcanum, ArchiveFormat::Toee] {
-            let mut archive = DatArchive::new(format);
-            let error = archive.set_deduplicate(true).unwrap_err().to_string();
-            assert!(error.contains(format.display_name()), "{error}");
-            archive.set_deduplicate(false).unwrap();
-        }
+    fn deduplication_is_refused_for_toee() {
+        let mut archive = DatArchive::new(ArchiveFormat::Toee);
+        let error = archive.set_deduplicate(true).unwrap_err().to_string();
+        assert!(
+            error.starts_with("Deduplication is not supported for ToEE archives"),
+            "{error}"
+        );
+        archive.set_deduplicate(false).unwrap();
     }
 
     #[test]
