@@ -6,7 +6,10 @@
 - Target-specific toolchains (install as needed)
 - `./install-tools.sh` for the pinned tooling, including [Zig](https://ziglang.org/), which the aarch64
   target needs: mimalloc is C, and no aarch64-musl C compiler is packaged for common distros. It also links the
-  macOS and Windows builds
+  macOS build
+- For the Windows builds, which run on Windows 7 and later: MinGW-w64 linking against msvcrt.dll
+  (`gcc-mingw-w64-x86-64-win32` and `gcc-mingw-w64-i686-win32` on Debian and Ubuntu), and rustup. Rust's Windows 7
+  targets have no prebuilt standard library, so `build.sh` installs the pinned nightly toolchain that builds it
 - Node 24 or newer, to run the integration suite (`./test.sh`): its helpers under `tests/` are TypeScript, run
   by Node's own type stripping. `npm ci && npm run typecheck` typechecks them, and `wasm_library.sh` needs that
   `npm ci` to typecheck the example in `docs/api.md`. Neither is needed to build dat3
@@ -28,8 +31,8 @@ Binaries will be at:
 target/x86_64-unknown-linux-musl/release/dat3
 target/aarch64-unknown-linux-musl/release/dat3
 target/universal2-apple-darwin/release/dat3
-target/x86_64-pc-windows-gnu/release/dat3.exe
-target/i686-pc-windows-gnu/release/dat3.exe
+target/x86_64-win7-windows-gnu/release/dat3.exe
+target/i686-win7-windows-gnu/release/dat3.exe
 target/wasm32-wasip1/release/dat3.wasm
 ```
 

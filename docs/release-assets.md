@@ -7,8 +7,8 @@ Each [release](https://github.com/BGforgeNet/dat3/releases) ships these files:
 | `dat3` | Linux x86_64, statically linked |
 | `dat3-arm64` | Linux arm64, statically linked |
 | `dat3-macos` | macOS universal binary, native on Intel and Apple Silicon |
-| `dat3.exe` | Windows x86_64 |
-| `dat3-win32.exe` | Windows 32-bit |
+| `dat3.exe` | Windows x86_64, Windows 7 and later |
+| `dat3-win32.exe` | Windows 32-bit, Windows 7 and later; also runs on 64-bit Windows |
 | `dat3.wasm` | The same command line as WebAssembly, for systems with no native build ([below](#dat3wasm)) |
 | `dat3-wasm.tgz` | npm package of the library for Node.js and Electron, not a command line ([docs/api.md](api.md)) |
 | `SHA256SUMS` | Checksums of every file above ([verifying a release](#verifying-a-release)) |

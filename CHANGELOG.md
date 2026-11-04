@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- New: the Windows binaries, `dat3.exe` and `dat3-win32.exe`, run on Windows 7 SP1 and 8. They needed Windows 10 or later.
+- `dat3-win32.exe` can use up to 4 GB of memory on 64-bit Windows, up from 2 GB, so it opens larger archives.
+
 ## v0.11.3
 
 - New: `--dedup` on `a` and `d` stores identical files once: every entry with the same data points at one copy. The archive stays a regular file of its format that the games read unchanged. In the `dat3-core` library, `DatArchive::set_deduplicate` turns it on, and in the `dat3-wasm` package, `Archive.setDeduplicate`.

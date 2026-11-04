@@ -105,9 +105,8 @@ jobs:
     strategy:
       matrix:
         include:
-          # zig, because mimalloc is C and apt has no aarch64-musl compiler, the
-          # macOS build needs a Mach-O linker, and for Windows it spares an apt
-          # MinGW install (build.sh says more); cargo-zigbuild drives it.
+          # zig, because mimalloc is C and apt has no aarch64-musl compiler, and the
+          # macOS build needs a Mach-O linker; cargo-zigbuild drives it.
           - targets: aarch64-unknown-linux-musl
             rust-targets: aarch64-unknown-linux-musl
             tools: zig cargo-zigbuild
@@ -116,14 +115,16 @@ jobs:
             rust-targets: x86_64-apple-darwin, aarch64-apple-darwin
             tools: zig cargo-zigbuild
             artifact: build-universal2-apple-darwin
-          - targets: x86_64-pc-windows-gnu
-            rust-targets: x86_64-pc-windows-gnu
-            tools: zig cargo-zigbuild
-            artifact: build-x86_64-pc-windows-gnu
-          - targets: i686-pc-windows-gnu
-            rust-targets: i686-pc-windows-gnu
-            tools: zig cargo-zigbuild
-            artifact: build-i686-pc-windows-gnu
+          # Windows 7 and later: build.sh installs the nightly that builds these
+          # tier-3 targets, and MinGW links them against msvcrt.dll
+          - targets: x86_64-win7-windows-gnu
+            rust-targets: ""
+            apt-packages: gcc-mingw-w64-x86-64-win32
+            artifact: build-x86_64-win7-windows-gnu
+          - targets: i686-win7-windows-gnu
+            rust-targets: ""
+            apt-packages: gcc-mingw-w64-i686-win32
+            artifact: build-i686-win7-windows-gnu
           # wasm-bindgen and npm for the npm package
           - targets: wasm32-wasip1 npm
             rust-targets: wasm32-wasip1, wasm32-unknown-unknown
@@ -140,6 +141,7 @@ jobs:
           targets: ${{ matrix.targets }}
           rust-targets: ${{ matrix.rust-targets }}
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+          apt-packages: ${{ matrix.apt-packages }}
           tools: ${{ matrix.tools }}
           node-version: ${{ matrix.node && env.NODE_VERSION || '' }}
           artifact: ${{ matrix.artifact }}
@@ -185,7 +187,7 @@ jobs:
       - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
         with:
           artifacts: build-*
-          tests: wasm_library.sh wasm.sh arm64.sh
+          tests: wasm_library.sh wasm.sh arm64.sh windows_pe.ts
           node-version: ${{ env.NODE_VERSION }}
           apt-packages: qemu-user
           tools: wasmtime
@@ -237,8 +239,8 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/dat3 dat3
           cp target/aarch64-unknown-linux-musl/release/dat3 dat3-arm64
           cp target/universal2-apple-darwin/release/dat3 dat3-macos
-          cp target/x86_64-pc-windows-gnu/release/dat3.exe dat3.exe
-          cp target/i686-pc-windows-gnu/release/dat3.exe dat3-win32.exe
+          cp target/x86_64-win7-windows-gnu/release/dat3.exe dat3.exe
+          cp target/i686-win7-windows-gnu/release/dat3.exe dat3-win32.exe
           cp target/wasm32-wasip1/release/dat3.wasm dat3.wasm
           cp target/dat3-wasm.tgz dat3-wasm.tgz
 
@@ -289,7 +291,8 @@ jobs:
         run: chmod +x "$MACOS_DAT3" && ./tests/macos.sh
 
   # Real Windows rather than wine, whose own C runtime says nothing about how the
-  # binaries load the Universal C Runtime. The 32-bit build runs under WoW64.
+  # binaries load the system's msvcrt.dll. The 32-bit build runs under WoW64.
+  # Windows 7 itself is not available here: windows_pe.ts checks the imports.
   # Also the cross-checks against the original Windows tools, run natively. It
   # waits for test-native, which saves the fixture cache this job restores.
   windows:
@@ -316,7 +319,7 @@ jobs:
 
       - uses: ./.github/actions/test # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
         with:
-          artifacts: build-x86_64-pc-windows-gnu
+          artifacts: build-x86_64-win7-windows-gnu
           tests: >-
             rpu_windows.sh arcanum_windows.sh arcanum_demo_windows.sh arcanum_demo_mod_windows.sh
             glob_handling_windows.sh f1_windows.sh

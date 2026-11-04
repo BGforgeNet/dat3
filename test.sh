@@ -45,6 +45,9 @@ TESTS=(
     # qemu. The arm64 binary comes from build.sh, which needs zig to produce it.
     "wasm.sh|wasmtime"
     "arm64.sh|qemu-aarch64"
+    # That both Windows builds load on Windows 7, read from their PE headers. It
+    # needs both from build.sh, which needs the MinGW toolchains to produce them.
+    "windows_pe.ts|ci"
     # Cross-checks against the original Windows tools, and the Windows build's own
     # path handling: native on Windows, elsewhere under wine. Elsewhere
     # glob_handling_windows.sh needs the cross-compiled dat3.exe from build.sh.

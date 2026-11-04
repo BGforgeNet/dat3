@@ -16,7 +16,7 @@ on_windows() {
 
 # The build native to the platform: the static Linux one, or on Windows the
 # 64-bit Windows one, so the cross-checks there exercise that build as well
-WIN_DAT3="$SCRIPT_DIR/../target/x86_64-pc-windows-gnu/release/dat3.exe"
+WIN_DAT3="$SCRIPT_DIR/../target/x86_64-win7-windows-gnu/release/dat3.exe"
 if on_windows; then
     DAT3="$WIN_DAT3"
 else

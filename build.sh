@@ -17,18 +17,25 @@ CARGO_TARGETS=(
 
 # mimalloc is C, and no aarch64-musl C compiler ships in apt; zig provides one.
 # macOS needs a Mach-O linker, which zig also provides, and cargo-zigbuild's
-# universal2 target merges the x86_64 and arm64 builds into one binary. For
-# Windows, zig replaces apt's MinGW: a 218 MB install whose mirror can stall a
-# build for its whole timeout. Its binaries link the Universal C Runtime, which
-# every Windows the Rust targets support ships, rather than msvcrt.dll.
+# universal2 target merges the x86_64 and arm64 builds into one binary.
 ZIG_TARGETS=(
     aarch64-unknown-linux-musl
     universal2-apple-darwin
-    x86_64-pc-windows-gnu
-    i686-pc-windows-gnu
 )
 
-ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}")
+# Windows 7 and later. Rust's own Windows targets require Windows 10; the win7
+# ones are tier 3, with no prebuilt standard library, so a pinned nightly builds
+# it from source. MinGW links them (gcc-mingw-w64-x86-64-win32 and
+# gcc-mingw-w64-i686-win32 on Debian and Ubuntu): zig links only the Universal C
+# Runtime, which Windows 7 has only after an optional update, and MinGW links
+# msvcrt.dll, which every Windows ships.
+WIN7_TOOLCHAIN=nightly-2026-10-28
+WIN7_TARGETS=(
+    x86_64-win7-windows-gnu
+    i686-win7-windows-gnu
+)
+
+ALL_TARGETS=("${CARGO_TARGETS[@]}" "${ZIG_TARGETS[@]}" "${WIN7_TARGETS[@]}")
 
 profile=release
 if [ "${1:-}" = --debug ]; then
@@ -57,13 +64,19 @@ done
 # no rustup, and its targets come from packages instead. A missing target still
 # fails loudly at the cargo build below.
 rustup_targets=()
+win7_toolchain_needed=""
 for target in "${targets[@]}"; do
     case "$target" in
     # Not a rustup target: the two it merges are
     universal2-apple-darwin) rustup_targets+=(x86_64-apple-darwin aarch64-apple-darwin) ;;
+    # Tier 3: no rustup target, the standard library comes from rust-src
+    *-win7-windows-gnu) win7_toolchain_needed=1 ;;
     *) rustup_targets+=("$target") ;;
     esac
 done
+if [ -n "$win7_toolchain_needed" ]; then
+    rustup toolchain install "$WIN7_TOOLCHAIN" --profile minimal --component rust-src
+fi
 # wasm32-unknown-unknown is the npm package's target, built by its own script below.
 if [ -n "$build_npm" ]; then
     rustup_targets+=(wasm32-unknown-unknown)
@@ -94,6 +107,10 @@ echo "Building $profile targets..."
 for target in "${targets[@]}"; do
     if [[ " ${ZIG_TARGETS[*]} " == *" $target "* ]]; then
         start_build "$profile $target" cargo zigbuild "${profile_args[@]}" --target "$target"
+    elif [[ " ${WIN7_TARGETS[*]} " == *" $target "* ]]; then
+        # panic_abort for the release profile's panic = "abort"
+        start_build "$profile $target" cargo "+$WIN7_TOOLCHAIN" build "${profile_args[@]}" \
+            -Z build-std=std,panic_abort --target "$target"
     else
         start_build "$profile $target" cargo build "${profile_args[@]}" --target "$target"
     fi
