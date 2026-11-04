@@ -44,7 +44,7 @@ TESTS=(
     # The WebAssembly build, run under a WASI runtime, and the arm64 build under
     # qemu. The arm64 binary comes from build.sh, which needs zig to produce it.
     "wasm.sh|wasmtime"
-    "arm64.sh|qemu-aarch64-static"
+    "arm64.sh|qemu-aarch64"
     # Cross-checks against the original Windows tools, and the Windows build's own
     # path handling: native on Windows, elsewhere under wine. Elsewhere
     # glob_handling_windows.sh needs the cross-compiled dat3.exe from build.sh.

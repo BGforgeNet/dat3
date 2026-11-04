@@ -236,5 +236,5 @@ require_wasmtime() {
 }
 
 require_qemu_aarch64() {
-    require_runtime qemu-aarch64-static "runs the arm64 build"
+    require_runtime qemu-aarch64 "runs the arm64 build"
 }

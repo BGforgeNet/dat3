@@ -187,7 +187,7 @@ jobs:
           artifacts: build-*
           tests: wasm_library.sh wasm.sh arm64.sh
           node-version: ${{ env.NODE_VERSION }}
-          apt-packages: qemu-user-static
+          apt-packages: qemu-user
           tools: wasmtime
           # wasm_library.sh typechecks the docs/api.md example with the repository's TypeScript
           npm-ci: "true"
