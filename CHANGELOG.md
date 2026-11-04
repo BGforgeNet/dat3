@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.11.3
 
 - New: `--dedup` on `a` and `d` stores identical files once: every entry with the same data points at one copy. The archive stays a regular file of its format that the games read unchanged. In the `dat3-core` library, `DatArchive::set_deduplicate` turns it on, and in the `dat3-wasm` package, `Archive.setDeduplicate`.
 
