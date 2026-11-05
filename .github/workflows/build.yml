@@ -5,7 +5,8 @@ on:
   pull_request:
 
 # Read-only by default; only the tag-gated release job elevates to
-# contents:write, so ordinary push and PR runs carry no write-scoped token.
+# contents:write, so ordinary push and PR runs carry no token that can write
+# the repository. cleanup holds actions:write, which reaches only run data.
 permissions:
   contents: read
 
@@ -325,6 +326,27 @@ jobs:
             glob_handling_windows.sh f1_windows.sh
           node-version: ${{ env.NODE_VERSION }}
           id: windows
+
+  # The per-target build artifacts and the tests-ran markers only pass data
+  # between jobs; the dat3 artifact carries all the binaries. Deleted once every
+  # job reading them passed, so
+  # a failed run keeps them for re-running its failed jobs. A fork PR's token
+  # cannot delete.
+  cleanup:
+    name: cleanup
+    needs: [assets, tests-complete]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write # delete artifacts
+    steps:
+      - name: Delete the intermediate artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name | startswith("build-") or startswith("tests-ran-")) | .id' |
+            xargs -r -I{} gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/{}"
 
   # Separate job so contents:write exists only on a tag run, and only for the
   # step that publishes. It builds nothing: the binaries come from the assets
