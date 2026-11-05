@@ -26,8 +26,8 @@ ACTIONLINT_VERSION="1.7.12"
 ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
 
 # Only a gnu target is published; the CI runner and the gate hosts have glibc.
-ZIZMOR_VERSION="1.30.0"
-ZIZMOR_SHA256="ec8c95cd800845abb9bbc5f377ec7c57d2eb8e2386a00a201d3a74ee4092e5ed"
+ZIZMOR_VERSION="1.31.1"
+ZIZMOR_SHA256="d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99"
 
 SHELLCHECK_VERSION="0.11.0"
 SHELLCHECK_SHA256="8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
@@ -42,12 +42,11 @@ DENY_SHA256="9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
 MACHETE_VERSION="0.9.2"
 MACHETE_SHA256="48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9"
 
-ZIGBUILD_VERSION="0.23.4"
-ZIGBUILD_SHA256="9e3cf73485edbd45905c8aadbc0fdf869c7ddc3848f0c898229f2680db52e44b"
+ZIGBUILD_VERSION="0.24.0"
+ZIGBUILD_SHA256="52be2cb85ad3875682564a29bac1832b2ab3db68b1c504765c92d5249cc9b96f"
 
-# 47.0.4 rather than the older 47.0.3: it fixes a sandbox escape (GHSA-vqjp-4c8c-hfgg).
-WASMTIME_VERSION="47.0.4"
-WASMTIME_SHA256="446e8641ba372333670ba0373d5d3083e5cf0dd001b66088afbb3983db0f768f"
+WASMTIME_VERSION="49.0.5"
+WASMTIME_SHA256="101b181779afec556ac2cc6639a7ee3661de20c17f7948e0b290f63e9da9bdce"
 
 # Must equal the wasm-bindgen version crates/dat3-wasm pins: the glue it
 # generates only works with the matching crate.
@@ -55,8 +54,8 @@ WASM_BINDGEN_VERSION="0.2.127"
 WASM_BINDGEN_SHA256="61d4a7dc85acfa0d2354ccc0b8361928c7e52a746d17f28ebaa795ed3dc1614a"
 
 # Digest as published in ziglang.org's download index
-ZIG_VERSION="0.16.0"
-ZIG_SHA256="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+ZIG_VERSION="0.17.0"
+ZIG_SHA256="1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026"
 
 # Prints "version|url|sha256|path-of-the-binary-inside-the-archive" for a tool;
 # an empty path means the download is the binary itself.
