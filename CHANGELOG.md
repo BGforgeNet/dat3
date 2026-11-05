@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.11.4
 
 - New: the Windows binaries, `dat3.exe` and `dat3-win32.exe`, run on Windows 7 SP1 and 8. They needed Windows 10 or later.
 - `dat3-win32.exe` can use up to 4 GB of memory on 64-bit Windows, up from 2 GB, so it opens larger archives.
